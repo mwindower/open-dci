@@ -41,13 +41,20 @@ Scope decisions, which should not be revisited without the user:
     network; fw-b and partition B's fabric run the transport in the IPv6 underlay.
   - `lab/cmd/labnode` is the container entrypoint (node.yaml → netlink → sidecars → FRR).
   - e2e tests: `lab/*_test.go`, build tag `e2e`.
-- `docs/`: findings of phases 0/0b (historical design reasoning) and the lab's routing
-  tables.
+- `docs/`: findings of phases 0/0b (historical design reasoning), the lab's routing
+  tables, and `packet-flow.svg`: the README animation. It's plain SVG + SMIL, no scripts,
+  because GitHub renders it via `<img>`. Edit it by hand, and check both colour schemes plus a
+  few moments of the animation in a browser.
+- Publishing: `LICENSE` (MIT), `Dockerfile` (FRR base image for vtysh),
+  `deploy/systemd/`, `.goreleaser.yaml` + `.github/workflows/release.yaml` (tag `v*`), and
+  `.github/workflows/ci.yaml` (unit tests + the full lab on a GitHub runner; containerlab and
+  FRR versions pinned there).
 
 ## Commands
 
 ```sh
 make test            # unit tests
+make lint            # gofmt + go vet (as in CI)
 make build           # lab/bin/srv6-dci (static)
 make lab-up          # build + deploy
 make lab-check       # e2e tests against the running lab

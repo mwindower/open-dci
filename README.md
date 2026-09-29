@@ -1,5 +1,8 @@
 # srv6-dci
 
+[![ci](https://github.com/mwindower/srv6-dci/actions/workflows/ci.yaml/badge.svg)](https://github.com/mwindower/srv6-dci/actions/workflows/ci.yaml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 **Stitch EVPN tenant VRFs across independent EVPN/VXLAN domains using SRv6 L3VPN.**
 
 `srv6-dci` turns an existing FRR-based EVPN VTEP (the intended one is a
@@ -15,34 +18,34 @@ RT and ASN plans; **VNIs may differ per partition**.
 - It puts both back whenever the base system (e.g. metal-networker) rewrites its
   configuration.
 
-> **Status: Phase 1 (MVP).** The tool is proven end to end in a containerlab lab (FRR 10.6,
-> kernel 7.2): 7 e2e tests, including self-healing after an FRR reload, MTU resets and removed
-> config. Not yet done: redundancy, RT hygiene, nftables, metrics. See [Roadmap](#roadmap).
+> **Status: experimental.** The tool is proven end to end in a containerlab lab (FRR 10.6),
+> which also runs in CI. It has 7 e2e tests, including both transport modes side by side and
+> self-healing after an FRR reload, MTU resets and removed config. Not yet done: redundancy,
+> RT hygiene, nftables, metrics. See [Roadmap](#roadmap).
 
 ---
 
 ## How it works
 
-```
- Partition A                                                              Partition B
- m-a ─ leaf-a ─ spine-a ─ exit-a ─┐                        ┌─ exit-b ─ spine-b ─ leaf-b ─ m-b
-         │                         └──────── core ─────────┘                         │
-        fw-a                          (IPv6, locators only)                          fw-b
- tenant vrf3981 (VNI 3981)                                                tenant vrf4011 (VNI 4011)
- DCI    vrf104100 (VNI 104100)                                            DCI    vrf204100 (VNI 204100)
-```
+<p align="center">
+  <img src="docs/packet-flow.svg" width="960" alt="Animated packet flow: a tenant packet from m-a in partition A to m-b in partition B. It travels over VXLAN with tenant VNI 3981 to the gateway fw-a, SRv6-encapsulated in the DCI network (VNI 104100) to the exit, as plain IPv6 through the core, then via partition B's DCI network to fw-b, which decapsulates it (End.DT46) and forwards it over VXLAN with partition B's tenant VNI 4011.">
+</p>
 
 - **Tenant VRF → SRv6 L3VPN.** One End.DT46 SID per tenant VRF. Tenant routes learned via
   EVPN are exported as VPNv4/v6. Routes imported from remote gateways are re-advertised into
-  the partition as type-5.
-- **Transport in a DCI network.** SRv6 runs in a dedicated EVPN VRF with its own VNI (a
-  metal-stack network attached to the firewall), through the fabric to the exits, which
-  route it between partitions. Exits and core only ever see one locator prefix per gateway.
-- **Veth between default VRF and DCI VRF.** FRR's VPN sessions and SIDs live in the default
-  VRF, the transport in the DCI VRF. Route leaking does not work for this; see
-  [the Phase 0b findings](docs/phase0b-findings.md).
+  the partition as EVPN type-5, with that partition's own VNI and RTs.
+- **Between partitions: plain IPv6.** Exits and core only ever see one locator prefix per
+  gateway, and nothing of tenants, VNIs or MPLS.
+- **Two transport modes** (`transport.vrf`), freely mixable between gateways:
 
-A tenant packet on the fabric wire:
+| Mode | SRv6 transport | srv6-dci adds | Fits |
+|---|---|---|---|
+| DCI network (`transport.vrf: vrf104100`) | in an EVPN VRF, over VXLAN through the fabric to the exits | veth pair default VRF ↔ DCI VRF, MTU of the DCI devices, ip rule order | metal-stack firewalls: the DCI network is just another metal-stack network |
+| Default VRF (no `transport.vrf`) | in the IPv6 underlay | the locator announced by the default BGP instance | gateways with their own routed uplink, fabrics with an IPv6 underlay |
+
+Why a veth and not route leaking in DCI network mode: see
+[the Phase 0b findings](docs/phase0b-findings.md). The same packet on the fabric wire in
+partition A:
 
 ```
 IP 10.0.0.12 > 10.0.0.14.4789: VXLAN vni 104100                   ← fw-a → exit-a, DCI network
@@ -61,7 +64,7 @@ gateway:
   locatorBlock: fd00:dc1::/32     # all gateways' locators
   # asn / routerID: discovered from the running FRR (set them to pin/verify)
 transport:                        # where the SRv6 transport is routed
-  vrf: vrf104100                  # existing VRF of a DCI network; omit: default VRF
+  vrf: vrf104100                  # existing VRF of a DCI network; omit it for the default VRF
   # mtu: 9166                     # DCI devices; must be >= tenantMTU (9000) + 48
 peers:
   - {address: "fd00:dc1:b::1", asn: 4200000022}   # remote gateway loopbacks
@@ -93,7 +96,7 @@ srv6-dci status   -c config.yaml        # exits non-zero if not healthy
 ```
 gateway   fd00:dc1:a::1  AS 4200000012  router-id 10.0.0.12  locator fd00:dc1:a::/48
 frr       in sync
-kernel    veth up: yes  DCI path MTU: 9166 (need 9166)  local rule last: yes  vrf strict_mode: 1
+transport vrf vrf104100  veth up: yes  path MTU: 9166 (need 9166)  local rule last: yes  vrf strict_mode: 1
 
 PEER           AS          STATE        UP        VPNv4 RCVD/SENT  VPNv6 RCVD/SENT
 fd00:dc1:b::1  4200000022  Established  00:01:27  2/4              2/4
@@ -102,6 +105,7 @@ VRF      RT          RD              SID                        LOCAL v4/v6  REM
 vrf3981  65535:1001  10.0.0.12:1001  fd00:dc1:a:1:: (End.DT46)  2/2          2/2
 ```
 
+A gateway in default-VRF mode shows `transport default VRF` instead.
 `SRV6_DCI_OUTPUT=json srv6-dci status` prints the same as JSON.
 
 ### What `apply` / `run` do
@@ -109,6 +113,8 @@ vrf3981  65535:1001  10.0.0.12:1001  fd00:dc1:a:1:: (End.DT46)  2/2          2/2
 **Kernel** (idempotent):
 - sysctls: forwarding, `seg6_enabled`, and `net.vrf.strict_mode=1` (required for End.DT46)
 - the loopback `<locator>::1` on `lo`
+
+In DCI network mode additionally:
 - a veth pair `dci0` (main, `fe80::1`) ↔ `dci1` (DCI VRF, `fe80::2`)
 - the DCI network's device chain raised to the DCI MTU. The chain (VRF → SVI → bridge →
   VXLAN port) is discovered from the kernel, not from device names. This matters because
@@ -122,7 +128,8 @@ vrf3981  65535:1001  10.0.0.12:1001  fd00:dc1:a:1:: (End.DT46)  2/2          2/2
 4. Removes lines it applied earlier that are no longer desired (state in
    `/var/lib/srv6-dci/applied.conf`); block headers of the base config are never removed.
 
-The FRR lines for the lab's fw-a (golden file `internal/frr/testdata/fw-a.golden`):
+The FRR lines for the lab's fw-a, in DCI network mode (golden file
+`internal/frr/testdata/fw-a.golden`):
 
 ```
 segment-routing
@@ -164,18 +171,64 @@ vrf vrf104100
  ipv6 route fd00:dc1:a::/48 fe80::1 dci1       ! own locator → main (SIDs, loopback)
 ```
 
+In default-VRF mode (fw-b, `testdata/fw-b.golden`), the DCI VRF part and the veth routes
+are replaced by the locator announcement:
+
+```
+router bgp 4200000022
+ address-family ipv6 unicast
+  network fd00:dc1:b::/48
+!
+ipv6 route fd00:dc1:b::/48 blackhole
+```
+
 ### Requirements on the environment
 
 - FRR ≥ 10 (tested 10.6) with bgpd, zebra and staticd, and the integrated config
   (`vtysh`). Linux ≥ 5.14 (End.DT46).
-- The base system provides the tenant VRFs and the DCI VRF as EVPN L3VNIs (VRF + SVI on a
-  bridge + VXLAN port), each with a `router bgp <asn> vrf <name>` instance.
-- The leaves must send the DCI VNI to the gateway. With metal-core, the network must be
-  attached to the firewall, which puts its VNI into the `match evpn vni` route-map.
-- The exits route the DCI VRF to the other partitions. Every fabric link on the DCI path
-  must carry ≥ tenant MTU + 98 B (SRv6 + VXLAN), e.g. 9098 for 9000 B tenants.
+- The base system provides the tenant VRFs as EVPN L3VNIs, each with a
+  `router bgp <asn> vrf <name>` instance, and a default BGP instance with a router-id.
 - No route targets are needed on the EVPN side: auto RTs work across partitions and ASNs
   (see [Phase 0 findings](docs/phase0-findings.md)).
+- **DCI network mode:**
+  - The DCI VRF is an EVPN L3VNI (VRF + SVI on a bridge + VXLAN port) with a BGP instance.
+  - The leaves must send the DCI VNI to the gateway. With metal-core, the network must be
+    attached to the firewall, which puts its VNI into the `match evpn vni` route-map.
+  - The exits route the DCI VRF to the other partitions.
+  - Every fabric link on the DCI path must carry ≥ tenant MTU + 98 B (SRv6 + VXLAN), e.g.
+    9098 for 9000 B tenants.
+- **Default-VRF mode:**
+  - IPv6 unicast must be activated towards the underlay peers.
+  - Outbound filters must let the locator pass. metal-networker's `only-self-out` does,
+    because the locator is originated locally.
+  - Every link on the path must carry ≥ tenant MTU + 48 B.
+
+## Installation
+
+- **Binary:** static Linux binaries (amd64, arm64) are attached to each
+  [GitHub release](https://github.com/mwindower/srv6-dci/releases), together with a
+  systemd unit (`deploy/systemd/srv6-dci.service`). Alternatively:
+  `go install github.com/mwindower/srv6-dci/cmd/srv6-dci@latest`.
+
+  ```sh
+  install -m 0755 srv6-dci /usr/local/bin/
+  install -D -m 0644 config.yaml /etc/srv6-dci/config.yaml
+  srv6-dci validate -c /etc/srv6-dci/config.yaml
+  srv6-dci render   -c /etc/srv6-dci/config.yaml     # review what will be added
+  cp srv6-dci.service /etc/systemd/system/ && systemctl enable --now srv6-dci
+  ```
+
+- **Container:** `ghcr.io/mwindower/srv6-dci`, based on the FRR image for `vtysh`. It must
+  share the host's network namespace and FRR's sockets:
+
+  ```sh
+  docker run -d --name srv6-dci --network host --privileged \
+    -v /var/run/frr:/var/run/frr -v /etc/frr:/etc/frr:ro \
+    -v /etc/srv6-dci:/etc/srv6-dci:ro -v /var/lib/srv6-dci:/var/lib/srv6-dci \
+    ghcr.io/mwindower/srv6-dci
+  ```
+
+  Keep the image's FRR major version in line with the FRR it talks to.
 
 ## Lab
 
@@ -185,7 +238,11 @@ make lab-check     # 7 Go e2e tests
 make lab-capture   # SRv6-in-VXLAN on spine-a's fabric link
 make lab-down
 make test          # unit tests: config, rendering (golden + canonical form), lab specs
+make lint          # gofmt + go vet (incl. e2e code)
 ```
+
+CI (`.github/workflows/ci.yaml`) runs the unit tests and then the whole lab on a GitHub
+runner, with containerlab and FRR pinned.
 
 Requirements: Linux with `vrf`/`vxlan`/SRv6, Docker, [containerlab](https://containerlab.dev)
 (SUID-root or root), Go ≥ 1.26, and the image `quay.io/frrouting/frr:10.6.0`.
@@ -193,6 +250,9 @@ Requirements: Linux with `vrf`/`vxlan`/SRv6, Docker, [containerlab](https://cont
 - **Firewalls:** they start as **plain metal-stack firewalls**. Their `node.yaml` and
   `frr.conf` reproduce what metal-networker sets up, including MTU 9000. `srv6-dci run`
   runs as a sidecar and turns them into gateways.
+- **Both transport modes side by side:** fw-a uses a DCI network (SRv6 in VXLAN through
+  partition A's fabric). fw-b and partition B's fabric carry it in the IPv6 underlay.
+  Routing tables: [docs/lab-routing.md](docs/lab-routing.md).
 - **Leaves:** mirror metal-core's SONiC template (auto RTs, `FIREWALL` peer-group, VNI
   route-map).
 - **`labnode`:** every node runs the stock FRR image with `labnode`, a small Go entrypoint,
@@ -213,18 +273,26 @@ Requirements: Linux with `vrf`/`vxlan`/SRv6, Docker, [containerlab](https://cont
 |---|---|---|
 | 0 / 0b | Feasibility: [standalone](docs/phase0-findings.md), [metal-stack firewall + DCI network](docs/phase0b-findings.md) | done |
 | 1 | Tool MVP: config, validation, kernel, FRR render/diff/apply/reconcile, status, golden + e2e tests | done |
+| 1.1 | Default-VRF transport, lab in CI, releases (binaries, image, systemd unit) | done |
 | 2 | Robustness: strip the DCI RT from EVPN exports, SoO, redundant firewalls / multiple peers, BFD, pinned SIDs, nftables, prefix policies | next |
-| 3 | Operations: Prometheus metrics, packaging (container image, systemd unit, releases) | |
+| 3 | Operations: Prometheus metrics, health endpoint | |
 | 4 | metal-stack integration: DCI network as metal-stack network, config from metal-api / firewall-controller | |
 
 ## Repository layout
 
 ```
-cmd/srv6-dci/        CLI (validate, render, diff, apply, run, status)
+cmd/srv6-dci/        CLI (validate, render, diff, apply, run, status, version)
 internal/config/     config schema, defaults, validation
 internal/frr/        rendering (dci.conf.tpl), running-config parser, drift/removals, vtysh client
 internal/kernel/     netlink primitives: veth, MTU path discovery, ip rules, sysctls
 internal/gateway/    reconcile loop, pre-flight checks, status
 lab/                 containerlab lab: topology, configs/<node>/, e2e tests, labnode
-docs/                findings of the feasibility phases, routing tables of the lab
+docs/                packet-flow animation, feasibility findings, routing tables of the lab
+deploy/systemd/      systemd unit
+Dockerfile           container image (FRR base for vtysh)
+.github/workflows/   ci (unit + lab e2e), release (goreleaser)
 ```
+
+## License
+
+[MIT](LICENSE)
