@@ -99,4 +99,7 @@ old binary until it is redeployed (or you `docker cp` for a quick look).
 - Lab configs are readable reference configs; keep them commented.
 - New behaviour gets a unit test (config/render/parse) and, if it touches the data plane or
   FRR, an e2e test.
-- Keep `README.md`, `docs/lab-routing.md`, the golden file and the lab configs in sync.
+- The README stays short (intro, animation, modes, quick start, links). Details belong in
+  `docs/` (installation, configuration, operation, development) and `lab/README.md`.
+- Keep `docs/configuration.md` in sync with `internal/config`, and keep `docs/operation.md`,
+  `docs/lab-routing.md`, the golden files and the lab configs in sync.
