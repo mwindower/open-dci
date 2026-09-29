@@ -1,12 +1,7 @@
-# exit: terminates the DCI network (vrf204100) and routes it into the
-# inter-partition core on swp2. DCI devices sized for SRv6 (9000 + 48 B).
+# exit of partition B: no DCI network; the SRv6 transport runs in the underlay,
+# so the core link (swp2) is in the default VRF
 waitInterfaces: [swp1, swp2]
 loopback: [10.0.1.14/32]
-vrfs:
-  - {name: vrf204100, table: 1001}
-bridge: {name: bridge, mtu: 9166}
-vnis:
-  - {vni: 204100, vlan: 1001, vrf: vrf204100, local: 10.0.1.14, mtu: 9166}
 interfaces:
   - {name: swp1, mtu: 9216}
-  - {name: swp2, vrf: vrf204100, mtu: 9216}
+  - {name: swp2, mtu: 9216}

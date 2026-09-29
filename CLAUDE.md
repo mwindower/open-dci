@@ -18,8 +18,12 @@ Scope decisions, which should not be revisited without the user:
 - **Keep the code independent of metal-stack.** Discover state from kernel and FRR (ASN,
   router-id, VNI device chain) instead of assuming metal-networker's names. metal-stack
   specifics belong in the lab and in docs.
-- **Transit via a DCI network + veth pair** between the default VRF and the DCI VRF. Route
-  leaking does not work (see `docs/phase0b-findings.md`).
+- **Two transport modes**:
+  - `transport.vrf` set: a DCI network (EVPN VRF) joined to the default VRF by a veth pair.
+    Route leaking does not work (see `docs/phase0b-findings.md`).
+  - unset: the default VRF; the locator is announced by the default BGP instance.
+
+  The lab runs fw-a in the first mode and fw-b in the second.
 - **Go** for everything, lab tooling included. No bash scripts.
 
 ## Layout
@@ -27,13 +31,14 @@ Scope decisions, which should not be revisited without the user:
 - `cmd/srv6-dci`: CLI. `internal/config`: schema and validation. `internal/frr`:
   `dci.conf.tpl`, parser, drift/removals, vtysh. `internal/kernel`: netlink.
   `internal/gateway`: reconcile, pre-flight, status.
-- `internal/frr/testdata/fw-a.golden` is the rendered config for the lab's fw-a
+- `internal/frr/testdata/fw-{a,b}.golden` are the rendered configs for the lab's firewalls
   (`go test ./internal/frr -update` rewrites it; review the diff!).
   `testdata/fw-a.running.conf` is a real FRR running-config: every rendered line must appear
   in it verbatim, otherwise drift detection re-applies forever.
 - `lab/`: the containerlab lab (11 nodes, `clab-srv6-dci-<node>`).
-  - Firewalls start as plain metal-stack firewalls (`configs/fw-*/{node.yaml,frr.conf}`) and
-    run `srv6-dci run` as a sidecar with `configs/fw-*/srv6-dci.yaml`.
+  - The firewalls start as plain metal-stack firewalls (`configs/fw-*/{node.yaml,frr.conf}`)
+    and run `srv6-dci run` as a sidecar with `configs/fw-*/srv6-dci.yaml`. fw-a uses a DCI
+    network; fw-b and partition B's fabric run the transport in the IPv6 underlay.
   - `lab/cmd/labnode` is the container entrypoint (node.yaml → netlink → sidecars → FRR).
   - e2e tests: `lab/*_test.go`, build tag `e2e`.
 - `docs/`: findings of phases 0/0b (historical design reasoning) and the lab's routing

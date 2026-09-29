@@ -11,7 +11,10 @@ import (
 
 var update = flag.Bool("update", false, "rewrite golden files")
 
-var fwA = Identity{ASN: 4200000012, RouterID: "10.0.0.12"}
+var (
+	fwA = Identity{ASN: 4200000012, RouterID: "10.0.0.12"} // transport in a DCI network
+	fwB = Identity{ASN: 4200000022, RouterID: "10.0.1.12"} // transport in the default VRF
+)
 
 func renderLab(t *testing.T, node string, id Identity) string {
 	t.Helper()
@@ -27,19 +30,39 @@ func renderLab(t *testing.T, node string, id Identity) string {
 }
 
 func TestRenderGolden(t *testing.T) {
-	got := renderLab(t, "fw-a", fwA)
-	golden := "testdata/fw-a.golden"
-	if *update {
-		if err := os.WriteFile(golden, []byte(got), 0o644); err != nil {
-			t.Fatal(err)
+	for node, id := range map[string]Identity{"fw-a": fwA, "fw-b": fwB} {
+		t.Run(node, func(t *testing.T) {
+			got := renderLab(t, node, id)
+			golden := "testdata/" + node + ".golden"
+			if *update {
+				if err := os.WriteFile(golden, []byte(got), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			want, err := os.ReadFile(golden)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != string(want) {
+				t.Fatalf("rendered config differs from %s (run go test ./internal/frr -update):\n%s", golden, got)
+			}
+		})
+	}
+}
+
+// Transport in the default VRF: no veth, no transport VRF instance, but the
+// locator announced by the default BGP instance.
+func TestRenderDefaultVRFTransport(t *testing.T) {
+	got := renderLab(t, "fw-b", fwB)
+	for _, s := range []string{"address-family ipv6 unicast\n  network fd00:dc1:b::/48", "ipv6 route fd00:dc1:b::/48 blackhole"} {
+		if !strings.Contains(got, s) {
+			t.Errorf("missing %q", s)
 		}
 	}
-	want, err := os.ReadFile(golden)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != string(want) {
-		t.Fatalf("rendered config differs from %s (run go test ./internal/frr -update):\n%s", golden, got)
+	for _, s := range []string{"dci0", "dci1", "redistribute static", "\nvrf "} {
+		if strings.Contains(got, s) {
+			t.Errorf("default-VRF transport must not contain %q", s)
+		}
 	}
 }
 

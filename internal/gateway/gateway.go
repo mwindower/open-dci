@@ -151,7 +151,7 @@ func (g *Gateway) identity(running string) (frr.Identity, error) {
 	if id.RouterID == "" {
 		return id, fmt.Errorf("the BGP instance has no explicit router-id; set gateway.routerID")
 	}
-	for _, vrf := range append([]string{g.Config.DCINetwork.VRF}, vrfNames(g.Config)...) {
+	for _, vrf := range allVRFs(g.Config) {
 		if !base.VRFInstances[vrf] {
 			return id, fmt.Errorf("no BGP instance for vrf %s (router bgp %d vrf %s) in the running configuration", vrf, id.ASN, vrf)
 		}

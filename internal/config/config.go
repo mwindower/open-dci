@@ -1,6 +1,6 @@
 // Package config defines the srv6-dci gateway configuration: which tenant VRFs
-// of an existing EVPN VTEP (a metal-stack firewall) are stitched via SRv6
-// L3VPN, which VRF carries the SRv6 transport, and who the remote gateways are.
+// of an existing EVPN VTEP (e.g. a metal-stack firewall) are stitched via SRv6
+// L3VPN, where the SRv6 transport runs, and who the remote gateways are.
 package config
 
 import (
@@ -18,9 +18,9 @@ import (
 type Config struct {
 	// Gateway identifies this gateway.
 	Gateway Gateway `json:"gateway"`
-	// DCINetwork is the existing EVPN VRF (a metal-stack network attached to the
-	// firewall) that carries the SRv6 transport towards the exits.
-	DCINetwork DCINetwork `json:"dciNetwork"`
+	// Transport defines where the SRv6 transport (locators, gateway loopbacks)
+	// is routed: in an EVPN VRF (a DCI network) or in the default VRF.
+	Transport Transport `json:"transport"`
 	// Peers are the remote gateways (VPNv4/v6 sessions).
 	Peers []Peer `json:"peers"`
 	// Networks are the tenant VRFs to stitch.
@@ -45,20 +45,27 @@ type Gateway struct {
 	NodeLength int `json:"nodeLength,omitempty"`
 }
 
-type DCINetwork struct {
-	// VRF is the existing VRF of the DCI network, e.g. vrf104100.
-	VRF string `json:"vrf"`
-	// MTU for the DCI network's devices (bridge, vxlan, SVI, veth). SRv6 adds
-	// 48 B (IPv6 + SRH) to tenant packets. Default 9166 (9216 - VXLAN).
+type Transport struct {
+	// VRF is an existing EVPN VRF (a "DCI network", e.g. vrf104100) carrying
+	// the SRv6 transport through the fabric. srv6-dci joins it to the default
+	// VRF with a veth pair. Empty: the transport is routed in the default VRF
+	// (the locator is announced to the default BGP instance's IPv6 peers).
+	VRF string `json:"vrf,omitempty"`
+	// MTU for the transport VRF's devices (bridge, vxlan, SVI, veth). SRv6
+	// adds 48 B (IPv6 + SRH) to tenant packets. Default 9166 (9216 - VXLAN).
+	// Only used with VRF; in the default VRF the uplinks' MTU is not managed.
 	MTU int `json:"mtu,omitempty"`
 	// TenantMTU is the largest tenant packet (default 9000). MTU must be at
 	// least TenantMTU + 48, otherwise full-size packets are black-holed.
 	TenantMTU int `json:"tenantMTU,omitempty"`
-	// Veth names the veth pair between the default VRF and the DCI VRF
+	// Veth names the veth pair between the default VRF and the transport VRF
 	// (default dci0 / dci1).
 	Veth     string `json:"veth,omitempty"`
 	VethPeer string `json:"vethPeer,omitempty"`
 }
+
+// InVRF reports whether the transport runs in a (DCI network) VRF.
+func (t Transport) InVRF() bool { return t.VRF != "" }
 
 type Peer struct {
 	// Address is the remote gateway's loopback (<its locator>::1).
@@ -107,17 +114,17 @@ func (c *Config) Default() {
 	if c.Gateway.NodeLength == 0 {
 		c.Gateway.NodeLength = 16
 	}
-	if c.DCINetwork.MTU == 0 {
-		c.DCINetwork.MTU = DefaultMTU
+	if c.Transport.MTU == 0 {
+		c.Transport.MTU = DefaultMTU
 	}
-	if c.DCINetwork.TenantMTU == 0 {
-		c.DCINetwork.TenantMTU = DefaultTenantMTU
+	if c.Transport.TenantMTU == 0 {
+		c.Transport.TenantMTU = DefaultTenantMTU
 	}
-	if c.DCINetwork.Veth == "" {
-		c.DCINetwork.Veth = "dci0"
+	if c.Transport.Veth == "" {
+		c.Transport.Veth = "dci0"
 	}
-	if c.DCINetwork.VethPeer == "" {
-		c.DCINetwork.VethPeer = "dci1"
+	if c.Transport.VethPeer == "" {
+		c.Transport.VethPeer = "dci1"
 	}
 }
 
@@ -159,19 +166,19 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	if !vrfName.MatchString(c.DCINetwork.VRF) {
-		fail("dciNetwork.vrf: invalid VRF name %q", c.DCINetwork.VRF)
+	if c.Transport.InVRF() && !vrfName.MatchString(c.Transport.VRF) {
+		fail("transport.vrf: invalid VRF name %q", c.Transport.VRF)
 	}
-	if min := c.DCINetwork.TenantMTU + SRv6Overhead; c.DCINetwork.MTU < min {
-		fail("dciNetwork.mtu: %d is too small, tenant MTU %d + %d B SRv6 needs at least %d", c.DCINetwork.MTU, c.DCINetwork.TenantMTU, SRv6Overhead, min)
+	if min := c.Transport.TenantMTU + SRv6Overhead; c.Transport.MTU < min {
+		fail("transport.mtu: %d is too small, tenant MTU %d + %d B SRv6 needs at least %d", c.Transport.MTU, c.Transport.TenantMTU, SRv6Overhead, min)
 	}
-	for _, n := range []string{c.DCINetwork.Veth, c.DCINetwork.VethPeer} {
+	for _, n := range []string{c.Transport.Veth, c.Transport.VethPeer} {
 		if !ifName.MatchString(n) {
-			fail("dciNetwork: invalid veth name %q", n)
+			fail("transport: invalid veth name %q", n)
 		}
 	}
-	if c.DCINetwork.Veth == c.DCINetwork.VethPeer {
-		fail("dciNetwork: veth and vethPeer must differ")
+	if c.Transport.Veth == c.Transport.VethPeer {
+		fail("transport: veth and vethPeer must differ")
 	}
 
 	if len(c.Peers) == 0 {
@@ -199,13 +206,16 @@ func (c *Config) Validate() error {
 	if len(c.Networks) == 0 {
 		fail("networks: at least one tenant VRF is required")
 	}
-	seenVRF := map[string]bool{c.DCINetwork.VRF: true}
+	seenVRF := map[string]bool{}
+	if c.Transport.InVRF() {
+		seenVRF[c.Transport.VRF] = true
+	}
 	for i, n := range c.Networks {
 		if !vrfName.MatchString(n.VRF) {
 			fail("networks[%d].vrf: invalid VRF name %q", i, n.VRF)
 		}
 		if seenVRF[n.VRF] {
-			fail("networks[%d].vrf: %q used twice (or is the DCI VRF)", i, n.VRF)
+			fail("networks[%d].vrf: %q used twice (or is the transport VRF)", i, n.VRF)
 		}
 		seenVRF[n.VRF] = true
 		if _, _, err := splitCommunity(n.RouteTarget); err != nil {

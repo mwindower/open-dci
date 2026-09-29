@@ -46,8 +46,12 @@ func printStatus(w io.Writer, st *gateway.Status) {
 	k := st.Kernel
 	fmt.Fprintf(w, "gateway   %s  AS %d  router-id %s  locator %s\n", st.Loopback, st.ASN, st.RouterID, st.Locator)
 	fmt.Fprintf(w, "frr       %s\n", drift)
-	fmt.Fprintf(w, "kernel    veth up: %s  DCI path MTU: %d (need %d)  local rule last: %s  vrf strict_mode: %s\n",
-		yes(k.VethUp), k.DCIPathMTU, k.RequiredMTU, yes(k.LocalRuleLast), k.StrictMode)
+	if k.TransportVRF != "" {
+		fmt.Fprintf(w, "transport vrf %s  veth up: %s  path MTU: %d (need %d)  local rule last: %s  vrf strict_mode: %s\n",
+			k.TransportVRF, yes(k.VethUp), k.DCIPathMTU, k.RequiredMTU, yes(k.LocalRuleLast), k.StrictMode)
+	} else {
+		fmt.Fprintf(w, "transport default VRF  vrf strict_mode: %s\n", k.StrictMode)
+	}
 	if k.Err != "" {
 		fmt.Fprintf(w, "          %s\n", k.Err)
 	}

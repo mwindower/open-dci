@@ -60,8 +60,8 @@ gateway:
   locator: fd00:dc1:a::/48        # this gateway; its loopback is fd00:dc1:a::1
   locatorBlock: fd00:dc1::/32     # all gateways' locators
   # asn / routerID: discovered from the running FRR (set them to pin/verify)
-dciNetwork:
-  vrf: vrf104100                  # existing VRF of the DCI network
+transport:                        # where the SRv6 transport is routed
+  vrf: vrf104100                  # existing VRF of a DCI network; omit: default VRF
   # mtu: 9166                     # DCI devices; must be >= tenantMTU (9000) + 48
 peers:
   - {address: "fd00:dc1:b::1", asn: 4200000022}   # remote gateway loopbacks

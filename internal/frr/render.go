@@ -14,7 +14,7 @@ import (
 var dciTemplate string
 
 // Link-local addresses of the veth pair between the default VRF (VethLL) and
-// the DCI VRF (VethPeerLL). They are fixed because the veth is point-to-point
+// the transport VRF (VethPeerLL). They are fixed because the veth is point-to-point
 // and never leaves the box; link-local keeps them out of any redistribution.
 const (
 	VethLL     = "fe80::1"
@@ -38,7 +38,7 @@ type renderData struct {
 	LocatorName  string
 	BlockLen     int
 	NodeLen      int
-	DCIVRF       string
+	TransportVRF string
 	Veth         string
 	VethPeer     string
 	VethLL       string
@@ -81,9 +81,9 @@ func Render(cfg *config.Config, id Identity) (string, error) {
 		LocatorName:  config.LocatorName,
 		BlockLen:     block.Bits(),
 		NodeLen:      cfg.Gateway.NodeLength,
-		DCIVRF:       cfg.DCINetwork.VRF,
-		Veth:         cfg.DCINetwork.Veth,
-		VethPeer:     cfg.DCINetwork.VethPeer,
+		TransportVRF: cfg.Transport.VRF,
+		Veth:         cfg.Transport.Veth,
+		VethPeer:     cfg.Transport.VethPeer,
 		VethLL:       VethLL,
 		VethPeerLL:   VethPeerLL,
 		Networks:     cfg.Networks,

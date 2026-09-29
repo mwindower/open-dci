@@ -21,8 +21,9 @@ type Status struct {
 }
 
 type KernelStatus struct {
+	TransportVRF  string // "" = default VRF: the fields below are not used
 	VethUp        bool
-	DCIPathMTU    int // smallest MTU on the DCI network's bridge/vxlan/SVI
+	DCIPathMTU    int // smallest MTU on the transport VRF's bridge/vxlan/SVI
 	RequiredMTU   int
 	LocalRuleLast bool
 	StrictMode    string
@@ -128,24 +129,30 @@ func (g *Gateway) countRoutes(vrf, afi string) (local, remote int) {
 }
 
 func (g *Gateway) kernelStatus() KernelStatus {
-	ks := KernelStatus{RequiredMTU: g.Config.DCINetwork.MTU}
-	if l, err := netlink.LinkByName(g.Config.DCINetwork.Veth); err == nil {
+	ks := KernelStatus{TransportVRF: g.Config.Transport.VRF, RequiredMTU: g.Config.Transport.MTU}
+	ks.StrictMode, _ = kernel.GetSysctl("net.vrf.strict_mode")
+	if !g.Config.Transport.InVRF() {
+		return ks
+	}
+	if l, err := netlink.LinkByName(g.Config.Transport.Veth); err == nil {
 		ks.VethUp = l.Attrs().OperState == netlink.OperUp
 	}
-	if p, err := kernel.FindVNIPath(g.Config.DCINetwork.VRF); err == nil {
+	if p, err := kernel.FindVNIPath(g.Config.Transport.VRF); err == nil {
 		ks.DCIPathMTU = p.MinMTU()
 	} else {
 		ks.Err = err.Error()
 	}
 	ks.LocalRuleLast, _ = kernel.LocalRuleLast()
-	ks.StrictMode, _ = kernel.GetSysctl("net.vrf.strict_mode")
 	return ks
 }
 
 // Healthy reports whether everything srv6-dci is responsible for is in place.
 func (s *Status) Healthy() bool {
 	k := s.Kernel
-	if s.MissingLines > 0 || !k.VethUp || k.DCIPathMTU < k.RequiredMTU || !k.LocalRuleLast || k.StrictMode != "1" {
+	if s.MissingLines > 0 || k.StrictMode != "1" {
+		return false
+	}
+	if k.TransportVRF != "" && (!k.VethUp || k.DCIPathMTU < k.RequiredMTU || !k.LocalRuleLast) {
 		return false
 	}
 	for _, p := range s.Peers {

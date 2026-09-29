@@ -1,5 +1,7 @@
 {{- /* Rendered in FRR's canonical "show running-config" form, so that drift
-       detection can compare it line by line with the running configuration. */ -}}
+       detection can compare it line by line with the running configuration.
+       .TransportVRF set: SRv6 transport in an EVPN VRF (DCI network) joined via
+       a veth pair; empty: transport in the default VRF. */ -}}
 segment-routing
  srv6
   encapsulation
@@ -40,6 +42,11 @@ router bgp {{ .ASN }}
   neighbor {{ .Address }} activate
 {{- end }}
  exit-address-family
+{{- if not .TransportVRF }}
+ address-family ipv6 unicast
+  network {{ .Locator }}
+ exit-address-family
+{{- end }}
 exit
 !
 {{- range $n := .Networks }}
@@ -56,15 +63,19 @@ router bgp {{ $.ASN }} vrf {{ $n.VRF }}
 exit
 !
 {{- end }}
-router bgp {{ .ASN }} vrf {{ .DCIVRF }}
+{{- if .TransportVRF }}
+router bgp {{ .ASN }} vrf {{ .TransportVRF }}
  address-family ipv6 unicast
   redistribute static
  exit-address-family
 exit
 !
 ipv6 route {{ .LocatorBlock }} {{ .VethPeerLL }} {{ .Veth }}
+{{- end }}
 ipv6 route {{ .Locator }} blackhole
+{{- if .TransportVRF }}
 !
-vrf {{ .DCIVRF }}
+vrf {{ .TransportVRF }}
  ipv6 route {{ .Locator }} {{ .VethLL }} {{ .VethPeer }}
 exit-vrf
+{{- end }}

@@ -1,7 +1,8 @@
 //go:build e2e
 
-// End-to-end assertions for the Phase 0b lab: DCI gateway on the metal-stack
-// firewall, SRv6 transport through a dedicated DCI network (EVPN VRF).
+// End-to-end assertions for the lab: srv6-dci on metal-stack firewalls. fw-a
+// runs the SRv6 transport in a dedicated DCI network (EVPN VRF), fw-b in the
+// default VRF (fabric underlay), so the tests also cover mixed operation.
 // Run against a deployed lab: make lab-check
 package lab
 
@@ -19,14 +20,14 @@ const converge = 120 * time.Second
 
 type partition struct {
 	name, machine, leaf, fw, exit string
-	tenantVRF, dciVRF             string
+	tenantVRF, transportVRF       string // transportVRF "" = default VRF
 	machine4, machine6            string // machine IPs (announced by the machine itself)
 	sid                           string // End.DT46 SID of the tenant VRF
 }
 
 var (
 	a = partition{"a", "m-a", "leaf-a", "fw-a", "exit-a", "vrf3981", "vrf104100", "10.0.16.10", "2001:db8:16::10", "fd00:dc1:a:1::"}
-	b = partition{"b", "m-b", "leaf-b", "fw-b", "exit-b", "vrf4011", "vrf204100", "10.0.32.10", "2001:db8:32::10", "fd00:dc1:b:1::"}
+	b = partition{"b", "m-b", "leaf-b", "fw-b", "exit-b", "vrf4011", "", "10.0.32.10", "2001:db8:32::10", "fd00:dc1:b:1::"}
 )
 
 func TestControlPlane(t *testing.T) {
@@ -42,11 +43,13 @@ func TestControlPlane(t *testing.T) {
 				return lab.Exec(p.fw, "ip", "-6", "route", "show", p.sid)
 			}, "seg6local action End.DT46 vrftable 1000"))
 		})
-		// the leaf only passes VNIs the firewall is attached to (metal-core route-map)
-		t.Run("dci-routes-reach-firewall-via-leaf/"+p.fw, func(t *testing.T) {
+		// the remote locator arrives in the transport VRF (fw-a: via the DCI
+		// network, which the leaf only passes if the firewall is attached to its
+		// VNI) or in the default VRF (fw-b: via the IPv6 underlay)
+		t.Run("remote-locator-reachable/"+p.fw, func(t *testing.T) {
 			other := map[string]string{"a": "fd00:dc1:b::/48", "b": "fd00:dc1:a::/48"}[p.name]
 			labtest.Eventually(t, converge, labtest.Contains(func() (string, error) {
-				return lab.KernelRoute(p.fw, p.dciVRF, other)
+				return lab.KernelRoute(p.fw, p.transportVRF, other)
 			}, "proto bgp"))
 		})
 	}

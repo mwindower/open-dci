@@ -1,9 +1,15 @@
-# Routing tables in the firewall lab
+# Routing tables in the lab
 
 What each node of `lab/` knows once the lab has converged. Taken from a clean deploy
-(`make lab-up`, all e2e tests passing; the firewalls' DCI parts were added by srv6-dci). Partition A is shown; partition
-B mirrors it (`m-b` 10.0.32.10, tenant `vrf4011`/VNI 4011, DCI `vrf204100`/VNI 204100,
-locator `fd00:dc1:b::/48`, SID `fd00:dc1:b:1::`).
+(`make lab-up`, all e2e tests passing); the firewalls' DCI parts were added by srv6-dci.
+
+The two partitions use the two transport modes:
+- **Partition A** runs the SRv6 transport in a DCI network (`transport.vrf: vrf104100`).
+  It is shown in detail below.
+- **Partition B** runs it in the default VRF: the fabric underlay carries IPv6 locators and
+  there is no DCI network. See [Partition B](#partition-b-transport-in-the-default-vrf).
+  Its tenant side mirrors A: `m-b` 10.0.32.10, tenant `vrf4011`/VNI 4011, locator
+  `fd00:dc1:b::/48`, SID `fd00:dc1:b:1::`.
 
 Link-local, multicast, the management network and the kernel's local routes are omitted.
 
@@ -161,3 +167,37 @@ docker exec clab-srv6-dci-core   ip -6 route
 docker exec clab-srv6-dci-fw-a   vtysh -c 'show bgp ipv4 vpn'
 docker exec clab-srv6-dci-leaf-a vtysh -c 'show bgp l2vpn evpn route type prefix'
 ```
+
+## Partition B: transport in the default VRF
+
+fw-b's srv6-dci config has no `transport.vrf`. srv6-dci announces the locator from the
+default BGP instance (`network fd00:dc1:b::/48`, backed by a blackhole route), and the
+fabric's IPv6 underlay carries it to the exit and on to the core. There is no veth, no DCI
+network, no VXLAN on the transport path, and fw-b's tenant side is unchanged.
+
+**fw-b main:**
+
+```
+fd00:dc1:a::/48   via fe80::… dev lan0 proto bgp                         # remote locator via the underlay
+fd00:dc1:b::1     dev lo                                                 # own loopback (inside the locator)
+fd00:dc1:b:1::    encap seg6local action End.DT46 vrftable 1000 dev vrf4011
+blackhole fd00:dc1:b::/48                                                # announced via "network"
+```
+
+**leaf-b, spine-b, exit-b main** (the same on each hop, pointing outwards or inwards):
+
+```
+fd00:dc1:b::/48   via fe80::… (towards fw-b)
+fd00:dc1:b::1     via fe80::… (towards fw-b)       # metal-networker's "redistribute connected" of lo; inside the /48
+fd00:dc1:a::/48   via fe80::… (towards exit-b → core)
+2001:db8:c::1     via fe80::… (core loopback)
+```
+
+On the fabric of partition B, the same packet as above is plain SRv6:
+
+```
+IP6 fd00:dc1:a::1 > fd00:dc1:b:1::: RT6 (type=4, segleft=0) IP 10.0.16.10 > 10.0.32.10: ICMP echo request
+```
+
+exit-a's DCI VRF and the core simply see `fd00:dc1:b::/48` (and the /128) coming from
+exit-b. Both modes interoperate without either side knowing the other's mode.

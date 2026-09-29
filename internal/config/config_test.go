@@ -9,7 +9,7 @@ const valid = `
 gateway:
   locator: fd00:dc1:a::/48
   locatorBlock: fd00:dc1::/32
-dciNetwork:
+transport:
   vrf: vrf104100
 peers:
   - {address: "fd00:dc1:b::1", asn: 4200000022}
@@ -22,11 +22,11 @@ func TestDefaultsAndDerived(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.DCINetwork.MTU != DefaultMTU || c.DCINetwork.TenantMTU != DefaultTenantMTU || c.Gateway.NodeLength != 16 {
+	if c.Transport.MTU != DefaultMTU || c.Transport.TenantMTU != DefaultTenantMTU || c.Gateway.NodeLength != 16 {
 		t.Fatalf("defaults not applied: %+v", c)
 	}
-	if c.DCINetwork.Veth != "dci0" || c.DCINetwork.VethPeer != "dci1" {
-		t.Fatalf("veth defaults: %+v", c.DCINetwork)
+	if c.Transport.Veth != "dci0" || c.Transport.VethPeer != "dci1" {
+		t.Fatalf("veth defaults: %+v", c.Transport)
 	}
 	if got := c.Gateway.Loopback().String(); got != "fd00:dc1:a::1" {
 		t.Fatalf("loopback: %s", got)
@@ -48,7 +48,7 @@ func TestValidate(t *testing.T) {
 		{"peer without asn", "asn: 4200000022", "asn: 0", "peers[0].asn"},
 		{"bad route target", `"65535:1001"`, `"65535"`, "routeTarget"},
 		{"tenant vrf is dci vrf", "vrf: vrf3981", "vrf: vrf104100", "used twice"},
-		{"mtu too small", "vrf: vrf104100\n", "vrf: vrf104100\n  mtu: 9000\n", "dciNetwork.mtu"},
+		{"mtu too small", "vrf: vrf104100\n", "vrf: vrf104100\n  mtu: 9000\n", "transport.mtu"},
 		{"unknown field", "vrf: vrf104100\n", "vrf: vrf104100\n  typo: 1\n", "unknown field"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -61,6 +61,16 @@ func TestValidate(t *testing.T) {
 				t.Fatalf("want error containing %q, got %v", c.wantErr, err)
 			}
 		})
+	}
+}
+
+func TestDefaultVRFTransport(t *testing.T) {
+	c, err := Parse([]byte(strings.Replace(valid, "transport:\n  vrf: vrf104100\n", "", 1)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Transport.InVRF() {
+		t.Fatal("transport without vrf must run in the default VRF")
 	}
 }
 
