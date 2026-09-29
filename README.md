@@ -188,7 +188,7 @@ make test          # unit tests: config, rendering (golden + canonical form), la
 ```
 
 Requirements: Linux with `vrf`/`vxlan`/SRv6, Docker, [containerlab](https://containerlab.dev)
-(SUID-root or root), Go ≥ 1.25, and the image `quay.io/frrouting/frr:10.6.0`.
+(SUID-root or root), Go ≥ 1.26, and the image `quay.io/frrouting/frr:10.6.0`.
 
 - **Firewalls:** they start as **plain metal-stack firewalls**. Their `node.yaml` and
   `frr.conf` reproduce what metal-networker sets up, including MTU 9000. `srv6-dci run`

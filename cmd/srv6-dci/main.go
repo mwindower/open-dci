@@ -19,6 +19,9 @@ import (
 	"github.com/mwindower/srv6-dci/internal/gateway"
 )
 
+// version is set at build time (-ldflags "-X main.version=...").
+var version = "dev"
+
 const usage = `srv6-dci - stitch EVPN tenant VRFs across partitions via SRv6 L3VPN
 
 Usage:
@@ -29,6 +32,7 @@ Usage:
   srv6-dci apply    -c FILE              reconcile kernel and FRR once
   srv6-dci run      -c FILE [-i 10s]     reconcile continuously
   srv6-dci status   -c FILE              show sessions, SIDs, prefixes and drift
+  srv6-dci version
 
 Common flags:
   -c FILE        config file (default /etc/srv6-dci/config.yaml)
@@ -43,6 +47,10 @@ func main() {
 		os.Exit(2)
 	}
 	cmd := os.Args[1]
+	if cmd == "version" {
+		fmt.Println("srv6-dci", version)
+		return
+	}
 	fs := flag.NewFlagSet(cmd, flag.ExitOnError)
 	fs.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 	cfgPath := fs.String("c", "/etc/srv6-dci/config.yaml", "config file")
@@ -82,7 +90,7 @@ func main() {
 	case "run":
 		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 		defer stop()
-		log.Info("srv6-dci started", "config", *cfgPath, "interval", *interval, "loopback", cfg.Gateway.Loopback())
+		log.Info("srv6-dci started", "version", version, "config", *cfgPath, "interval", *interval, "loopback", cfg.Gateway.Loopback())
 		gw.Run(ctx, *interval)
 	case "status":
 		err = status(os.Stdout, gw)

@@ -1,0 +1,64 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - run: go vet ./... && go vet -tags e2e ./lab/...
+      - run: go test ./...
+      - run: make build labnode
+
+  # The containerlab lab as integration test: 11 FRR nodes, two partitions,
+  # both transport modes, srv6-dci as sidecar on the firewalls.
+  e2e:
+    runs-on: ubuntu-24.04
+    needs: unit
+    env:
+      CLAB_VERSION: "0.79.0"
+      FRR_IMAGE: quay.io/frrouting/frr:10.6.0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Install containerlab
+        run: bash -c "$(curl -sL https://get.containerlab.dev)" -- -v "$CLAB_VERSION"
+      - name: Kernel modules (VRF, VXLAN)
+        run: sudo modprobe -a vrf vxlan
+      - run: docker pull "$FRR_IMAGE"
+      - name: Deploy lab
+        run: make lab-up CLAB="sudo containerlab"
+      - name: e2e tests
+        run: make lab-check
+      - name: Diagnostics
+        if: failure()
+        run: |
+          for c in $(docker ps --format '{{.Names}}' | grep '^clab-srv6-dci-'); do
+            echo "::group::$c"
+            docker logs "$c" 2>&1 | tail -50
+            docker exec "$c" vtysh -c 'show bgp vrf all summary' || true
+            echo "::endgroup::"
+          done
+          for fw in fw-a fw-b; do
+            echo "::group::$fw srv6-dci status / running-config"
+            docker exec clab-srv6-dci-$fw srv6-dci status -c /etc/srv6-dci/config.yaml || true
+            docker exec clab-srv6-dci-$fw vtysh -c 'show running-config' || true
+            echo "::endgroup::"
+          done
+      - name: Destroy lab
+        if: always()
+        run: make lab-down CLAB="sudo containerlab" || true
