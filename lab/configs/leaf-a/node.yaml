@@ -1,0 +1,13 @@
+# leaf (stand-in for metal-stack SONiC leaf): tenant VRF with the machine port,
+# firewall on swp3, spine on swp31
+waitInterfaces: [swp1, swp3, swp31]
+loopback: [10.0.0.11/32]
+vrfs:
+  - {name: vrf3981, table: 1000}
+bridge: {name: bridge, mtu: 9000}
+vnis:
+  - {vni: 3981, vlan: 1000, vrf: vrf3981, local: 10.0.0.11, mtu: 9000}
+interfaces:
+  - {name: swp1, vrf: vrf3981, mtu: 9000}
+  - {name: swp3, mtu: 9216}
+  - {name: swp31, mtu: 9216}

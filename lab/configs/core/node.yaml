@@ -1,0 +1,6 @@
+# inter-partition core: IPv6 only, knows nothing about tenants or VNIs
+waitInterfaces: [swp1, swp2]
+loopback: ["2001:db8:c::1/128"]
+interfaces:
+  - {name: swp1, mtu: 9216}
+  - {name: swp2, mtu: 9216}

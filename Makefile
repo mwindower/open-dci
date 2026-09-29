@@ -1,0 +1,35 @@
+TOPO   := lab/topology.clab.yml
+PREFIX := clab-srv6-dci
+BIN    := lab/bin
+
+.PHONY: build test labnode lab-up lab-check lab-down lab-redeploy lab-capture
+
+build:            ## srv6-dci binary (static)
+	CGO_ENABLED=0 go build -o $(BIN)/srv6-dci ./cmd/srv6-dci
+
+test:             ## unit tests (config, rendering, golden files, lab specs)
+	go test ./...
+
+labnode:          ## static container entrypoint used by all lab nodes
+	CGO_ENABLED=0 go build -o $(BIN)/labnode ./lab/cmd/labnode
+
+lab-up: build labnode   ## deploy the lab; the firewalls run srv6-dci as sidecar
+	containerlab deploy -t $(TOPO)
+
+lab-check:        ## e2e tests against the running lab
+	go test -tags e2e -count=1 -v ./lab/
+
+lab-down:
+	containerlab destroy -t $(TOPO) --cleanup
+
+lab-redeploy: lab-down lab-up lab-check
+
+# SRv6 in VXLAN on the fabric (IPv6 routing header = next header 43)
+CAPTURE_NODE ?= spine-a
+CAPTURE_IF   ?= swp1
+PING_FROM    ?= m-a
+PING_TO      ?= 10.0.32.10
+lab-capture:
+	docker exec $(PREFIX)-$(CAPTURE_NODE) sh -c 'command -v tcpdump >/dev/null || apk add -q tcpdump'
+	docker exec $(PREFIX)-$(CAPTURE_NODE) timeout 5 tcpdump -nni $(CAPTURE_IF) -c 2 'ip6[6] == 43 or (udp port 4789 and udp[8+8+14+6:1] == 43)' & \
+	  sleep 1; docker exec $(PREFIX)-$(PING_FROM) ping -c2 -W1 $(PING_TO) >/dev/null; wait

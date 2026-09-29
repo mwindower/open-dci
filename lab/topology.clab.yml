@@ -1,0 +1,52 @@
+# srv6-dci lab: gateway on the metal-stack firewall, transit via a dedicated DCI network.
+#
+#  Partition A                                                         Partition B
+#   m-a ── leaf-a ── spine-a ── exit-a ──┐                ┌── exit-b ── spine-b ── leaf-b ── m-b
+#            │                            └──── core ─────┘                         │
+#           fw-a  (tenant vrf3981 + DCI vrf104100)          (tenant vrf4011 + DCI vrf204100)  fw-b
+#
+# - Machines peer BGP with their leaf inside the tenant VRF (metal-stack style).
+# - Firewalls hang off the leaves (not the exits) and are EVPN VTEPs.
+# - The tenant VRF is exported as SRv6 L3VPN (End.DT46). The SRv6 transport runs
+#   in the DCI VRF, so SRv6 is carried in VXLAN (DCI VNI) through the fabric to
+#   the exits. The exits route the DCI VRF into an IPv6-only core.
+# - The firewalls start as plain metal-stack firewalls (node.yaml + frr.conf as
+#   metal-networker would set them up). The srv6-dci sidecar turns them into
+#   DCI gateways at runtime.
+# - MTU as in metal-stack: machines 9000, firewall uplinks 9216, bridge/vni/vlan
+#   9000. srv6-dci raises the firewall's DCI devices to 9166 (SRv6 adds 48 B);
+#   the exits' DCI devices are configured with 9166 (switch side).
+name: srv6-dci
+
+topology:
+  defaults:
+    kind: linux
+    image: quay.io/frrouting/frr:10.6.0
+    entrypoint: /usr/local/bin/labnode
+    binds:
+      - bin/labnode:/usr/local/bin/labnode:ro   # built by `make lab-up`
+      - daemons:/etc/frr/daemons:ro
+  nodes:
+    m-a:     { binds: [configs/m-a/node.yaml:/etc/labnode/node.yaml:ro, configs/m-a/frr.conf:/etc/frr/frr.conf] }
+    leaf-a:  { binds: [configs/leaf-a/node.yaml:/etc/labnode/node.yaml:ro, configs/leaf-a/frr.conf:/etc/frr/frr.conf] }
+    fw-a:    { binds: [configs/fw-a/node.yaml:/etc/labnode/node.yaml:ro, configs/fw-a/frr.conf:/etc/frr/frr.conf, bin/srv6-dci:/usr/local/bin/srv6-dci:ro, configs/fw-a/srv6-dci.yaml:/etc/srv6-dci/config.yaml:ro] }
+    spine-a: { binds: [configs/spine-a/node.yaml:/etc/labnode/node.yaml:ro, configs/spine-a/frr.conf:/etc/frr/frr.conf] }
+    exit-a:  { binds: [configs/exit-a/node.yaml:/etc/labnode/node.yaml:ro, configs/exit-a/frr.conf:/etc/frr/frr.conf] }
+    core:    { binds: [configs/core/node.yaml:/etc/labnode/node.yaml:ro, configs/core/frr.conf:/etc/frr/frr.conf] }
+    exit-b:  { binds: [configs/exit-b/node.yaml:/etc/labnode/node.yaml:ro, configs/exit-b/frr.conf:/etc/frr/frr.conf] }
+    spine-b: { binds: [configs/spine-b/node.yaml:/etc/labnode/node.yaml:ro, configs/spine-b/frr.conf:/etc/frr/frr.conf] }
+    fw-b:    { binds: [configs/fw-b/node.yaml:/etc/labnode/node.yaml:ro, configs/fw-b/frr.conf:/etc/frr/frr.conf, bin/srv6-dci:/usr/local/bin/srv6-dci:ro, configs/fw-b/srv6-dci.yaml:/etc/srv6-dci/config.yaml:ro] }
+    leaf-b:  { binds: [configs/leaf-b/node.yaml:/etc/labnode/node.yaml:ro, configs/leaf-b/frr.conf:/etc/frr/frr.conf] }
+    m-b:     { binds: [configs/m-b/node.yaml:/etc/labnode/node.yaml:ro, configs/m-b/frr.conf:/etc/frr/frr.conf] }
+
+  links:
+    - endpoints: ["m-a:lan0", "leaf-a:swp1"]
+    - endpoints: ["fw-a:lan0", "leaf-a:swp3"]
+    - endpoints: ["leaf-a:swp31", "spine-a:swp1"]
+    - endpoints: ["spine-a:swp2", "exit-a:swp1"]
+    - endpoints: ["exit-a:swp2", "core:swp1"]
+    - endpoints: ["core:swp2", "exit-b:swp2"]
+    - endpoints: ["exit-b:swp1", "spine-b:swp2"]
+    - endpoints: ["spine-b:swp1", "leaf-b:swp31"]
+    - endpoints: ["fw-b:lan0", "leaf-b:swp3"]
+    - endpoints: ["m-b:lan0", "leaf-b:swp1"]

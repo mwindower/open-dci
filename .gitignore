@@ -1,0 +1,5 @@
+# containerlab runtime artifacts
+clab-*/
+.*.clab.yml.bak
+*.clab.yml.bak
+lab/bin/

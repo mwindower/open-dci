@@ -1,0 +1,163 @@
+# Routing tables in the firewall lab
+
+What each node of `lab/` knows once the lab has converged. Taken from a clean deploy
+(`make lab-up`, all e2e tests passing; the firewalls' DCI parts were added by srv6-dci). Partition A is shown; partition
+B mirrors it (`m-b` 10.0.32.10, tenant `vrf4011`/VNI 4011, DCI `vrf204100`/VNI 204100,
+locator `fd00:dc1:b::/48`, SID `fd00:dc1:b:1::`).
+
+Link-local, multicast, the management network and the kernel's local routes are omitted.
+
+## Overview
+
+| Node / table | Tenant prefixes | DCI prefixes (locators) | Underlay (VTEP loopbacks) |
+|---|---|---|---|
+| m-a | ✓ (own + remote, via leaf) | – | – |
+| leaf-a `vrf3981` | ✓ | – | – |
+| leaf-a main | – | – | ✓ |
+| fw-a `vrf3981` (tenant) | ✓ (remote ones via SRv6) | – | – |
+| fw-a main | – | own SID + everything else via veth | ✓ |
+| fw-a `vrf104100` (DCI) | – | ✓ | – |
+| spine-a | – | – | ✓ |
+| exit-a main | – | – | ✓ |
+| exit-a `vrf104100` (DCI) | – | ✓ | – |
+| core | – | ✓ (locators only) | – |
+
+In short:
+- **Tenant prefixes exist only in tenant VRFs** (machine, leaf, firewall).
+- **The DCI VRF only carries locators**: one /48 per gateway, which also contains the
+  gateway's loopback. The e2e test `no-tenant-state/*` asserts this for exits and core.
+- **Spine and core** never know a tenant.
+
+## Machine `m-a`
+
+The machine learns everything from its leaf via BGP. The remote machine is a plain /32 like
+any local one. The source address is set by `ip protocol bgp route-map RM_SET_SRC`, as in
+metal-stack.
+
+```
+10.0.16.2       via inet6 fe80::…  dev lan0 proto bgp src 10.0.16.10     # fw-a (tenant SVI)
+10.0.32.2       via inet6 fe80::…  dev lan0 proto bgp src 10.0.16.10     # fw-b (other partition)
+10.0.32.10      via inet6 fe80::…  dev lan0 proto bgp src 10.0.16.10     # m-b  (other partition)
+2001:db8:16::10 dev lo                                                   # own IP
+2001:db8:16::2  via fe80::… dev lan0 proto bgp
+2001:db8:32::2  via fe80::… dev lan0 proto bgp
+2001:db8:32::10 via fe80::… dev lan0 proto bgp
+```
+
+## Leaf `leaf-a`
+
+**Tenant VRF `vrf3981`.** The local machine is behind `swp1`. Everything remote, including
+partition B, points to the firewall's VTEP (10.0.0.12), carried over VXLAN VNI 3981.
+
+```
+10.0.16.10      via inet6 fe80::… dev swp1 proto bgp                     # m-a (BGP, unnumbered)
+10.0.16.2       via 10.0.0.12 dev vlan3981 proto bgp onlink               # fw-a
+10.0.32.2       via 10.0.0.12 dev vlan3981 proto bgp onlink               # fw-b   ← re-originated by fw-a
+10.0.32.10      via 10.0.0.12 dev vlan3981 proto bgp onlink               # m-b    ← re-originated by fw-a
+(IPv6 alike, next hop ::ffff:10.0.0.12)
+```
+
+**Main (underlay):** only VTEP loopbacks: 10.0.0.12 (fw-a) via `swp3`, 10.0.0.13/14
+(spine, exit) via `swp31`.
+
+**EVPN table (BGP).** The leaf sees and forwards the DCI network's type-5 routes, but
+imports them nowhere: it has no VRF for VNI 104100.
+
+| Type-5 prefix | Originator (RD) | RTs |
+|---|---|---|
+| 10.0.16.10/32 | leaf-a (10.0.0.11) | `59915:3981` |
+| 10.0.16.2/32 | fw-a (10.0.0.12) | `59916:3981` |
+| 10.0.32.10/32, 10.0.32.2/32 | fw-a (10.0.0.12) | `59916:3981` **+ `65535:1001`** (DCI RT leak, Phase 2) |
+| fd00:dc1:a::/48 | fw-a (10.0.0.12) | `59916:104100` |
+| fd00:dc1:b::/48, 2001:db8:c::1/128 | exit-a (10.0.0.14) | `59918:104100` |
+
+- Auto RTs with 4-byte ASNs use the low 16 bits of the ASN
+  (4200000011 mod 65536 = 59915). They differ per router and still match, because FRR falls
+  back to the VNI when importing.
+- Each firewall/exit route is present twice on the leaf. The second copy came back from the
+  spine: `allowas-in 2` from the metal-core template accepts the leaf's own ASN. This is
+  harmless.
+
+## Firewall / gateway `fw-a`
+
+The firewall has three tables that work together.
+
+**Tenant VRF `vrf3981`**: local via VXLAN, remote via SRv6:
+
+```
+10.0.16.10      via 10.0.0.11 dev vlan3981 proto bgp onlink                                    # m-a (EVPN from leaf-a)
+10.0.32.10      encap seg6 mode encap segs 1 [ fd00:dc1:b:1:: ] via inet6 fe80::2 dev dci0  # m-b (VPN from fw-b)
+10.0.32.2       encap seg6 mode encap segs 1 [ fd00:dc1:b:1:: ] via inet6 fe80::2 dev dci0  # fw-b
+(own SVI 10.0.16.2 / 2001:db8:16::2 is local; IPv6 routes alike)
+```
+
+**Main (default VRF)**: underlay, own SID, and the path into the DCI VRF:
+
+```
+10.0.0.11/13/14     via inet6 fe80::… dev lan0 proto bgp                              # VTEPs (underlay)
+fd00:dc1:a::1       dev lo                                                            # own loopback = VPN session endpoint, encap source
+fd00:dc1:a:1::      encap seg6local action End.DT46 vrftable 1000 dev vrf3981         # own SID → tenant VRF
+blackhole fd00:dc1:a::/48                                                             # rest of own locator
+fd00:dc1::/32       via fe80::2 dev dci0                                              # all other locators → DCI VRF (veth)
+```
+
+**DCI VRF `vrf104100`**: locators only:
+
+```
+fd00:dc1:a::/48     via fe80::1 dev dci1                                       # own locator → back to main (veth)
+fd00:dc1:b::/48     via ::ffff:10.0.0.14 dev vlan104100 onlink                 # remote locator via exit-a (VXLAN VNI 104100)
+2001:db8:c::1/128   via ::ffff:10.0.0.14 dev vlan104100 onlink                 # core loopback (harmless)
+```
+
+**BGP view of the prefix 10.0.32.10/32 on fw-a**, as it passes through three tables:
+
+| Table | Next hop | AS path | Notes |
+|---|---|---|---|
+| VPNv4, RD `10.0.1.12:1001` | `fd00:dc1:b::1` (fw-b) | 4200000022 4200000021 4200000025 | `RT:65535:1001`, SID `fd00:dc1:b::` + label 16 → `fd00:dc1:b:1::` |
+| VRF `vrf3981` | `fd00:dc1:b::1` (`@0`, resolved in main) | same | imported via RT `65535:1001` |
+| EVPN type-5 towards leaf-a | 10.0.0.12 (own VTEP), RMAC of fw-a | 4200000012 … | RT `59916:3981` (+ leaked `65535:1001`) |
+
+The opposite direction: `10.0.16.10/32` comes from leaf-a as type-5 (next hop 10.0.0.11),
+lands in `vrf3981`, and is exported as VPNv4 with RD `10.0.0.12:1001` and SID
+`fd00:dc1:a:1::`.
+
+## Spine `spine-a`
+
+Only VTEP loopbacks: 10.0.0.11, 10.0.0.12 via `swp1`, and 10.0.0.14 via `swp2`. It passes
+all EVPN routes through unchanged, including the next hop, and imports none of them.
+
+## Exit `exit-a`
+
+**Main (underlay):** VTEP loopbacks only (10.0.0.11/12/13 via `swp1`).
+
+**DCI VRF `vrf104100`:** EVPN towards the partition, plain IPv6 towards the core:
+
+```
+fd00:dc1:a::/48     via ::ffff:10.0.0.12 dev vlan104100 onlink    # fw-a's locator (type-5 from fw-a)
+fd00:dc1:b::/48     via fe80::… dev swp2 proto bgp                # fw-b's locator (from core)
+2001:db8:c::1/128   via fe80::… dev swp2 proto bgp                # core loopback
+```
+
+## Core
+
+```
+fd00:dc1:a::/48     via fe80::… dev swp1 proto bgp                # towards exit-a
+fd00:dc1:b::/48     via fe80::… dev swp2 proto bgp                # towards exit-b
+```
+
+The core carries one prefix per gateway and nothing else.
+
+## Reproduce
+
+```sh
+make lab-up
+docker exec clab-srv6-dci-m-a    ip route
+docker exec clab-srv6-dci-leaf-a ip route show vrf vrf3981
+docker exec clab-srv6-dci-fw-a   ip route show vrf vrf3981
+docker exec clab-srv6-dci-fw-a   ip -6 route                        # main
+docker exec clab-srv6-dci-fw-a   ip -6 route show vrf vrf104100     # DCI
+docker exec clab-srv6-dci-exit-a ip -6 route show vrf vrf104100
+docker exec clab-srv6-dci-core   ip -6 route
+docker exec clab-srv6-dci-fw-a   vtysh -c 'show bgp ipv4 vpn'
+docker exec clab-srv6-dci-leaf-a vtysh -c 'show bgp l2vpn evpn route type prefix'
+```
