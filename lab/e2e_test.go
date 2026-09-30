@@ -2,7 +2,8 @@
 
 // End-to-end assertions for the lab: open-dci on metal-stack firewalls. fw-a
 // runs the SRv6 transport in a dedicated DCI network (EVPN VRF), fw-b in the
-// default VRF (fabric underlay), so the tests also cover mixed operation.
+// default VRF (fabric underlay), so the tests also cover mixed operation. The
+// dedicated gateways at the exits (tenant 2) are covered in gateway_e2e_test.go.
 // Run against a deployed lab: make lab-check
 package lab
 
@@ -31,7 +32,7 @@ var (
 )
 
 func TestControlPlane(t *testing.T) {
-	for _, n := range []string{"m-a", "leaf-a", "fw-a", "spine-a", "exit-a", "core", "exit-b", "spine-b", "fw-b", "leaf-b", "m-b"} {
+	for _, n := range []string{"m-a", "leaf-a", "fw-a", "spine-a", "exit-a", "core", "exit-b", "spine-b", "fw-b", "leaf-b", "m-b", "gw-a", "gw-b", "m-a2", "m-b2"} {
 		t.Run("bgp-established/"+n, func(t *testing.T) {
 			labtest.Eventually(t, converge, func() error { return lab.BGPEstablished(n) })
 		})
@@ -92,7 +93,7 @@ func TestControlPlane(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, pfx := range []string{a.machine4, b.machine4} {
+			for _, pfx := range []string{a.machine4, b.machine4, a2.machine4, b2.machine4} {
 				if strings.Contains(out, pfx) {
 					t.Fatalf("%s knows tenant prefix %s:\n%s", n, pfx, out)
 				}

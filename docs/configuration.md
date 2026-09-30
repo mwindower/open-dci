@@ -22,6 +22,23 @@ networks:
 
 For the default VRF as transport, leave out the `transport` section (see the lab's fw-b).
 
+A dedicated gateway (the lab's gw-a) has no tenant VRFs of its own. A `vni` makes
+open-dci provision the VRF as an EVPN L3VNI itself:
+
+```yaml
+gateway:
+  locator: fd00:dc1:a2::/48
+  locatorBlock: fd00:dc1::/32
+peers:
+  - {address: "fd00:dc1:b2::1", asn: 4200000026}   # gw-b
+networks:
+  - vrf: vrf3982                  # created by open-dci
+    vni: 3982                     # the tenant's VNI in this partition
+    routeTarget: "65535:1002"
+```
+
+Both kinds of networks can be mixed on one gateway.
+
 ## Reference
 
 ### `gateway`
@@ -33,6 +50,7 @@ For the default VRF as transport, leave out the `transport` section (see the lab
 | `nodeLength` | `16` | Node bits of the locator. Block length + node length must equal the locator's prefix length. 16 function bits follow. |
 | `asn` | discovered | ASN of the existing default BGP instance. If set, it must match the running FRR. |
 | `routerID` | discovered | Router-id of the existing BGP instance, used for route distinguishers. If set, it must match the running FRR. |
+| `vtep` | router-id | VXLAN source address (IPv4) of provisioned L3VNIs. |
 
 ### `transport`
 
@@ -40,7 +58,7 @@ For the default VRF as transport, leave out the `transport` section (see the lab
 |---|---|---|
 | `vrf` | empty | Existing EVPN VRF (a "DCI network") that carries the SRv6 transport. Empty: the transport is routed in the default VRF. |
 | `mtu` | `9166` | DCI network mode only: MTU for the DCI VRF's bridge, VXLAN port, SVI and the veth pair. It must be ≥ `tenantMTU` + 48. |
-| `tenantMTU` | `9000` | Largest tenant packet. Only used to validate `mtu`. |
+| `tenantMTU` | `9000` | Largest tenant packet. Used to validate `mtu`, and as MTU of provisioned L3VNIs' bridge and VXLAN device. |
 | `veth`, `vethPeer` | `dci0`, `dci1` | DCI network mode only: names of the veth ends in the default VRF and in the DCI VRF. |
 
 ### `peers[]`
@@ -54,9 +72,11 @@ For the default VRF as transport, leave out the `transport` section (see the lab
 
 | Field | Default | Meaning |
 |---|---|---|
-| `vrf` | required | Existing tenant VRF to stitch. |
+| `vrf` | required | Tenant VRF to stitch. Without `vni` it must exist (it belongs to the base system); with `vni`, open-dci creates it. |
 | `routeTarget` | required | `<asn>:<nn>` or `<ipv4>:<nn>`. It identifies the stitched network across all partitions and must be the same on all its gateways. |
 | `rd` | `<routerID>:<nn>` | Route distinguisher for the VPN export. The default takes `<nn>` from `routeTarget`. |
+| `vni` | empty | Provision the VRF as an EVPN L3VNI with this VNI (1 – 16777215): VRF, bridge `dcibr<vni>`, VXLAN device `dcivx<vni>`, the FRR VRF with `vni`, and a BGP instance that advertises the routes as type-5. It must be the tenant's VNI in this partition. For dedicated gateways; empty: augment an existing VRF. |
+| `table` | the VNI | Kernel routing table of a provisioned VRF. Only with `vni`. |
 
 ## Validation
 
@@ -66,11 +86,14 @@ Besides syntax, `validate` (and every other command) rejects:
 - VRFs used twice, or a tenant VRF that is also the transport VRF
 - a transport MTU that can't carry `tenantMTU` + 48 B
 - invalid route targets or distinguishers
+- a `vni` out of range or used twice, a `table` without `vni`, a reserved or duplicate table
 
 At runtime, `apply`/`run`/`diff`/`status` also check the system:
-- the VRFs exist in the kernel
-- a BGP instance exists for each of them
+- the augmented VRFs exist in the kernel, with a BGP instance each
 - ASN and router-id match the config, if they are set there
+- with provisioned networks: `advertise-all-vni` in the default instance
+- a provisioned network's devices, if they exist, were created by open-dci (see
+  [Operation](operation.md#provisioned-networks)); it never takes over the base system's
 
 ## Requirements on the environment
 
@@ -81,6 +104,13 @@ At runtime, `apply`/`run`/`diff`/`status` also check the system:
   `router bgp <asn> vrf <name>` instance, and a default BGP instance with a router-id.
 - No route targets are needed on the EVPN side: auto RTs work across partitions and ASNs
   (see the [Phase 0 findings](phase0-findings.md)).
+
+**Dedicated gateways (provisioned networks):**
+- The base FRR config peers EVPN with the fabric (e.g. with the exit) and has
+  `advertise-all-vni` in the default instance's `l2vpn evpn` address family.
+- The gateway's VTEP address (router-id or `gateway.vtep`) is reachable in the underlay,
+  and the fabric passes the tenant VNIs' type-5 routes to the gateway.
+- The underlay carries VXLAN with the tenant MTU: ≥ tenant MTU + 50 B.
 
 **DCI network mode:**
 - The DCI VRF is an EVPN L3VNI (VRF + SVI on a bridge + VXLAN port) with a BGP instance.

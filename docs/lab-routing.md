@@ -11,6 +11,10 @@ The two partitions use the two transport modes:
   Its tenant side mirrors A: `m-b` 10.0.32.10, tenant `vrf4011`/VNI 4011, locator
   `fd00:dc1:b::/48`, SID `fd00:dc1:b:1::`.
 
+A second tenant (m-a2 10.0.17.10, m-b2 10.0.33.10) is stitched by the dedicated gateways
+gw-a and gw-b at the exits, whose tenant VRFs open-dci provisions. See
+[Dedicated gateways](#dedicated-gateways-tenant-2).
+
 Link-local, multicast, the management network and the kernel's local routes are omitted.
 
 ## Overview
@@ -134,24 +138,30 @@ all EVPN routes through unchanged, including the next hop, and imports none of t
 
 ## Exit `exit-a`
 
-**Main (underlay):** VTEP loopbacks only (10.0.0.11/12/13 via `swp1`).
+**Main (underlay):** VTEP loopbacks only (10.0.0.11/12/13 via `swp1`, gw-a's 10.0.0.16 via
+`swp3`).
 
 **DCI VRF `vrf104100`:** EVPN towards the partition, plain IPv6 towards the core:
 
 ```
 fd00:dc1:a::/48     via ::ffff:10.0.0.12 dev vlan104100 onlink    # fw-a's locator (type-5 from fw-a)
 fd00:dc1:b::/48     via fe80::… dev swp2 proto bgp                # fw-b's locator (from core)
+fd00:dc1:a2::/48    via fe80::… dev swp4 proto bgp                # gw-a's locator (routed port)
+fd00:dc1:b2::/48    via fe80::… dev swp2 proto bgp                # gw-b's locator (from core)
 2001:db8:c::1/128   via fe80::… dev swp2 proto bgp                # core loopback
 ```
 
 ## Core
 
 ```
-fd00:dc1:a::/48     via fe80::… dev swp1 proto bgp                # towards exit-a
-fd00:dc1:b::/48     via fe80::… dev swp2 proto bgp                # towards exit-b
+fd00:dc1:a::/48     via fe80::… dev swp1 proto bgp                # fw-a, towards exit-a
+fd00:dc1:a2::/48    via fe80::… dev swp1 proto bgp                # gw-a
+fd00:dc1:b::/48     via fe80::… dev swp2 proto bgp                # fw-b, towards exit-b
+fd00:dc1:b2::/48    via fe80::… dev swp2 proto bgp                # gw-b
 ```
 
-The core carries one prefix per gateway and nothing else.
+The core carries one prefix per gateway and nothing else (plus fw-b's loopback /128 from
+metal-networker's `redistribute connected`, see partition B).
 
 ## Reproduce
 
@@ -201,3 +211,39 @@ IP6 fd00:dc1:a::1 > fd00:dc1:b:1::: RT6 (type=4, segleft=0) IP 10.0.16.10 > 10.0
 
 exit-a's DCI VRF and the core simply see `fd00:dc1:b::/48` (and the /128) coming from
 exit-b. Both modes interoperate without either side knowing the other's mode.
+
+## Dedicated gateways (tenant 2)
+
+gw-a and gw-b are not the tenant's VTEP: open-dci provisions `vrf3982` (VNI 3982) on gw-a and
+`vrf4012` (VNI 4012) on gw-b, each with a bridge `dcibr<vni>` and a VXLAN device
+`dcivx<vni>` (VTEP = router-id). The SRv6 transport runs in the default VRF: gw-a reaches
+the core through a routed port in exit-a's DCI VRF (`uplink1`), gw-b through partition B's
+underlay.
+
+**gw-a `vrf3982`** (provisioned, kernel table 3982):
+
+```
+10.0.17.10        via 10.0.0.11 dev dcibr3982 onlink                          # m-a2, type-5 from leaf-a
+10.0.33.10        encap seg6 mode encap segs 1 [ fd00:dc1:b2:1:: ] dev uplink1  # m-b2, via gw-b's SID
+2001:db8:17::10   via ::ffff:10.0.0.11 dev dcibr3982 onlink
+2001:db8:33::10   encap seg6 mode encap segs 1 [ fd00:dc1:b2:1:: ] dev uplink1
+```
+
+**gw-a main:**
+
+```
+fd00:dc1:a2::1    dev lo                                                  # own loopback
+fd00:dc1:a2:1::   encap seg6local action End.DT46 vrftable 3982 dev vrf3982
+blackhole fd00:dc1:a2::/48                                                # announced via "network"
+fd00:dc1:b2::/48  via fe80::… dev uplink1 proto bgp                       # gw-b (and all other locators)
+```
+
+**leaf-a `vrf3982`:** the remote machine via gw-a's VTEP, like any type-5 route:
+
+```
+10.0.17.10        via fe80::… dev swp2 proto bgp                          # m-a2
+10.0.33.10        via 10.0.0.16 dev vlan3982 onlink                       # m-b2, type-5 from gw-a
+```
+
+The exits only forward the EVPN routes between leaf and gateway. Tenant 1 and tenant 2
+share leaves, exits and core, but no routes (e2e test `TestTenantIsolation`).

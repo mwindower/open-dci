@@ -19,7 +19,7 @@ func opendci(node string, args ...string) error {
 }
 
 func TestGatewaysHealthy(t *testing.T) {
-	for _, fw := range []string{"fw-a", "fw-b"} {
+	for _, fw := range []string{"fw-a", "fw-b", "gw-a", "gw-b"} {
 		t.Run(fw, func(t *testing.T) {
 			// "status" exits non-zero unless drift-free, kernel in place, peers
 			// Established and a SID allocated for every network

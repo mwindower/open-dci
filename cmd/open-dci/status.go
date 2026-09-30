@@ -61,7 +61,7 @@ func printStatus(w io.Writer, st *gateway.Status) {
 	for _, p := range st.Peers {
 		fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%d/%d\t%d/%d\n", p.Address, p.ASN, p.State, p.Uptime, p.V4Accepted, p.V4Sent, p.V6Accepted, p.V6Sent)
 	}
-	fmt.Fprintln(tw, "\nVRF\tRT\tRD\tSID\tLOCAL v4/v6\tREMOTE v4/v6")
+	fmt.Fprintln(tw, "\nVRF\tRT\tRD\tSID\tL3VNI\tLOCAL v4/v6\tREMOTE v4/v6")
 	for _, n := range st.Networks {
 		sid := n.SID
 		if sid == "" {
@@ -69,7 +69,11 @@ func printStatus(w io.Writer, st *gateway.Status) {
 		} else {
 			sid += " (" + n.Behavior + ")"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d/%d\t%d/%d\n", n.VRF, n.RouteTarget, n.RD, sid, n.LocalV4, n.LocalV6, n.RemoteV4, n.RemoteV6)
+		l3vni := "base" // the base system's VRF, augmented
+		if n.VNI != 0 {
+			l3vni = fmt.Sprintf("%d %s", n.VNI, n.L3VNIState)
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%d/%d\t%d/%d\n", n.VRF, n.RouteTarget, n.RD, sid, l3vni, n.LocalV4, n.LocalV6, n.RemoteV4, n.RemoteV6)
 	}
 	tw.Flush()
 }

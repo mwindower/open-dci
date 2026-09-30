@@ -1,0 +1,61 @@
+vrf vrf3982
+ vni 3982
+exit-vrf
+!
+segment-routing
+ srv6
+  encapsulation
+   source-address fd00:dc1:a2::1
+  exit
+  locators
+   locator DCI
+    prefix fd00:dc1:a2::/48 block-len 32 node-len 16
+   exit
+  exit
+ exit
+exit
+!
+router bgp 4200000016
+ neighbor fd00:dc1:b2::1 remote-as 4200000026
+ neighbor fd00:dc1:b2::1 ebgp-multihop 16
+ neighbor fd00:dc1:b2::1 update-source fd00:dc1:a2::1
+ neighbor fd00:dc1:b2::1 capability extended-nexthop
+ segment-routing srv6
+  locator DCI
+ exit
+ address-family ipv4 unicast
+  no neighbor fd00:dc1:b2::1 activate
+ exit-address-family
+ address-family ipv4 vpn
+  neighbor fd00:dc1:b2::1 activate
+ exit-address-family
+ address-family ipv6 vpn
+  neighbor fd00:dc1:b2::1 activate
+ exit-address-family
+ address-family ipv6 unicast
+  network fd00:dc1:a2::/48
+ exit-address-family
+exit
+!
+router bgp 4200000016 vrf vrf3982
+ bgp router-id 10.0.0.16
+ sid vpn per-vrf export auto
+ address-family ipv4 unicast
+  rd vpn export 10.0.0.16:1002
+  rt vpn both 65535:1002
+  export vpn
+  import vpn
+ exit-address-family
+ address-family ipv6 unicast
+  rd vpn export 10.0.0.16:1002
+  rt vpn both 65535:1002
+  export vpn
+  import vpn
+ exit-address-family
+ address-family l2vpn evpn
+  advertise ipv4 unicast
+  advertise ipv6 unicast
+ exit-address-family
+exit
+!
+ipv6 route fd00:dc1:a2::/48 blackhole

@@ -1,0 +1,13 @@
+# dedicated DCI gateway at exit-a (not a metal-stack firewall): a plain server
+# with two uplinks into exit-a. It has no tenant VRFs of its own; open-dci
+# provisions them (networks[].vni) and joins partition A's EVPN with them.
+#   uplink0  exit-a's fabric side: underlay IPv4 + EVPN (VTEP 10.0.0.16)
+#   uplink1  a routed port in exit-a's DCI VRF (vrf104100): IPv6 only, carries
+#            the SRv6 transport towards the core
+waitInterfaces: [uplink0, uplink1]
+loopback: [10.0.0.16/32]
+interfaces:
+  - {name: uplink0, mtu: 9216}
+  - {name: uplink1, mtu: 9216}
+sidecars:
+  - [/usr/local/bin/open-dci, run, -c, /etc/open-dci/config.yaml]

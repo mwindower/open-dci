@@ -132,15 +132,15 @@ func diff(w io.Writer, gw *gateway.Gateway) error {
 	if err != nil {
 		return err
 	}
-	if len(res.Missing) == 0 && res.Removed == "" {
+	if len(res.Missing) == 0 && res.Removed == "" && res.RemovedL3VNIs == "" {
 		fmt.Fprintln(w, "in sync")
 		return nil
 	}
 	for _, l := range res.Missing {
 		fmt.Fprintf(w, "+ %s\n", strings.Join(append(append([]string{}, l.Context...), l.Text), " > "))
 	}
-	if res.Removed != "" {
-		fmt.Fprintf(w, "stale lines to remove:\n%s", res.Removed)
+	if res.Removed != "" || res.RemovedL3VNIs != "" {
+		fmt.Fprintf(w, "stale lines to remove:\n%s%s", res.RemovedL3VNIs, res.Removed)
 	}
 	return nil
 }

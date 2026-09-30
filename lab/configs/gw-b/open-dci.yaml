@@ -1,0 +1,11 @@
+# open-dci config of gw-b: a dedicated gateway at exit-b that provisions tenant
+# 2's VRF itself. The SRv6 transport runs in the default VRF.
+gateway:
+  locator: fd00:dc1:b2::/48       # loopback fd00:dc1:b2::1, End.DT46 SIDs fd00:dc1:b2:<n>::
+  locatorBlock: fd00:dc1::/32     # all gateways' locators
+peers:
+  - {address: "fd00:dc1:a2::1", asn: 4200000016}   # gw-a
+networks:
+  - vrf: vrf4012                  # created by open-dci (kernel table 4012 = the VNI)
+    vni: 4012                     # tenant 2's VNI in partition B (as on leaf-b)
+    routeTarget: "65535:1002"     # the stitched network's global identity

@@ -1,7 +1,15 @@
 {{- /* Rendered in FRR's canonical "show running-config" form, so that drift
        detection can compare it line by line with the running configuration.
        .TransportVRF set: SRv6 transport in an EVPN VRF (DCI network) joined via
-       a veth pair; empty: transport in the default VRF. */ -}}
+       a veth pair; empty: transport in the default VRF.
+       Provisioned networks (vni set) additionally get their FRR VRF with the
+       L3VNI and a complete BGP instance; the others augment the base system's. */ -}}
+{{ range $n := .Networks }}{{ if $n.Provisioned -}}
+vrf {{ $n.VRF }}
+ vni {{ $n.VNI }}
+exit-vrf
+!
+{{ end }}{{ end -}}
 segment-routing
  srv6
   encapsulation
@@ -51,6 +59,9 @@ exit
 !
 {{- range $n := .Networks }}
 router bgp {{ $.ASN }} vrf {{ $n.VRF }}
+{{- if $n.Provisioned }}
+ bgp router-id {{ $.RouterID }}
+{{- end }}
  sid vpn per-vrf export auto
 {{- range $af := list "ipv4" "ipv6" }}
  address-family {{ $af }} unicast
@@ -58,6 +69,12 @@ router bgp {{ $.ASN }} vrf {{ $n.VRF }}
   rt vpn both {{ $.RT $n.VRF }}
   export vpn
   import vpn
+ exit-address-family
+{{- end }}
+{{- if $n.Provisioned }}
+ address-family l2vpn evpn
+  advertise ipv4 unicast
+  advertise ipv6 unicast
  exit-address-family
 {{- end }}
 exit

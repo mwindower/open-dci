@@ -36,8 +36,16 @@ transport vrf vrf104100  veth up: yes  path MTU: 9166 (need 9166)  local rule la
 PEER           AS          STATE        UP        VPNv4 RCVD/SENT  VPNv6 RCVD/SENT
 fd00:dc1:b::1  4200000022  Established  00:01:27  2/4              2/4
 
-VRF      RT          RD              SID                        LOCAL v4/v6  REMOTE v4/v6
-vrf3981  65535:1001  10.0.0.12:1001  fd00:dc1:a:1:: (End.DT46)  2/2          2/2
+VRF      RT          RD              SID                        L3VNI  LOCAL v4/v6  REMOTE v4/v6
+vrf3981  65535:1001  10.0.0.12:1001  fd00:dc1:a:1:: (End.DT46)  base   2/2          2/2
+```
+
+On a dedicated gateway (the lab's gw-a), the network is provisioned, and `L3VNI` shows its
+VNI with zebra's state:
+
+```
+VRF      RT          RD              SID                         L3VNI    LOCAL v4/v6  REMOTE v4/v6
+vrf3982  65535:1002  10.0.0.16:1002  fd00:dc1:a2:1:: (End.DT46)  3982 Up  1/1          1/1
 ```
 
 - A gateway in default-VRF mode shows `transport default VRF` instead.
@@ -47,6 +55,7 @@ vrf3981  65535:1001  10.0.0.12:1001  fd00:dc1:a:1:: (End.DT46)  2/2          2/2
   - the kernel parts are in place
   - every peer is Established
   - every network has a SID
+  - every provisioned network's L3VNI is `Up`
 
 ## What `apply` / `run` change
 
@@ -64,13 +73,34 @@ In DCI network mode additionally:
 
 Why a veth and not route leaking: see the [Phase 0b findings](phase0b-findings.md).
 
+### Provisioned networks
+
+For every network with a `vni`, open-dci creates and maintains:
+- the VRF (table `table`, default the VNI)
+- a bridge `dcibr<vni>` in the VRF. It is not VLAN-aware and serves as the L3VNI's SVI, so
+  no VLAN IDs are needed.
+- a VXLAN device `dcivx<vni>` (source: `gateway.vtep` or the router-id, port 4789, no
+  learning) as the bridge's port, MTU `tenantMTU`
+
+Each device gets the interface alias `open-dci`. That is how open-dci recognizes its own
+devices: it only changes or deletes devices with this alias, and it refuses to provision a
+network whose VRF or devices exist without it (e.g. a firewall's tenant VRF).
+
+When a provisioned network is dropped from the config, open-dci removes it in the order FRR
+accepts:
+1. `no vni` in the FRR VRF
+2. `no router bgp <asn> vrf <name>`, once zebra has released the L3VNI (retried briefly)
+3. the kernel devices (VXLAN device, bridge, VRF)
+4. `no vrf <name>`, which FRR only accepts once the kernel VRF is gone
+
 ### FRR (via `vtysh`, never touching `frr.conf`)
 
 1. Discovers the ASN, router-id and per-VRF BGP instances from the running config.
 2. Renders its lines (`open-dci render`) in FRR's canonical form.
 3. Applies them only when some are missing from the running config.
 4. Removes lines it applied earlier that are no longer desired (state in `--state`). Block
-   headers of the base config are never removed.
+   headers of the base config are never removed. Provisioned VRFs are removed as a whole
+   (see above).
 
 The lines for the lab's fw-a in DCI network mode (full version:
 [`internal/frr/testdata/fw-a.golden`](../internal/frr/testdata/fw-a.golden)):

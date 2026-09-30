@@ -81,6 +81,9 @@ var (
 type Base struct {
 	Identity
 	VRFInstances map[string]bool // VRFs with a "router bgp <asn> vrf <name>" instance
+	// AdvertiseAllVNI: the default instance has "advertise-all-vni", which
+	// provisioned L3VNIs need to be announced as EVPN type-5.
+	AdvertiseAllVNI bool
 }
 
 // DiscoverBase extracts the default BGP instance's ASN and router-id and the
@@ -102,6 +105,9 @@ func DiscoverBase(running string) (Base, error) {
 			if m := reRouterID.FindStringSubmatch(l.Text); m != nil {
 				b.RouterID = m[1]
 			}
+		}
+		if len(l.Context) == 2 && reRouterBGP.MatchString(l.Context[0]) && l.Context[1] == "address-family l2vpn evpn" && l.Text == "advertise-all-vni" {
+			b.AdvertiseAllVNI = true
 		}
 	}
 	if b.ASN == 0 {

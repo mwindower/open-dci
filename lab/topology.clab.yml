@@ -2,11 +2,20 @@
 #
 #  Partition A                                                         Partition B
 #   m-a ── leaf-a ── spine-a ── exit-a ──┐                ┌── exit-b ── spine-b ── leaf-b ── m-b
-#            │                            └──── core ─────┘                         │
-#           fw-a  (tenant vrf3981 + DCI vrf104100)          (tenant vrf4011 + DCI vrf204100)  fw-b
+#  m-a2 ──┘  │                    │       └──── core ─────┘      │                  │  └── m-b2
+#           fw-a                 gw-a                           gw-b               fw-b
+#
+# Two tenants, two gateway placements:
+# - tenant 1 (m-a, m-b; VNIs 3981/4011) is stitched by its metal-stack firewalls
+#   fw-a/fw-b; open-dci augments their existing tenant VRFs.
+# - tenant 2 (m-a2, m-b2; VNIs 3982/4012) is stitched by dedicated gateways
+#   gw-a/gw-b at the exits; open-dci provisions the tenant VRFs there itself.
 #
 # - Machines peer BGP with their leaf inside the tenant VRF (metal-stack style).
-# - Firewalls hang off the leaves (not the exits) and are EVPN VTEPs.
+# - Firewalls hang off the leaves (not the exits) and are EVPN VTEPs. The
+#   dedicated gateways hang off the exits and become VTEPs of the tenant VNIs
+#   they provision; their SRv6 transport runs in the default VRF (gw-a: a
+#   routed port into exit-a's DCI VRF, gw-b: partition B's IPv6 underlay).
 # - The tenant VRF is exported as SRv6 L3VPN (End.DT46). The SRv6 transport runs
 #   in the DCI VRF, so SRv6 is carried in VXLAN (DCI VNI) through the fabric to
 #   the exits. The exits route the DCI VRF into an IPv6-only core.
@@ -38,6 +47,10 @@ topology:
     fw-b:    { binds: [configs/fw-b/node.yaml:/etc/labnode/node.yaml:ro, configs/fw-b/frr.conf:/etc/frr/frr.conf, bin/open-dci:/usr/local/bin/open-dci:ro, configs/fw-b/open-dci.yaml:/etc/open-dci/config.yaml:ro] }
     leaf-b:  { binds: [configs/leaf-b/node.yaml:/etc/labnode/node.yaml:ro, configs/leaf-b/frr.conf:/etc/frr/frr.conf] }
     m-b:     { binds: [configs/m-b/node.yaml:/etc/labnode/node.yaml:ro, configs/m-b/frr.conf:/etc/frr/frr.conf] }
+    m-a2:    { binds: [configs/m-a2/node.yaml:/etc/labnode/node.yaml:ro, configs/m-a2/frr.conf:/etc/frr/frr.conf] }
+    m-b2:    { binds: [configs/m-b2/node.yaml:/etc/labnode/node.yaml:ro, configs/m-b2/frr.conf:/etc/frr/frr.conf] }
+    gw-a:    { binds: [configs/gw-a/node.yaml:/etc/labnode/node.yaml:ro, configs/gw-a/frr.conf:/etc/frr/frr.conf, bin/open-dci:/usr/local/bin/open-dci:ro, configs/gw-a/open-dci.yaml:/etc/open-dci/config.yaml:ro] }
+    gw-b:    { binds: [configs/gw-b/node.yaml:/etc/labnode/node.yaml:ro, configs/gw-b/frr.conf:/etc/frr/frr.conf, bin/open-dci:/usr/local/bin/open-dci:ro, configs/gw-b/open-dci.yaml:/etc/open-dci/config.yaml:ro] }
 
   links:
     - endpoints: ["m-a:lan0", "leaf-a:swp1"]
@@ -50,3 +63,8 @@ topology:
     - endpoints: ["spine-b:swp1", "leaf-b:swp31"]
     - endpoints: ["fw-b:lan0", "leaf-b:swp3"]
     - endpoints: ["m-b:lan0", "leaf-b:swp1"]
+    - endpoints: ["m-a2:lan0", "leaf-a:swp2"]
+    - endpoints: ["m-b2:lan0", "leaf-b:swp2"]
+    - endpoints: ["gw-a:uplink0", "exit-a:swp3"]
+    - endpoints: ["gw-a:uplink1", "exit-a:swp4"]
+    - endpoints: ["gw-b:uplink0", "exit-b:swp3"]

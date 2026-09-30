@@ -1,6 +1,8 @@
 // Package config defines the open-dci gateway configuration: which tenant VRFs
-// of an existing EVPN VTEP (e.g. a metal-stack firewall) are stitched via SRv6
-// L3VPN, where the SRv6 transport runs, and who the remote gateways are.
+// are stitched via SRv6 L3VPN, where the SRv6 transport runs, and who the
+// remote gateways are. The gateway either augments tenant VRFs of an existing
+// EVPN VTEP (e.g. a metal-stack firewall) or, on a dedicated gateway,
+// provisions them as EVPN L3VNIs itself (networks[].vni).
 package config
 
 import (
@@ -43,6 +45,9 @@ type Gateway struct {
 	// NodeLength is the locator's node part in bits (default 16). Together
 	// with the block length it must equal the locator prefix length.
 	NodeLength int `json:"nodeLength,omitempty"`
+	// VTEP is the VXLAN source address of provisioned L3VNIs (networks with
+	// a vni). Optional: defaults to the BGP router-id.
+	VTEP string `json:"vtep,omitempty"`
 }
 
 type Transport struct {
@@ -81,14 +86,34 @@ type Network struct {
 	RouteTarget string `json:"routeTarget"`
 	// RD is the route distinguisher. Default: <routerID>:<RT local part>.
 	RD string `json:"rd,omitempty"`
+	// VNI makes open-dci provision the tenant VRF itself as an EVPN L3VNI
+	// with this VNI: VRF, bridge, VXLAN device and the FRR VRF with its BGP
+	// instance. For gateways that are not the tenant's VTEP, e.g. dedicated
+	// gateways at the exit. Empty: the VRF belongs to the base system (e.g.
+	// metal-networker) and open-dci only augments it.
+	VNI uint32 `json:"vni,omitempty"`
+	// Table is the kernel routing table of a provisioned VRF (default: the VNI).
+	Table uint32 `json:"table,omitempty"`
 }
+
+// Provisioned reports whether open-dci owns the network's VRF and L3VNI.
+func (n Network) Provisioned() bool { return n.VNI != 0 }
+
+// Device names of a provisioned L3VNI: a plain (not VLAN-aware) bridge per VNI
+// acts as the SVI, so no VLAN IDs have to be allocated.
+func (n Network) BridgeName() string { return fmt.Sprintf("dcibr%d", n.VNI) }
+func (n Network) VxlanName() string  { return fmt.Sprintf("dcivx%d", n.VNI) }
 
 const (
 	SRv6Overhead     = 48 // IPv6 header + SRH with one segment
 	DefaultMTU       = 9166
 	DefaultTenantMTU = 9000
 	LocatorName      = "DCI"
+	MaxVNI           = 1<<24 - 1
 )
+
+// Tables the kernel reserves (unspec, default, main, local).
+var reservedTables = map[uint32]bool{0: true, 253: true, 254: true, 255: true}
 
 // Load reads, defaults and validates a config file.
 func Load(path string) (*Config, error) {
@@ -126,6 +151,21 @@ func (c *Config) Default() {
 	if c.Transport.VethPeer == "" {
 		c.Transport.VethPeer = "dci1"
 	}
+	for i := range c.Networks {
+		if n := &c.Networks[i]; n.Provisioned() && n.Table == 0 {
+			n.Table = n.VNI
+		}
+	}
+}
+
+// HasProvisioned reports whether open-dci provisions at least one L3VNI.
+func (c *Config) HasProvisioned() bool {
+	for _, n := range c.Networks {
+		if n.Provisioned() {
+			return true
+		}
+	}
+	return false
 }
 
 var (
@@ -158,6 +198,11 @@ func (c *Config) Validate() error {
 		}
 		if loc.Bits()+16 > 128 {
 			fail("gateway.locator: /%d leaves no room for 16 function bits", loc.Bits())
+		}
+	}
+	if c.Gateway.VTEP != "" {
+		if a, err := netip.ParseAddr(c.Gateway.VTEP); err != nil || !a.Is4() {
+			fail("gateway.vtep: must be an IPv4 address: %q", c.Gateway.VTEP)
 		}
 	}
 	if c.Gateway.RouterID != "" {
@@ -207,6 +252,8 @@ func (c *Config) Validate() error {
 		fail("networks: at least one tenant VRF is required")
 	}
 	seenVRF := map[string]bool{}
+	seenVNI := map[uint32]bool{}
+	seenTable := map[uint32]bool{}
 	if c.Transport.InVRF() {
 		seenVRF[c.Transport.VRF] = true
 	}
@@ -226,6 +273,20 @@ func (c *Config) Validate() error {
 				fail("networks[%d].rd: %v", i, err)
 			}
 		}
+		switch {
+		case !n.Provisioned() && n.Table != 0:
+			fail("networks[%d].table: only used with vni (a provisioned VRF)", i)
+		case !n.Provisioned():
+		case n.VNI > MaxVNI:
+			fail("networks[%d].vni: %d is larger than %d", i, n.VNI, MaxVNI)
+		case seenVNI[n.VNI]:
+			fail("networks[%d].vni: %d used twice", i, n.VNI)
+		case reservedTables[n.Table]:
+			fail("networks[%d].table: %d is reserved by the kernel, set another table", i, n.Table)
+		case seenTable[n.Table]:
+			fail("networks[%d].table: %d used twice", i, n.Table)
+		}
+		seenVNI[n.VNI], seenTable[n.Table] = true, true
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("invalid config:\n  - %s", strings.Join(errs, "\n  - "))
