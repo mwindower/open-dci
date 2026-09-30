@@ -137,3 +137,8 @@ IP 10.0.0.12 > 10.0.0.14.4789: VXLAN vni 104100                   ← fw-a → e
 ```
 
 Which node knows which routes, for both modes: [lab-routing.md](lab-routing.md).
+
+## Adding partitions and networks
+
+What to change on which gateway when a partition joins or a network is stitched, and how to
+choose route targets: [day2.md](day2.md).

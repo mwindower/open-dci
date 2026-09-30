@@ -45,6 +45,7 @@ make lab-redeploy  # lab down + up + e2e tests (see lab/README.md)
 | 0 / 0b | Feasibility: [standalone](phase0-findings.md), [metal-stack firewall + DCI network](phase0b-findings.md) | done |
 | 1 | Tool MVP: config, validation, kernel, FRR render/diff/apply/reconcile, status, golden + e2e tests | done |
 | 1.1 | Default-VRF transport, lab in CI, releases (binaries, image, systemd unit) | done |
-| 2 | Robustness: strip the DCI RT from EVPN exports, SoO, redundant firewalls / multiple peers, BFD, pinned SIDs, nftables, prefix policies | next |
+| 2 | Robustness: strip the DCI RT from EVPN exports, SoO, redundant firewalls / multiple peers, BFD, pinned SIDs, nftables, prefix policies, validate RT/RD local-part widths per admin type and decouple the default RD from the RT | next |
 | 3 | Operations: Prometheus metrics, health endpoint | |
+| 3.1 | Multi-site config ([day2.md](day2.md)): shared inventory file, RTs derived from network names, VPN route reflectors with `bgp listen range` | |
 | 4 | metal-stack integration: DCI network as metal-stack network, config from metal-api / firewall-controller | |
