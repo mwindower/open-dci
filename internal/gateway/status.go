@@ -5,7 +5,7 @@ import (
 
 	"github.com/vishvananda/netlink"
 
-	"github.com/mwindower/srv6-dci/internal/kernel"
+	"github.com/mwindower/open-dci/internal/kernel"
 )
 
 // Status is the operational view of a gateway.
@@ -146,7 +146,7 @@ func (g *Gateway) kernelStatus() KernelStatus {
 	return ks
 }
 
-// Healthy reports whether everything srv6-dci is responsible for is in place.
+// Healthy reports whether everything open-dci is responsible for is in place.
 func (s *Status) Healthy() bool {
 	k := s.Kernel
 	if s.MissingLines > 0 || k.StrictMode != "1" {

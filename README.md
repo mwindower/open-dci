@@ -1,11 +1,11 @@
-# srv6-dci
+# open-dci
 
-[![ci](https://github.com/mwindower/srv6-dci/actions/workflows/ci.yaml/badge.svg)](https://github.com/mwindower/srv6-dci/actions/workflows/ci.yaml)
+[![ci](https://github.com/mwindower/open-dci/actions/workflows/ci.yaml/badge.svg)](https://github.com/mwindower/open-dci/actions/workflows/ci.yaml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 **Stitch EVPN tenant VRFs across independent EVPN/VXLAN domains using SRv6 L3VPN.**
 
-`srv6-dci` turns an existing FRR-based EVPN VTEP, e.g. a [metal-stack](https://metal-stack.io)
+`open-dci` turns an existing FRR-based EVPN VTEP, e.g. a [metal-stack](https://metal-stack.io)
 firewall, into a DCI gateway:
 - tenant VRFs are exported as VPNv4/v6 with an SRv6 End.DT46 SID
 - remote routes come back as EVPN type-5
@@ -33,7 +33,7 @@ mixed freely:
 ## Quick start
 
 ```yaml
-# /etc/srv6-dci/config.yaml
+# /etc/open-dci/config.yaml
 gateway:
   locator: fd00:dc1:a::/48        # this gateway; its loopback is fd00:dc1:a::1
   locatorBlock: fd00:dc1::/32     # all gateways' locators
@@ -46,10 +46,10 @@ networks:
 ```
 
 ```sh
-srv6-dci validate -c /etc/srv6-dci/config.yaml
-srv6-dci render   -c /etc/srv6-dci/config.yaml   # the FRR lines it will add
-srv6-dci run      -c /etc/srv6-dci/config.yaml   # reconcile continuously
-srv6-dci status   -c /etc/srv6-dci/config.yaml
+open-dci validate -c /etc/open-dci/config.yaml
+open-dci render   -c /etc/open-dci/config.yaml   # the FRR lines it will add
+open-dci run      -c /etc/open-dci/config.yaml   # reconcile continuously
+open-dci status   -c /etc/open-dci/config.yaml
 ```
 
 ## Documentation

@@ -1,6 +1,6 @@
 //go:build e2e
 
-// End-to-end assertions for the lab: srv6-dci on metal-stack firewalls. fw-a
+// End-to-end assertions for the lab: open-dci on metal-stack firewalls. fw-a
 // runs the SRv6 transport in a dedicated DCI network (EVPN VRF), fw-b in the
 // default VRF (fabric underlay), so the tests also cover mixed operation.
 // Run against a deployed lab: make lab-check
@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mwindower/srv6-dci/lab/internal/labtest"
+	"github.com/mwindower/open-dci/lab/internal/labtest"
 )
 
-var lab = labtest.Lab{Prefix: "clab-srv6-dci"}
+var lab = labtest.Lab{Prefix: "clab-open-dci"}
 
 const converge = 120 * time.Second
 

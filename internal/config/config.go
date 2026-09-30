@@ -1,4 +1,4 @@
-// Package config defines the srv6-dci gateway configuration: which tenant VRFs
+// Package config defines the open-dci gateway configuration: which tenant VRFs
 // of an existing EVPN VTEP (e.g. a metal-stack firewall) are stitched via SRv6
 // L3VPN, where the SRv6 transport runs, and who the remote gateways are.
 package config
@@ -14,7 +14,7 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-// Config is the content of the srv6-dci config file.
+// Config is the content of the open-dci config file.
 type Config struct {
 	// Gateway identifies this gateway.
 	Gateway Gateway `json:"gateway"`
@@ -47,7 +47,7 @@ type Gateway struct {
 
 type Transport struct {
 	// VRF is an existing EVPN VRF (a "DCI network", e.g. vrf104100) carrying
-	// the SRv6 transport through the fabric. srv6-dci joins it to the default
+	// the SRv6 transport through the fabric. open-dci joins it to the default
 	// VRF with a veth pair. Empty: the transport is routed in the default VRF
 	// (the locator is announced to the default BGP instance's IPv6 peers).
 	VRF string `json:"vrf,omitempty"`

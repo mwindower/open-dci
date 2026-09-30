@@ -6,7 +6,7 @@
 // bridge ("bridge"), and per EVPN network a vxlan device "vni<VNI>", an SVI
 // "vlan<VNI>" and a VRF "vrf<VNI>". On the firewalls, node.yaml deliberately
 // reproduces only what metal-stack itself sets up; the DCI parts are added by
-// srv6-dci at runtime (see Sidecars).
+// open-dci at runtime (see Sidecars).
 package node
 
 import (
@@ -34,7 +34,7 @@ type Spec struct {
 	// Interfaces are existing (containerlab) interfaces to configure.
 	Interfaces []Interface `json:"interfaces,omitempty"`
 	// Sidecars are commands started in the background right before FRR,
-	// e.g. srv6-dci on the firewalls. Their output goes to the container log.
+	// e.g. open-dci on the firewalls. Their output goes to the container log.
 	Sidecars [][]string `json:"sidecars,omitempty"`
 }
 

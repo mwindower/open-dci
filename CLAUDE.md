@@ -4,7 +4,7 @@ Guidance for AI agents working in this repository.
 
 ## What this is
 
-`srv6-dci` stitches tenant VRFs across independent EVPN/VXLAN domains (e.g. metal-stack
+`open-dci` stitches tenant VRFs across independent EVPN/VXLAN domains (e.g. metal-stack
 partitions) using SRv6 L3VPN. It turns an existing FRR-based EVPN VTEP (a metal-stack
 firewall) into a DCI gateway: VPNv4/v6 with an End.DT46 SID per tenant VRF, SRv6 transport
 in a dedicated DCI network (EVPN VRF). VNIs may differ per partition.
@@ -28,16 +28,16 @@ Scope decisions, which should not be revisited without the user:
 
 ## Layout
 
-- `cmd/srv6-dci`: CLI. `internal/config`: schema and validation. `internal/frr`:
+- `cmd/open-dci`: CLI. `internal/config`: schema and validation. `internal/frr`:
   `dci.conf.tpl`, parser, drift/removals, vtysh. `internal/kernel`: netlink.
   `internal/gateway`: reconcile, pre-flight, status.
 - `internal/frr/testdata/fw-{a,b}.golden` are the rendered configs for the lab's firewalls
   (`go test ./internal/frr -update` rewrites it; review the diff!).
   `testdata/fw-a.running.conf` is a real FRR running-config: every rendered line must appear
   in it verbatim, otherwise drift detection re-applies forever.
-- `lab/`: the containerlab lab (11 nodes, `clab-srv6-dci-<node>`).
+- `lab/`: the containerlab lab (11 nodes, `clab-open-dci-<node>`).
   - The firewalls start as plain metal-stack firewalls (`configs/fw-*/{node.yaml,frr.conf}`)
-    and run `srv6-dci run` as a sidecar with `configs/fw-*/srv6-dci.yaml`. fw-a uses a DCI
+    and run `open-dci run` as a sidecar with `configs/fw-*/open-dci.yaml`. fw-a uses a DCI
     network; fw-b and partition B's fabric run the transport in the IPv6 underlay.
   - `lab/cmd/labnode` is the container entrypoint (node.yaml → netlink → sidecars → FRR).
   - e2e tests: `lab/*_test.go`, build tag `e2e`.
@@ -55,14 +55,14 @@ Scope decisions, which should not be revisited without the user:
 ```sh
 make test            # unit tests
 make lint            # gofmt + go vet (as in CI)
-make build           # lab/bin/srv6-dci (static)
+make build           # lab/bin/open-dci (static)
 make lab-up          # build + deploy
 make lab-check       # e2e tests against the running lab
 make lab-redeploy    # down + up + check
 make lab-capture
 make lab-down
-docker exec clab-srv6-dci-fw-a srv6-dci status -c /etc/srv6-dci/config.yaml
-docker exec clab-srv6-dci-<node> vtysh -c '<cmd>'
+docker exec clab-open-dci-fw-a open-dci status -c /etc/open-dci/config.yaml
+docker exec clab-open-dci-<node> vtysh -c '<cmd>'
 ```
 
 A change counts as verified only after `make lab-redeploy` passes from a clean deploy.
@@ -89,10 +89,10 @@ old binary until it is redeployed (or you `docker cp` for a quick look).
   route") even though it worked.
 - vtysh reports config errors on stdout (`% ...`), not always via the exit code;
   `frr.Vtysh` checks both.
-- FRR daemons' stdout doesn't reach `docker logs`; srv6-dci's and labnode's output does.
+- FRR daemons' stdout doesn't reach `docker logs`; open-dci's and labnode's output does.
 - Auto RTs with 4-byte ASNs use the low 16 bits of the ASN; import falls back to the VNI.
 - containerlab needs SUID-root; the agent has no sudo, so ask the user. Only touch
-  `clab-srv6-dci-*` containers (others, e.g. `clab-srv6-dci-sonic-simple-*`, are unrelated).
+  `clab-open-dci-*` containers (others, e.g. `clab-open-dci-sonic-simple-*`, are unrelated).
 
 ## Conventions
 

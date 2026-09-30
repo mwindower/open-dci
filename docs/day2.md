@@ -50,7 +50,7 @@ Only that partition's gateway changes: add or remove the `networks` entry.
 
 ### Removing a gateway
 
-Remove it from every other gateway's `peers`. On each gateway, srv6-dci removes the lines it
+Remove it from every other gateway's `peers`. On each gateway, open-dci removes the lines it
 had applied for it (see [Operation](operation.md#frr-via-vtysh-never-touching-frrconf)).
 
 ## Choosing route targets
@@ -124,5 +124,5 @@ These options build on each other and are not implemented yet:
    - firewalls become gateways
 
    Still open: where the locator's node ID comes from, and whether this runs in the
-   firewall-controller or in a central generator. It stays outside srv6-dci itself, which
+   firewall-controller or in a central generator. It stays outside open-dci itself, which
    keeps discovering everything else from kernel and FRR.

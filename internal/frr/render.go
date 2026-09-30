@@ -7,7 +7,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/mwindower/srv6-dci/internal/config"
+	"github.com/mwindower/open-dci/internal/config"
 )
 
 //go:embed dci.conf.tpl
@@ -21,7 +21,7 @@ const (
 	VethPeerLL = "fe80::2"
 )
 
-// Identity is what srv6-dci needs to know about the existing BGP setup. It is
+// Identity is what open-dci needs to know about the existing BGP setup. It is
 // taken from the config or discovered from the running FRR configuration.
 type Identity struct {
 	ASN      uint32
@@ -64,10 +64,10 @@ func (d renderData) RT(vrf string) string {
 	return ""
 }
 
-// Render returns the FRR configuration srv6-dci adds for cfg.
+// Render returns the FRR configuration open-dci adds for cfg.
 func Render(cfg *config.Config, id Identity) (string, error) {
 	if id.ASN == 0 || id.RouterID == "" {
-		return "", fmt.Errorf("BGP ASN and router-id are unknown: set gateway.asn/gateway.routerID or let srv6-dci discover them from FRR")
+		return "", fmt.Errorf("BGP ASN and router-id are unknown: set gateway.asn/gateway.routerID or let open-dci discover them from FRR")
 	}
 	block := netip.MustParsePrefix(cfg.Gateway.LocatorBlock)
 	loc := netip.MustParsePrefix(cfg.Gateway.Locator)

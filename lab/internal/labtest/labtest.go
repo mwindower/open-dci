@@ -15,7 +15,7 @@ import (
 
 // Lab addresses the nodes of one deployed containerlab topology.
 type Lab struct {
-	Prefix string // e.g. "clab-srv6-dci-spike"
+	Prefix string // e.g. "clab-open-dci-spike"
 }
 
 // Exec runs a command inside node and returns stdout.

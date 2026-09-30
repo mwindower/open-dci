@@ -1,8 +1,8 @@
 # metal-stack firewall as metal-networker sets it up: one VLAN-aware bridge,
 # vni<VNI>/vlan<VNI>/vrf<VNI> per network, everything at MTU 9000, uplink 9216.
 #   vrf4011  tenant private network
-# No DCI network here: fw-b's srv6-dci runs the SRv6 transport in the default
-# VRF (underlay). Everything DCI-specific is added at runtime by srv6-dci.
+# No DCI network here: fw-b's open-dci runs the SRv6 transport in the default
+# VRF (underlay). Everything DCI-specific is added at runtime by open-dci.
 waitInterfaces: [lan0]
 loopback: [10.0.1.12/32]
 vrfs:
@@ -13,4 +13,4 @@ vnis:
 interfaces:
   - {name: lan0, mtu: 9216}
 sidecars:
-  - [/usr/local/bin/srv6-dci, run, -c, /etc/srv6-dci/config.yaml]
+  - [/usr/local/bin/open-dci, run, -c, /etc/open-dci/config.yaml]

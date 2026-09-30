@@ -3,13 +3,13 @@
 ## Commands
 
 ```sh
-srv6-dci validate -c config.yaml        # check the config
-srv6-dci render   -c config.yaml        # FRR lines srv6-dci adds (--asn/--router-id to render offline)
-srv6-dci diff     -c config.yaml        # what is missing in the running FRR, and what is stale
-srv6-dci apply    -c config.yaml        # reconcile kernel + FRR once
-srv6-dci run      -c config.yaml -i 10s # reconcile continuously (service / sidecar)
-srv6-dci status   -c config.yaml        # exits non-zero if not healthy
-srv6-dci version
+open-dci validate -c config.yaml        # check the config
+open-dci render   -c config.yaml        # FRR lines open-dci adds (--asn/--router-id to render offline)
+open-dci diff     -c config.yaml        # what is missing in the running FRR, and what is stale
+open-dci apply    -c config.yaml        # reconcile kernel + FRR once
+open-dci run      -c config.yaml -i 10s # reconcile continuously (service / sidecar)
+open-dci status   -c config.yaml        # exits non-zero if not healthy
+open-dci version
 ```
 
 Common flags:
@@ -17,7 +17,7 @@ Common flags:
 | Flag | Default |
 |---|---|
 | `--vtysh` | `vtysh` |
-| `--state` | `/var/lib/srv6-dci/applied.conf` |
+| `--state` | `/var/lib/open-dci/applied.conf` |
 | `-v` | off (debug logging) |
 
 `run` is meant to run permanently, as a service or as a sidecar next to FRR. It retries until
@@ -41,7 +41,7 @@ vrf3981  65535:1001  10.0.0.12:1001  fd00:dc1:a:1:: (End.DT46)  2/2          2/2
 ```
 
 - A gateway in default-VRF mode shows `transport default VRF` instead.
-- `SRV6_DCI_OUTPUT=json srv6-dci status` prints the same as JSON.
+- `OPEN_DCI_OUTPUT=json open-dci status` prints the same as JSON.
 - The exit code is non-zero unless all of these hold:
   - there is no drift
   - the kernel parts are in place
@@ -67,7 +67,7 @@ Why a veth and not route leaking: see the [Phase 0b findings](phase0b-findings.m
 ### FRR (via `vtysh`, never touching `frr.conf`)
 
 1. Discovers the ASN, router-id and per-VRF BGP instances from the running config.
-2. Renders its lines (`srv6-dci render`) in FRR's canonical form.
+2. Renders its lines (`open-dci render`) in FRR's canonical form.
 3. Applies them only when some are missing from the running config.
 4. Removes lines it applied earlier that are no longer desired (state in `--state`). Block
    headers of the base config are never removed.

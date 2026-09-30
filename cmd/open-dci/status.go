@@ -7,17 +7,17 @@ import (
 	"os"
 	"text/tabwriter"
 
-	"github.com/mwindower/srv6-dci/internal/gateway"
+	"github.com/mwindower/open-dci/internal/gateway"
 )
 
-// status prints the gateway state; with SRV6_DCI_OUTPUT=json as JSON.
+// status prints the gateway state; with OPEN_DCI_OUTPUT=json as JSON.
 // It exits non-zero (via the returned error) when the gateway is unhealthy.
 func status(w io.Writer, gw *gateway.Gateway) error {
 	st, err := gw.Status()
 	if err != nil {
 		return err
 	}
-	if os.Getenv("SRV6_DCI_OUTPUT") == "json" {
+	if os.Getenv("OPEN_DCI_OUTPUT") == "json" {
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
 		if err := enc.Encode(st); err != nil {

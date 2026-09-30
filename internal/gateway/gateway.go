@@ -1,5 +1,5 @@
 // Package gateway turns an existing EVPN VTEP (a metal-stack firewall) into
-// an srv6-dci gateway: it applies the kernel part, adds the FRR configuration
+// an open-dci gateway: it applies the kernel part, adds the FRR configuration
 // and keeps both in place when the base system rewrites its own config.
 package gateway
 
@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mwindower/srv6-dci/internal/config"
-	"github.com/mwindower/srv6-dci/internal/frr"
+	"github.com/mwindower/open-dci/internal/config"
+	"github.com/mwindower/open-dci/internal/frr"
 )
 
 // Gateway reconciles one gateway.

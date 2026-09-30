@@ -1,7 +1,7 @@
 # Phase 0b findings: gateway on the metal-stack firewall, transit via a DCI network
 
 > Since Phase 1, the lab lives in `lab/`, and its firewalls start as plain metal-stack
-> firewalls. `srv6-dci` adds everything described here at runtime. One change against this
+> firewalls. `open-dci` adds everything described here at runtime. One change against this
 > document: the veth ends use fixed link-local addresses (`fe80::1` in main, `fe80::2` in
 > the DCI VRF) instead of `fd00:dc2::/64`. Otherwise the DCI VRF's `redistribute connected`
 > (from metal-networker's template) would announce the same transfer network from every
@@ -105,7 +105,7 @@ Requirements for the tool / metal-stack:
    in that list. That is natural if the DCI network is modelled as a metal-stack network
    (like the internet network) attached to the firewall.
 2. **Firewall FRR template.** The additions are all marked `! DCI:` in
-   `internal/frr/testdata/fw-a.golden` (rendered by srv6-dci; in Phase 0b hand-written in the firewall frr.conf):
+   `internal/frr/testdata/fw-a.golden` (rendered by open-dci; in Phase 0b hand-written in the firewall frr.conf):
    - the SRv6 locator
    - the VPN neighbor
    - `sid vpn per-vrf export` plus `rd/rt vpn` and `import/export vpn` in the tenant VRF

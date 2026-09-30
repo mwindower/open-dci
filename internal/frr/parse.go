@@ -1,4 +1,4 @@
-// Package frr renders the configuration srv6-dci adds to an existing FRR
+// Package frr renders the configuration open-dci adds to an existing FRR
 // setup, compares it with FRR's running configuration, applies it via vtysh
 // and reads operational state.
 package frr
@@ -24,7 +24,7 @@ func (l Line) Key() string {
 }
 
 // Parse splits an FRR configuration (as written by "show running-config" or
-// rendered by srv6-dci) into lines with their context. Nesting is taken from
+// rendered by open-dci) into lines with their context. Nesting is taken from
 // the indentation, which FRR emits consistently. Separators ("!"), "exit*",
 // "end" and preamble lines are dropped.
 func Parse(cfg string) []Line {

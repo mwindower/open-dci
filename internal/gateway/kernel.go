@@ -5,9 +5,9 @@ import (
 
 	"github.com/vishvananda/netlink"
 
-	"github.com/mwindower/srv6-dci/internal/config"
-	"github.com/mwindower/srv6-dci/internal/frr"
-	"github.com/mwindower/srv6-dci/internal/kernel"
+	"github.com/mwindower/open-dci/internal/config"
+	"github.com/mwindower/open-dci/internal/frr"
+	"github.com/mwindower/open-dci/internal/kernel"
 )
 
 var sysctls = []struct{ key, value string }{
@@ -19,7 +19,7 @@ var sysctls = []struct{ key, value string }{
 	{"net.vrf.strict_mode", "1"},
 }
 
-// preflightKernel verifies that the VRFs srv6-dci augments exist. srv6-dci
+// preflightKernel verifies that the VRFs open-dci augments exist. open-dci
 // never creates them: they belong to the base system (e.g. metal-networker).
 func preflightKernel(cfg *config.Config) error {
 	for _, vrf := range allVRFs(cfg) {
@@ -28,7 +28,7 @@ func preflightKernel(cfg *config.Config) error {
 			return err
 		}
 		if !ok {
-			return fmt.Errorf("vrf %s does not exist (srv6-dci only augments existing VRFs)", vrf)
+			return fmt.Errorf("vrf %s does not exist (open-dci only augments existing VRFs)", vrf)
 		}
 	}
 	return nil

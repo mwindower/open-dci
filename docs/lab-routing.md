@@ -1,7 +1,7 @@
 # Routing tables in the lab
 
 What each node of `lab/` knows once the lab has converged. Taken from a clean deploy
-(`make lab-up`, all e2e tests passing); the firewalls' DCI parts were added by srv6-dci.
+(`make lab-up`, all e2e tests passing); the firewalls' DCI parts were added by open-dci.
 
 The two partitions use the two transport modes:
 - **Partition A** runs the SRv6 transport in a DCI network (`transport.vrf: vrf104100`).
@@ -157,20 +157,20 @@ The core carries one prefix per gateway and nothing else.
 
 ```sh
 make lab-up
-docker exec clab-srv6-dci-m-a    ip route
-docker exec clab-srv6-dci-leaf-a ip route show vrf vrf3981
-docker exec clab-srv6-dci-fw-a   ip route show vrf vrf3981
-docker exec clab-srv6-dci-fw-a   ip -6 route                        # main
-docker exec clab-srv6-dci-fw-a   ip -6 route show vrf vrf104100     # DCI
-docker exec clab-srv6-dci-exit-a ip -6 route show vrf vrf104100
-docker exec clab-srv6-dci-core   ip -6 route
-docker exec clab-srv6-dci-fw-a   vtysh -c 'show bgp ipv4 vpn'
-docker exec clab-srv6-dci-leaf-a vtysh -c 'show bgp l2vpn evpn route type prefix'
+docker exec clab-open-dci-m-a    ip route
+docker exec clab-open-dci-leaf-a ip route show vrf vrf3981
+docker exec clab-open-dci-fw-a   ip route show vrf vrf3981
+docker exec clab-open-dci-fw-a   ip -6 route                        # main
+docker exec clab-open-dci-fw-a   ip -6 route show vrf vrf104100     # DCI
+docker exec clab-open-dci-exit-a ip -6 route show vrf vrf104100
+docker exec clab-open-dci-core   ip -6 route
+docker exec clab-open-dci-fw-a   vtysh -c 'show bgp ipv4 vpn'
+docker exec clab-open-dci-leaf-a vtysh -c 'show bgp l2vpn evpn route type prefix'
 ```
 
 ## Partition B: transport in the default VRF
 
-fw-b's srv6-dci config has no `transport.vrf`. srv6-dci announces the locator from the
+fw-b's open-dci config has no `transport.vrf`. open-dci announces the locator from the
 default BGP instance (`network fd00:dc1:b::/48`, backed by a blackhole route), and the
 fabric's IPv6 underlay carries it to the exit and on to the core. There is no veth, no DCI
 network, no VXLAN on the transport path, and fw-b's tenant side is unchanged.

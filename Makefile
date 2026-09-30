@@ -1,13 +1,13 @@
 TOPO    := lab/topology.clab.yml
-PREFIX  := clab-srv6-dci
+PREFIX  := clab-open-dci
 BIN     := lab/bin
 CLAB    ?= containerlab   # CI: CLAB="sudo containerlab"
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 .PHONY: build test lint labnode lab-up lab-check lab-down lab-redeploy lab-capture
 
-build:            ## srv6-dci binary (static)
-	CGO_ENABLED=0 go build -trimpath -ldflags "-X main.version=$(VERSION)" -o $(BIN)/srv6-dci ./cmd/srv6-dci
+build:            ## open-dci binary (static)
+	CGO_ENABLED=0 go build -trimpath -ldflags "-X main.version=$(VERSION)" -o $(BIN)/open-dci ./cmd/open-dci
 
 test:             ## unit tests (config, rendering, golden files, lab specs)
 	go test ./...
@@ -20,7 +20,7 @@ lint:             ## what CI checks besides tests
 labnode:          ## static container entrypoint used by all lab nodes
 	CGO_ENABLED=0 go build -o $(BIN)/labnode ./lab/cmd/labnode
 
-lab-up: build labnode   ## deploy the lab; the firewalls run srv6-dci as sidecar
+lab-up: build labnode   ## deploy the lab; the firewalls run open-dci as sidecar
 	$(CLAB) deploy -t $(TOPO)
 
 lab-check:        ## e2e tests against the running lab

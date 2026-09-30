@@ -3,7 +3,7 @@
 ## Repository layout
 
 ```
-cmd/srv6-dci/        CLI (validate, render, diff, apply, run, status, version)
+cmd/open-dci/        CLI (validate, render, diff, apply, run, status, version)
 internal/config/     config schema, defaults, validation
 internal/frr/        rendering (dci.conf.tpl), running-config parser, drift/removals, vtysh client
 internal/kernel/     netlink primitives: veth, MTU path discovery, ip rules, sysctls
@@ -36,7 +36,7 @@ make lab-redeploy  # lab down + up + e2e tests (see lab/README.md)
   (containerlab and FRR pinned there) with diagnostics on failure.
 - **`release.yaml`:** a `v*` tag runs goreleaser, which produces static linux/amd64+arm64
   binaries (with the systemd unit) and a multi-arch image
-  `ghcr.io/<owner>/srv6-dci:<version>`.
+  `ghcr.io/<owner>/open-dci:<version>`.
 
 ## Roadmap
 

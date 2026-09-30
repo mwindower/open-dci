@@ -1,6 +1,6 @@
 # Where to run the gateway
 
-srv6-dci runs on any FRR-based EVPN VTEP. Two placements make sense in a metal-stack
+open-dci runs on any FRR-based EVPN VTEP. Two placements make sense in a metal-stack
 setting:
 - **the tenant's metal-stack firewall.** This is what the lab and the
   [Phase 0b findings](phase0b-findings.md) cover.
@@ -31,7 +31,7 @@ trust domain.
 ## Firewall placement
 
 **For it:**
-- Tenant VRFs, L3VNIs and the leaves' VNI filters already exist, so srv6-dci only augments.
+- Tenant VRFs, L3VNIs and the leaves' VNI filters already exist, so open-dci only augments.
 - No extra hardware. Failures and load are spread per project.
 - Cross-partition traffic passes the tenant's firewall.
 
@@ -49,7 +49,7 @@ trust domain.
 - **Lifecycle.** Firewall rolling updates create new firewalls with a new router-id, ASN and
   loopback. Locators and peer lists churn with them (see [day2.md](day2.md)).
 - **Invasiveness.** The veth pair, `ip rule` reordering, the DCI MTU and a DCI network per
-  firewall reach into metal-networker and firewall-controller. The srv6-dci config must
+  firewall reach into metal-networker and firewall-controller. The open-dci config must
   travel with every firewall.
 - **Count.** One gateway per project and partition: many locators, sessions and RT/peer
   combinations.
@@ -69,7 +69,7 @@ trust domain.
 **Against them:**
 - **Someone must provide the tenant VRFs.** The gateway has to be an EVPN VTEP for every
   stitched tenant: VRF, VXLAN device, SVI, `router bgp <asn> vrf`, `vni`. Either
-  - srv6-dci creates them in a "gateway mode". This changes the "augment, never own" scope.
+  - open-dci creates them in a "gateway mode". This changes the "augment, never own" scope.
   - Or metal-stack provisions them. It has no entity for a gateway that serves many projects
     yet, and the border leaf must pass the tenant VNIs to the gateway port.
 - **A shared failure domain.** Redundant pairs are needed from the start (Phase 2).
@@ -84,5 +84,5 @@ trust domain.
   provisions tenant L3VNIs from config or metal-api.
 - Firewall placement remains the option without extra hardware. It needs RT filtering on
   trusted route reflectors and SID ingress filtering, and it has the weaker trust model.
-- Next steps: a lab variant with a gateway pair at exit-a/exit-b whose tenant VRFs srv6-dci
+- Next steps: a lab variant with a gateway pair at exit-a/exit-b whose tenant VRFs open-dci
   owns, and a scale test.

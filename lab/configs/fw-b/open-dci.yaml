@@ -1,10 +1,10 @@
-# srv6-dci config of fw-b (transport in the default VRF). ASN and router-id are
+# open-dci config of fw-b (transport in the default VRF). ASN and router-id are
 # discovered from the running FRR.
 gateway:
   locator: fd00:dc1:b::/48        # loopback fd00:dc1:b::1, End.DT46 SIDs fd00:dc1:b:<n>::
   locatorBlock: fd00:dc1::/32     # all gateways' locators
 # no transport.vrf: the SRv6 transport runs in the default VRF (fabric underlay);
-# srv6-dci announces the locator to the default BGP instance's IPv6 peers
+# open-dci announces the locator to the default BGP instance's IPv6 peers
 peers:
   - {address: "fd00:dc1:a::1", asn: 4200000012}   # fw-a
 networks:

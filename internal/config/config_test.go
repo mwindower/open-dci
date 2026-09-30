@@ -76,7 +76,7 @@ func TestDefaultVRFTransport(t *testing.T) {
 
 func TestLabConfigsValid(t *testing.T) {
 	for _, fw := range []string{"fw-a", "fw-b"} {
-		if _, err := Load("../../lab/configs/" + fw + "/srv6-dci.yaml"); err != nil {
+		if _, err := Load("../../lab/configs/" + fw + "/open-dci.yaml"); err != nil {
 			t.Errorf("%s: %v", fw, err)
 		}
 	}

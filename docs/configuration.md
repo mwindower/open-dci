@@ -1,11 +1,11 @@
 # Configuration
 
-`srv6-dci` reads one YAML file, by default `/etc/srv6-dci/config.yaml`. Unknown fields are
-rejected. `srv6-dci validate -c FILE` checks a file without touching the system.
+`open-dci` reads one YAML file, by default `/etc/open-dci/config.yaml`. Unknown fields are
+rejected. `open-dci validate -c FILE` checks a file without touching the system.
 
 ## Example
 
-The lab's fw-a (`lab/configs/fw-a/srv6-dci.yaml`), with the transport in a DCI network:
+The lab's fw-a (`lab/configs/fw-a/open-dci.yaml`), with the transport in a DCI network:
 
 ```yaml
 gateway:

@@ -56,7 +56,7 @@ func (v Vtysh) RunningConfig() (string, error) { return v.Show("show running-con
 // Apply feeds configuration commands to FRR (incrementally, like a config
 // file read at startup). It does not touch /etc/frr/frr.conf.
 func (v Vtysh) Apply(cfg string) error {
-	f, err := os.CreateTemp("", "srv6-dci-*.conf")
+	f, err := os.CreateTemp("", "open-dci-*.conf")
 	if err != nil {
 		return err
 	}
@@ -77,7 +77,7 @@ var (
 	reRouterID  = regexp.MustCompile(`^bgp router-id (\S+)$`)
 )
 
-// Base describes the existing (base) BGP configuration srv6-dci augments.
+// Base describes the existing (base) BGP configuration open-dci augments.
 type Base struct {
 	Identity
 	VRFInstances map[string]bool // VRFs with a "router bgp <asn> vrf <name>" instance

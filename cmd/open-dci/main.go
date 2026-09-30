@@ -1,4 +1,4 @@
-// srv6-dci turns a metal-stack firewall (or any FRR-based EVPN VTEP) into a
+// open-dci turns a metal-stack firewall (or any FRR-based EVPN VTEP) into a
 // gateway that stitches tenant VRFs across EVPN domains via SRv6 L3VPN.
 package main
 
@@ -14,30 +14,30 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/mwindower/srv6-dci/internal/config"
-	"github.com/mwindower/srv6-dci/internal/frr"
-	"github.com/mwindower/srv6-dci/internal/gateway"
+	"github.com/mwindower/open-dci/internal/config"
+	"github.com/mwindower/open-dci/internal/frr"
+	"github.com/mwindower/open-dci/internal/gateway"
 )
 
 // version is set at build time (-ldflags "-X main.version=...").
 var version = "dev"
 
-const usage = `srv6-dci - stitch EVPN tenant VRFs across partitions via SRv6 L3VPN
+const usage = `open-dci - stitch EVPN tenant VRFs across partitions via SRv6 L3VPN
 
 Usage:
-  srv6-dci validate -c FILE              check the config file
-  srv6-dci render   -c FILE [--asn N --router-id IP]
-                                         print the FRR configuration srv6-dci adds
-  srv6-dci diff     -c FILE              show what is missing in the running FRR
-  srv6-dci apply    -c FILE              reconcile kernel and FRR once
-  srv6-dci run      -c FILE [-i 10s]     reconcile continuously
-  srv6-dci status   -c FILE              show sessions, SIDs, prefixes and drift
-  srv6-dci version
+  open-dci validate -c FILE              check the config file
+  open-dci render   -c FILE [--asn N --router-id IP]
+                                         print the FRR configuration open-dci adds
+  open-dci diff     -c FILE              show what is missing in the running FRR
+  open-dci apply    -c FILE              reconcile kernel and FRR once
+  open-dci run      -c FILE [-i 10s]     reconcile continuously
+  open-dci status   -c FILE              show sessions, SIDs, prefixes and drift
+  open-dci version
 
 Common flags:
-  -c FILE        config file (default /etc/srv6-dci/config.yaml)
+  -c FILE        config file (default /etc/open-dci/config.yaml)
   --vtysh PATH   vtysh binary (default vtysh)
-  --state FILE   last applied FRR snippet (default /var/lib/srv6-dci/applied.conf)
+  --state FILE   last applied FRR snippet (default /var/lib/open-dci/applied.conf)
   -v             debug logging
 `
 
@@ -48,14 +48,14 @@ func main() {
 	}
 	cmd := os.Args[1]
 	if cmd == "version" {
-		fmt.Println("srv6-dci", version)
+		fmt.Println("open-dci", version)
 		return
 	}
 	fs := flag.NewFlagSet(cmd, flag.ExitOnError)
 	fs.Usage = func() { fmt.Fprint(os.Stderr, usage) }
-	cfgPath := fs.String("c", "/etc/srv6-dci/config.yaml", "config file")
+	cfgPath := fs.String("c", "/etc/open-dci/config.yaml", "config file")
 	vtysh := fs.String("vtysh", "vtysh", "vtysh binary")
-	state := fs.String("state", "/var/lib/srv6-dci/applied.conf", "state file")
+	state := fs.String("state", "/var/lib/open-dci/applied.conf", "state file")
 	interval := fs.Duration("i", 10*time.Second, "reconcile interval (run)")
 	asn := fs.Uint("asn", 0, "BGP ASN (render without FRR)")
 	routerID := fs.String("router-id", "", "BGP router-id (render without FRR)")
@@ -90,7 +90,7 @@ func main() {
 	case "run":
 		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 		defer stop()
-		log.Info("srv6-dci started", "version", version, "config", *cfgPath, "interval", *interval, "loopback", cfg.Gateway.Loopback())
+		log.Info("open-dci started", "version", version, "config", *cfgPath, "interval", *interval, "loopback", cfg.Gateway.Loopback())
 		gw.Run(ctx, *interval)
 	case "status":
 		err = status(os.Stdout, gw)

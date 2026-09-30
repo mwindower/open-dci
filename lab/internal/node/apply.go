@@ -8,7 +8,7 @@ import (
 
 	"github.com/vishvananda/netlink"
 
-	"github.com/mwindower/srv6-dci/internal/kernel"
+	"github.com/mwindower/open-dci/internal/kernel"
 )
 
 var defaultSysctls = []struct{ key, value string }{

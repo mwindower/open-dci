@@ -1,4 +1,4 @@
-module github.com/mwindower/srv6-dci
+module github.com/mwindower/open-dci
 
 go 1.26.0
 

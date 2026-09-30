@@ -1,9 +1,9 @@
 # Release: push a tag vX.Y.Z; .github/workflows/release.yaml runs goreleaser.
 version: 2
-project_name: srv6-dci
+project_name: open-dci
 
 builds:
-  - main: ./cmd/srv6-dci
+  - main: ./cmd/open-dci
     env: [CGO_ENABLED=0]
     goos: [linux]
     goarch: [amd64, arm64]
@@ -12,31 +12,31 @@ builds:
 
 archives:
   - formats: [tar.gz]
-    files: [LICENSE, README.md, deploy/systemd/srv6-dci.service]
+    files: [LICENSE, README.md, deploy/systemd/open-dci.service]
 
 checksum:
   name_template: checksums.txt
 
 dockers:
-  - image_templates: ["ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/srv6-dci:{{ .Version }}-amd64"]
+  - image_templates: ["ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/open-dci:{{ .Version }}-amd64"]
     dockerfile: Dockerfile
     use: buildx
     build_flag_templates: [--platform=linux/amd64]
-  - image_templates: ["ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/srv6-dci:{{ .Version }}-arm64"]
+  - image_templates: ["ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/open-dci:{{ .Version }}-arm64"]
     dockerfile: Dockerfile
     use: buildx
     goarch: arm64
     build_flag_templates: [--platform=linux/arm64]
 
 docker_manifests:
-  - name_template: "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/srv6-dci:{{ .Version }}"
+  - name_template: "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/open-dci:{{ .Version }}"
     image_templates:
-      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/srv6-dci:{{ .Version }}-amd64"
-      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/srv6-dci:{{ .Version }}-arm64"
-  - name_template: "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/srv6-dci:latest"
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/open-dci:{{ .Version }}-amd64"
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/open-dci:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/open-dci:latest"
     image_templates:
-      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/srv6-dci:{{ .Version }}-amd64"
-      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/srv6-dci:{{ .Version }}-arm64"
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/open-dci:{{ .Version }}-amd64"
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/open-dci:{{ .Version }}-arm64"
 
 changelog:
   sort: asc

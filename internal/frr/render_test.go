@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mwindower/srv6-dci/internal/config"
+	"github.com/mwindower/open-dci/internal/config"
 )
 
 var update = flag.Bool("update", false, "rewrite golden files")
@@ -18,7 +18,7 @@ var (
 
 func renderLab(t *testing.T, node string, id Identity) string {
 	t.Helper()
-	cfg, err := config.Load("../../lab/configs/" + node + "/srv6-dci.yaml")
+	cfg, err := config.Load("../../lab/configs/" + node + "/open-dci.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestRenderMatchesRunningConfig(t *testing.T) {
 }
 
 func TestRenderNeedsIdentity(t *testing.T) {
-	cfg, err := config.Load("../../lab/configs/fw-a/srv6-dci.yaml")
+	cfg, err := config.Load("../../lab/configs/fw-a/open-dci.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}

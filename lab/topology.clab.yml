@@ -1,4 +1,4 @@
-# srv6-dci lab: gateway on the metal-stack firewall, transit via a dedicated DCI network.
+# open-dci lab: gateway on the metal-stack firewall, transit via a dedicated DCI network.
 #
 #  Partition A                                                         Partition B
 #   m-a ── leaf-a ── spine-a ── exit-a ──┐                ┌── exit-b ── spine-b ── leaf-b ── m-b
@@ -11,12 +11,12 @@
 #   in the DCI VRF, so SRv6 is carried in VXLAN (DCI VNI) through the fabric to
 #   the exits. The exits route the DCI VRF into an IPv6-only core.
 # - The firewalls start as plain metal-stack firewalls (node.yaml + frr.conf as
-#   metal-networker would set them up). The srv6-dci sidecar turns them into
+#   metal-networker would set them up). The open-dci sidecar turns them into
 #   DCI gateways at runtime.
 # - MTU as in metal-stack: machines 9000, firewall uplinks 9216, bridge/vni/vlan
-#   9000. srv6-dci raises the firewall's DCI devices to 9166 (SRv6 adds 48 B);
+#   9000. open-dci raises the firewall's DCI devices to 9166 (SRv6 adds 48 B);
 #   the exits' DCI devices are configured with 9166 (switch side).
-name: srv6-dci
+name: open-dci
 
 topology:
   defaults:
@@ -29,13 +29,13 @@ topology:
   nodes:
     m-a:     { binds: [configs/m-a/node.yaml:/etc/labnode/node.yaml:ro, configs/m-a/frr.conf:/etc/frr/frr.conf] }
     leaf-a:  { binds: [configs/leaf-a/node.yaml:/etc/labnode/node.yaml:ro, configs/leaf-a/frr.conf:/etc/frr/frr.conf] }
-    fw-a:    { binds: [configs/fw-a/node.yaml:/etc/labnode/node.yaml:ro, configs/fw-a/frr.conf:/etc/frr/frr.conf, bin/srv6-dci:/usr/local/bin/srv6-dci:ro, configs/fw-a/srv6-dci.yaml:/etc/srv6-dci/config.yaml:ro] }
+    fw-a:    { binds: [configs/fw-a/node.yaml:/etc/labnode/node.yaml:ro, configs/fw-a/frr.conf:/etc/frr/frr.conf, bin/open-dci:/usr/local/bin/open-dci:ro, configs/fw-a/open-dci.yaml:/etc/open-dci/config.yaml:ro] }
     spine-a: { binds: [configs/spine-a/node.yaml:/etc/labnode/node.yaml:ro, configs/spine-a/frr.conf:/etc/frr/frr.conf] }
     exit-a:  { binds: [configs/exit-a/node.yaml:/etc/labnode/node.yaml:ro, configs/exit-a/frr.conf:/etc/frr/frr.conf] }
     core:    { binds: [configs/core/node.yaml:/etc/labnode/node.yaml:ro, configs/core/frr.conf:/etc/frr/frr.conf] }
     exit-b:  { binds: [configs/exit-b/node.yaml:/etc/labnode/node.yaml:ro, configs/exit-b/frr.conf:/etc/frr/frr.conf] }
     spine-b: { binds: [configs/spine-b/node.yaml:/etc/labnode/node.yaml:ro, configs/spine-b/frr.conf:/etc/frr/frr.conf] }
-    fw-b:    { binds: [configs/fw-b/node.yaml:/etc/labnode/node.yaml:ro, configs/fw-b/frr.conf:/etc/frr/frr.conf, bin/srv6-dci:/usr/local/bin/srv6-dci:ro, configs/fw-b/srv6-dci.yaml:/etc/srv6-dci/config.yaml:ro] }
+    fw-b:    { binds: [configs/fw-b/node.yaml:/etc/labnode/node.yaml:ro, configs/fw-b/frr.conf:/etc/frr/frr.conf, bin/open-dci:/usr/local/bin/open-dci:ro, configs/fw-b/open-dci.yaml:/etc/open-dci/config.yaml:ro] }
     leaf-b:  { binds: [configs/leaf-b/node.yaml:/etc/labnode/node.yaml:ro, configs/leaf-b/frr.conf:/etc/frr/frr.conf] }
     m-b:     { binds: [configs/m-b/node.yaml:/etc/labnode/node.yaml:ro, configs/m-b/frr.conf:/etc/frr/frr.conf] }
 
