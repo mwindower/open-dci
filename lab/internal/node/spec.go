@@ -4,9 +4,9 @@
 //
 // The device layout follows metal-networker's convention: one VLAN-aware
 // bridge ("bridge"), and per EVPN network a vxlan device "vni<VNI>", an SVI
-// "vlan<VNI>" and a VRF "vrf<VNI>". On the firewalls, node.yaml deliberately
-// reproduces only what metal-stack itself sets up; the DCI parts are added by
-// open-dci at runtime (see Sidecars).
+// "vlan<VNI>" and a VRF "vrf<VNI>". On the gateways, node.yaml holds only the
+// operator's base setup; the tenant VRFs and DCI parts are added by open-dci at
+// runtime (see Sidecars).
 package node
 
 import (
@@ -34,7 +34,7 @@ type Spec struct {
 	// Interfaces are existing (containerlab) interfaces to configure.
 	Interfaces []Interface `json:"interfaces,omitempty"`
 	// Sidecars are commands started in the background right before FRR,
-	// e.g. open-dci on the firewalls. Their output goes to the container log.
+	// e.g. open-dci on the gateways. Their output goes to the container log.
 	Sidecars [][]string `json:"sidecars,omitempty"`
 }
 

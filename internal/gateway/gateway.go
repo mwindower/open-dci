@@ -1,6 +1,7 @@
-// Package gateway turns an existing EVPN VTEP (a metal-stack firewall) into
-// an open-dci gateway: it applies the kernel part, adds the FRR configuration
-// and keeps both in place when the base system rewrites its own config.
+// Package gateway turns an FRR box attached to EVPN fabrics (a dedicated
+// gateway, e.g. at the exit) into an open-dci gateway: it provisions the tenant
+// VRFs as L3VNIs, applies the kernel part, adds the FRR configuration and keeps
+// both in place when the base system rewrites its own config.
 package gateway
 
 import (
@@ -186,13 +187,11 @@ func (g *Gateway) identity(running string) (frr.Identity, error) {
 	if id.RouterID == "" {
 		return id, fmt.Errorf("the BGP instance has no explicit router-id; set gateway.routerID")
 	}
-	for _, vrf := range baseVRFs(g.Config) {
-		if !base.VRFInstances[vrf] {
-			return id, fmt.Errorf("no BGP instance for vrf %s (router bgp %d vrf %s) in the running configuration", vrf, id.ASN, vrf)
-		}
+	if tv := g.Config.Transport.VRF; tv != "" && !base.VRFInstances[tv] {
+		return id, fmt.Errorf("no BGP instance for the transport vrf %s (router bgp %d vrf %s) in the running configuration", tv, id.ASN, tv)
 	}
-	if g.Config.HasProvisioned() && !base.AdvertiseAllVNI {
-		return id, fmt.Errorf("provisioned networks need \"advertise-all-vni\" in the default BGP instance's l2vpn evpn address family")
+	if !base.AdvertiseAllVNI {
+		return id, fmt.Errorf("the provisioned L3VNIs need \"advertise-all-vni\" in the default BGP instance's l2vpn evpn address family")
 	}
 	return id, nil
 }

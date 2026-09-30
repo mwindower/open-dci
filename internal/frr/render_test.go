@@ -12,10 +12,8 @@ import (
 var update = flag.Bool("update", false, "rewrite golden files")
 
 var (
-	fwA = Identity{ASN: 4200000012, RouterID: "10.0.0.12"} // transport in a DCI network
-	fwB = Identity{ASN: 4200000022, RouterID: "10.0.1.12"} // transport in the default VRF
-	gwA = Identity{ASN: 4200000016, RouterID: "10.0.0.16"} // dedicated gateway, provisions its VRF
-	gwB = Identity{ASN: 4200000026, RouterID: "10.0.1.16"}
+	gwA = Identity{ASN: 4200000016, RouterID: "10.0.0.16"} // transport in a DCI network
+	gwB = Identity{ASN: 4200000026, RouterID: "10.0.1.16"} // transport in the default VRF
 )
 
 func renderLab(t *testing.T, node string, id Identity) string {
@@ -32,7 +30,7 @@ func renderLab(t *testing.T, node string, id Identity) string {
 }
 
 func TestRenderGolden(t *testing.T) {
-	for node, id := range map[string]Identity{"fw-a": fwA, "fw-b": fwB, "gw-a": gwA, "gw-b": gwB} {
+	for node, id := range map[string]Identity{"gw-a": gwA, "gw-b": gwB} {
 		t.Run(node, func(t *testing.T) {
 			got := renderLab(t, node, id)
 			golden := "testdata/" + node + ".golden"
@@ -55,13 +53,13 @@ func TestRenderGolden(t *testing.T) {
 // Transport in the default VRF: no veth, no transport VRF instance, but the
 // locator announced by the default BGP instance.
 func TestRenderDefaultVRFTransport(t *testing.T) {
-	got := renderLab(t, "fw-b", fwB)
+	got := renderLab(t, "gw-b", gwB)
 	for _, s := range []string{"address-family ipv6 unicast\n  network fd00:dc1:b::/48", "ipv6 route fd00:dc1:b::/48 blackhole"} {
 		if !strings.Contains(got, s) {
 			t.Errorf("missing %q", s)
 		}
 	}
-	for _, s := range []string{"dci0", "dci1", "redistribute static", "\nvrf "} {
+	for _, s := range []string{"dci0", "dci1", "redistribute static", "\n ipv6 route"} {
 		if strings.Contains(got, s) {
 			t.Errorf("default-VRF transport must not contain %q", s)
 		}
@@ -71,7 +69,7 @@ func TestRenderDefaultVRFTransport(t *testing.T) {
 // Every rendered line must appear verbatim in FRR's running-config (captured
 // from the lab), otherwise drift detection would re-apply forever.
 func TestRenderMatchesRunningConfig(t *testing.T) {
-	for node, id := range map[string]Identity{"fw-a": fwA, "gw-a": gwA} {
+	for node, id := range map[string]Identity{"gw-a": gwA} {
 		running, err := os.ReadFile("testdata/" + node + ".running.conf")
 		if err != nil {
 			t.Fatal(err)
@@ -84,7 +82,7 @@ func TestRenderMatchesRunningConfig(t *testing.T) {
 }
 
 func TestRenderNeedsIdentity(t *testing.T) {
-	cfg, err := config.Load("../../lab/configs/fw-a/open-dci.yaml")
+	cfg, err := config.Load("../../lab/configs/gw-a/open-dci.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +157,7 @@ exit
 }
 
 func TestDiscoverBase(t *testing.T) {
-	running, err := os.ReadFile("testdata/fw-a.running.conf")
+	running, err := os.ReadFile("testdata/gw-a.running.conf")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,8 +165,8 @@ func TestDiscoverBase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if b.ASN != 4200000012 || b.RouterID != "10.0.0.12" {
-		t.Fatalf("got %+v", b.Identity)
+	if b.ASN != 4200000016 || b.RouterID != "10.0.0.16" || !b.AdvertiseAllVNI {
+		t.Fatalf("got %+v", b)
 	}
 	for _, vrf := range []string{"vrf3981", "vrf104100"} {
 		if !b.VRFInstances[vrf] {
@@ -180,15 +178,15 @@ func TestDiscoverBase(t *testing.T) {
 	}
 }
 
-// Provisioned networks (vni set) get the FRR VRF with the L3VNI and a full
-// BGP instance with EVPN type-5 advertisement; augmented ones don't.
+// Every network gets the FRR VRF with the L3VNI and a full BGP instance with
+// EVPN type-5 advertisement.
 func TestRenderProvisioned(t *testing.T) {
 	cfg, err := config.Parse([]byte(`
 gateway: {locator: "fd00:dc1:a2::/48", locatorBlock: "fd00:dc1::/32"}
 peers: [{address: "fd00:dc1:b2::1", asn: 4200000026}]
 networks:
   - {vrf: vrf3982, vni: 3982, routeTarget: "65535:1002"}
-  - {vrf: vrf1, routeTarget: "65535:1003"}
+  - {vrf: vrf3983, vni: 3983, routeTarget: "65535:1003"}
 `))
 	if err != nil {
 		t.Fatal(err)
@@ -197,24 +195,25 @@ networks:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(got, "vrf vrf3982\n vni 3982\nexit-vrf\n!\nsegment-routing\n") {
-		t.Errorf("provisioned vrf block must come first:\n%s", got)
+	if !strings.HasPrefix(got, "vrf vrf3982\n vni 3982\nexit-vrf\n!\nvrf vrf3983\n vni 3983\nexit-vrf\n!\nsegment-routing\n") {
+		t.Errorf("the vrf blocks must come first:\n%s", got)
 	}
 	for _, s := range []string{
 		"router bgp 4200000016 vrf vrf3982\n bgp router-id 10.0.0.16\n sid vpn per-vrf export auto\n",
-		" address-family l2vpn evpn\n  advertise ipv4 unicast\n  advertise ipv6 unicast\n exit-address-family\nexit\n!\nrouter bgp 4200000016 vrf vrf1\n sid vpn",
+		" address-family l2vpn evpn\n  advertise ipv4 unicast\n  advertise ipv6 unicast\n exit-address-family\nexit\n!\nrouter bgp 4200000016 vrf vrf3983\n bgp router-id 10.0.0.16\n sid vpn",
 	} {
 		if !strings.Contains(got, s) {
 			t.Errorf("missing %q in:\n%s", s, got)
 		}
 	}
-	if strings.Contains(got, "\nvrf vrf1\n") || strings.Count(got, "advertise ipv4 unicast") != 1 {
-		t.Errorf("augmented vrf must not be provisioned:\n%s", got)
+	if strings.Count(got, "advertise ipv4 unicast") != 2 {
+		t.Errorf("every vrf advertises its routes as type-5:\n%s", got)
 	}
 }
 
 // A provisioned VRF that is no longer wanted is removed as a whole, L3VNI
-// before BGP instance; augmented VRFs keep their headers.
+// before BGP instance; blocks of the base config (e.g. the transport VRF's)
+// keep their headers.
 func TestRemovalsProvisioned(t *testing.T) {
 	prev := Parse(`vrf vrf3982
  vni 3982
@@ -255,7 +254,7 @@ exit
 		}
 	}
 	if !strings.Contains(got, "router bgp 1 vrf t1\n no sid vpn per-vrf export auto\n") || strings.Contains(got, "no router bgp 1 vrf t1") {
-		t.Errorf("augmented vrf: only its leaves are removed:\n%s", got)
+		t.Errorf("base-config vrf: only its leaves are removed:\n%s", got)
 	}
 }
 

@@ -1,5 +1,6 @@
-// open-dci turns a metal-stack firewall (or any FRR-based EVPN VTEP) into a
-// gateway that stitches tenant VRFs across EVPN domains via SRv6 L3VPN.
+// open-dci turns an FRR box attached to an EVPN fabric (a dedicated gateway,
+// e.g. at the exit) into a gateway that stitches tenant VRFs across EVPN
+// domains via SRv6 L3VPN.
 package main
 
 import (

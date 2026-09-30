@@ -21,32 +21,28 @@ Common flags:
 | `-v` | off (debug logging) |
 
 `run` is meant to run permanently, as a service or as a sidecar next to FRR. It retries until
-FRR is up, and it re-applies its configuration whenever the base system (e.g.
-metal-networker running `frr-reload.py`) removes it. In the lab, that takes one interval.
+FRR is up, and it re-applies its configuration whenever the base system (e.g. a
+configuration management running `frr-reload.py`) removes it. In the lab, that takes one
+interval.
 
 ## Status
 
-`status` on the lab's fw-a:
+`status` on the lab's gw-a:
 
 ```
-gateway   fd00:dc1:a::1  AS 4200000012  router-id 10.0.0.12  locator fd00:dc1:a::/48
+gateway   fd00:dc1:a::1  AS 4200000016  router-id 10.0.0.16  locator fd00:dc1:a::/48
 frr       in sync
 transport vrf vrf104100  veth up: yes  path MTU: 9166 (need 9166)  local rule last: yes  vrf strict_mode: 1
 
 PEER           AS          STATE        UP        VPNv4 RCVD/SENT  VPNv6 RCVD/SENT
-fd00:dc1:b::1  4200000022  Established  00:01:27  2/4              2/4
+fd00:dc1:b::1  4200000026  Established  00:00:04  2/4              2/4
 
-VRF      RT          RD              SID                        L3VNI  LOCAL v4/v6  REMOTE v4/v6
-vrf3981  65535:1001  10.0.0.12:1001  fd00:dc1:a:1:: (End.DT46)  base   2/2          2/2
+VRF      RT          RD              SID                        L3VNI    LOCAL v4/v6  REMOTE v4/v6
+vrf3981  65535:1001  10.0.0.16:1001  fd00:dc1:a:1:: (End.DT46)  3981 Up  1/1          1/1
+vrf3982  65535:1002  10.0.0.16:1002  fd00:dc1:a:2:: (End.DT46)  3982 Up  1/1          1/1
 ```
 
-On a dedicated gateway (the lab's gw-a), the network is provisioned, and `L3VNI` shows its
-VNI with zebra's state:
-
-```
-VRF      RT          RD              SID                         L3VNI    LOCAL v4/v6  REMOTE v4/v6
-vrf3982  65535:1002  10.0.0.16:1002  fd00:dc1:a2:1:: (End.DT46)  3982 Up  1/1          1/1
-```
+`L3VNI` shows each network's VNI with zebra's state of it.
 
 - A gateway in default-VRF mode shows `transport default VRF` instead.
 - `OPEN_DCI_OUTPUT=json open-dci status` prints the same as JSON.
@@ -55,7 +51,7 @@ vrf3982  65535:1002  10.0.0.16:1002  fd00:dc1:a2:1:: (End.DT46)  3982 Up  1/1   
   - the kernel parts are in place
   - every peer is Established
   - every network has a SID
-  - every provisioned network's L3VNI is `Up`
+  - every network's L3VNI is `Up`
 
 ## What `apply` / `run` change
 
@@ -68,14 +64,14 @@ In DCI network mode additionally:
 - a veth pair `dci0` (default VRF, `fe80::1`) ↔ `dci1` (DCI VRF, `fe80::2`)
 - the DCI network's device chain raised to `transport.mtu`. The chain (VRF → SVI → bridge →
   VXLAN port) is discovered from the kernel, not from device names. This matters because
-  metal-stack's default of 9000 **silently black-holes** full-size SRv6 packets.
+  a base config with 9000 there **silently black-holes** full-size SRv6 packets.
 - the `lookup local` ip rule moved behind the l3mdev rule
 
 Why a veth and not route leaking: see the [Phase 0b findings](phase0b-findings.md).
 
 ### Provisioned networks
 
-For every network with a `vni`, open-dci creates and maintains:
+For every network, open-dci creates and maintains:
 - the VRF (table `table`, default the VNI)
 - a bridge `dcibr<vni>` in the VRF. It is not VLAN-aware and serves as the L3VNI's SVI, so
   no VLAN IDs are needed.
@@ -84,9 +80,9 @@ For every network with a `vni`, open-dci creates and maintains:
 
 Each device gets the interface alias `open-dci`. That is how open-dci recognizes its own
 devices: it only changes or deletes devices with this alias, and it refuses to provision a
-network whose VRF or devices exist without it (e.g. a firewall's tenant VRF).
+network whose VRF or devices exist without it.
 
-When a provisioned network is dropped from the config, open-dci removes it in the order FRR
+When a network is dropped from the config, open-dci removes it in the order FRR
 accepts:
 1. `no vni` in the FRR VRF
 2. `no router bgp <asn> vrf <name>`, once zebra has released the L3VNI (retried briefly)
@@ -95,17 +91,22 @@ accepts:
 
 ### FRR (via `vtysh`, never touching `frr.conf`)
 
-1. Discovers the ASN, router-id and per-VRF BGP instances from the running config.
+1. Discovers the ASN, router-id, `advertise-all-vni` and the transport VRF's BGP instance
+   from the running config.
 2. Renders its lines (`open-dci render`) in FRR's canonical form.
 3. Applies them only when some are missing from the running config.
 4. Removes lines it applied earlier that are no longer desired (state in `--state`). Block
-   headers of the base config are never removed. Provisioned VRFs are removed as a whole
+   headers of the base config are never removed. The tenant VRFs are removed as a whole
    (see above).
 
-The lines for the lab's fw-a in DCI network mode (full version:
-[`internal/frr/testdata/fw-a.golden`](../internal/frr/testdata/fw-a.golden)):
+The lines for the lab's gw-a in DCI network mode (full version:
+[`internal/frr/testdata/gw-a.golden`](../internal/frr/testdata/gw-a.golden)):
 
 ```
+vrf vrf3981                               (one per network)
+ vni 3981
+exit-vrf
+!
 segment-routing
  srv6
   encapsulation
@@ -115,8 +116,8 @@ segment-routing
    locator DCI
     prefix fd00:dc1:a::/48 block-len 32 node-len 16
    ...
-router bgp 4200000012
- neighbor fd00:dc1:b::1 remote-as 4200000022
+router bgp 4200000016
+ neighbor fd00:dc1:b::1 remote-as 4200000026
  neighbor fd00:dc1:b::1 ebgp-multihop 16
  neighbor fd00:dc1:b::1 update-source fd00:dc1:a::1
  neighbor fd00:dc1:b::1 capability extended-nexthop
@@ -127,15 +128,19 @@ router bgp 4200000012
  address-family ipv4 vpn                  (and ipv6 vpn)
   neighbor fd00:dc1:b::1 activate
 !
-router bgp 4200000012 vrf vrf3981
+router bgp 4200000016 vrf vrf3981          (one per network)
+ bgp router-id 10.0.0.16
  sid vpn per-vrf export auto
  address-family ipv4 unicast              (and ipv6 unicast)
-  rd vpn export 10.0.0.12:1001
+  rd vpn export 10.0.0.16:1001
   rt vpn both 65535:1001
   export vpn
   import vpn
+ address-family l2vpn evpn
+  advertise ipv4 unicast
+  advertise ipv6 unicast
 !
-router bgp 4200000012 vrf vrf104100
+router bgp 4200000016 vrf vrf104100
  address-family ipv6 unicast
   redistribute static
 !
@@ -145,11 +150,11 @@ vrf vrf104100
  ipv6 route fd00:dc1:a::/48 fe80::1 dci1       ! own locator → default VRF (SIDs, loopback)
 ```
 
-In default-VRF mode ([`fw-b.golden`](../internal/frr/testdata/fw-b.golden)), the DCI VRF
+In default-VRF mode ([`gw-b.golden`](../internal/frr/testdata/gw-b.golden)), the DCI VRF
 part and the veth routes are replaced by the locator announcement:
 
 ```
-router bgp 4200000022
+router bgp 4200000026
  address-family ipv6 unicast
   network fd00:dc1:b::/48
 !
@@ -158,11 +163,11 @@ ipv6 route fd00:dc1:b::/48 blackhole
 
 ## What the network sees
 
-A tenant packet on the fabric wire in partition A (DCI network mode):
+A tenant packet on the wire from gw-a to exit-a (DCI network mode, `make lab-capture`):
 
 ```
-IP 10.0.0.12 > 10.0.0.14.4789: VXLAN vni 104100                   ← fw-a → exit-a, DCI network
-  IP6 fd00:dc1:a::1 > fd00:dc1:b:1::: RT6 (type=4, segleft=0)      ← SRv6 to fw-b's End.DT46 SID
+IP 10.0.0.16 > 10.0.0.14.4789: VXLAN vni 104100                   ← gw-a → exit-a, DCI network
+  IP6 fd00:dc1:a::1 > fd00:dc1:b:1::: RT6 (type=4, segleft=0)      ← SRv6 to gw-b's End.DT46 SID
     IP 10.0.16.10 > 10.0.32.10: ICMP echo request                  ← tenant packet
 ```
 

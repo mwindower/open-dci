@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// open-dci only augments the firewall. When the base system rewrites its
+// open-dci adds to the gateway's base config. When the base system rewrites its
 // config, the gateway must come back on its own within a few reconcile
 // intervals (10 s in the lab).
 const heal = 60 * time.Second
@@ -19,41 +19,42 @@ func opendci(node string, args ...string) error {
 }
 
 func TestGatewaysHealthy(t *testing.T) {
-	for _, fw := range []string{"fw-a", "fw-b", "gw-a", "gw-b"} {
-		t.Run(fw, func(t *testing.T) {
+	for _, gw := range []string{"gw-a", "gw-b"} {
+		t.Run(gw, func(t *testing.T) {
 			// "status" exits non-zero unless drift-free, kernel in place, peers
 			// Established and a SID allocated for every network
-			waitFor(t, heal, func() error { return opendci(fw, "status") })
+			waitFor(t, heal, func() error { return opendci(gw, "status") })
 		})
 	}
 }
 
-// metal-networker renders frr.conf and applies it with frr-reload.py, which
-// removes every line that is not in the file, i.e. all of open-dci's.
+// A configuration management renders the base frr.conf and applies it with
+// frr-reload.py (as metal-networker does), which removes every line that is
+// not in the file, i.e. all of open-dci's, including the tenant VRFs' FRR part.
 func TestSelfHealAfterFRRReload(t *testing.T) {
 	// frr-reload.py may exit non-zero because of its own second pass ("Refusing
 	// to remove a non-existent route"); what matters is that it strips our lines
-	if _, err := lab.Exec("fw-a", "python3", "/usr/lib/frr/frr-reload.py", "--reload", "/etc/frr/frr.conf"); err != nil {
+	if _, err := lab.Exec("gw-a", "python3", "/usr/lib/frr/frr-reload.py", "--reload", "/etc/frr/frr.conf"); err != nil {
 		t.Logf("frr-reload (ignored): %v", err)
 	}
-	if out, _ := lab.Vtysh("fw-a", "show running-config"); containsAll(out, "locator DCI") {
+	if out, _ := lab.Vtysh("gw-a", "show running-config"); containsAll(out, "locator DCI") {
 		t.Log("note: open-dci re-applied before the check ran")
 	}
-	waitFor(t, heal, func() error { return opendci("fw-a", "status") })
-	waitFor(t, heal, func() error { return lab.Ping("m-a", b.machine4, 0) })
-	waitFor(t, heal, func() error { return lab.Ping("m-b", a.machine6, 0) })
+	waitFor(t, heal, func() error { return opendci("gw-a", "status") })
+	waitFor(t, heal, func() error { return lab.Ping("m-a", mB.v4, 0) })
+	waitFor(t, heal, func() error { return lab.Ping("m-b", mA.v6, 0) })
 }
 
-// Something (e.g. a networkd restart) resets the DCI devices to metal-stack's
+// Something (e.g. a networkd restart) resets the DCI devices to the base config's
 // 9000; open-dci must raise them again, or full-size packets are black-holed.
 func TestSelfHealMTU(t *testing.T) {
 	for _, dev := range []string{"bridge", "vni104100", "vlan104100"} {
-		if _, err := lab.Exec("fw-a", "ip", "link", "set", dev, "mtu", "9000"); err != nil {
+		if _, err := lab.Exec("gw-a", "ip", "link", "set", dev, "mtu", "9000"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	waitFor(t, heal, func() error { return opendci("fw-a", "status") })
-	waitFor(t, heal, func() error { return lab.Ping("m-a", b.machine6, 9000-48) })
+	waitFor(t, heal, func() error { return opendci("gw-a", "status") })
+	waitFor(t, heal, func() error { return lab.Ping("m-a", mB.v6, 9000-48) })
 }
 
 // Lines open-dci applied earlier but no longer wants (here: a peer dropped
@@ -62,18 +63,18 @@ func TestSelfHealMTU(t *testing.T) {
 // config and sharing the state file, has to clean it up.
 func TestRemovesStaleConfig(t *testing.T) {
 	const extra = "fd00:dc1:c::1"
-	if _, err := lab.Exec("fw-a", "sh", "-c",
+	if _, err := lab.Exec("gw-a", "sh", "-c",
 		`sed 's/^peers:$/peers:\n  - {address: "`+extra+`", asn: 4200000032}/' /etc/open-dci/config.yaml > /tmp/extra.yaml`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lab.Exec("fw-a", "/usr/local/bin/open-dci", "apply", "-c", "/tmp/extra.yaml"); err != nil {
+	if _, err := lab.Exec("gw-a", "/usr/local/bin/open-dci", "apply", "-c", "/tmp/extra.yaml"); err != nil {
 		t.Fatal(err)
 	}
-	if out, _ := lab.Vtysh("fw-a", "show running-config"); !containsAll(out, "neighbor "+extra+" remote-as") {
+	if out, _ := lab.Vtysh("gw-a", "show running-config"); !containsAll(out, "neighbor "+extra+" remote-as") {
 		t.Fatalf("extra peer was not applied:\n%s", out)
 	}
 	waitFor(t, heal, func() error {
-		out, err := lab.Vtysh("fw-a", "show running-config")
+		out, err := lab.Vtysh("gw-a", "show running-config")
 		if err != nil {
 			return err
 		}
@@ -82,6 +83,6 @@ func TestRemovesStaleConfig(t *testing.T) {
 		}
 		return nil
 	})
-	waitFor(t, heal, func() error { return opendci("fw-a", "status") })
-	waitFor(t, heal, func() error { return lab.Ping("m-a", b.machine4, 0) })
+	waitFor(t, heal, func() error { return opendci("gw-a", "status") })
+	waitFor(t, heal, func() error { return lab.Ping("m-a", mB.v4, 0) })
 }

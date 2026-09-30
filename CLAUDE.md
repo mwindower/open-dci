@@ -5,23 +5,22 @@ Guidance for AI agents working in this repository.
 ## What this is
 
 `open-dci` stitches tenant VRFs across independent EVPN/VXLAN domains (e.g. metal-stack
-partitions) using SRv6 L3VPN. It turns an FRR-based EVPN VTEP (a metal-stack firewall, or a
-dedicated gateway at the exit) into a DCI gateway: VPNv4/v6 with an End.DT46 SID per tenant
-VRF, SRv6 transport in a DCI network (EVPN VRF) or the default VRF. VNIs may differ per
-partition.
+partitions) using SRv6 L3VPN. It turns a dedicated FRR box at the exit of an EVPN fabric
+into a DCI gateway: it provisions the tenant VRFs as EVPN L3VNIs and exports them as
+VPNv4/v6 with an End.DT46 SID, SRv6 transport in a DCI network (EVPN VRF) or the default
+VRF. VNIs may differ per partition.
 
 Scope decisions, which should not be revisited without the user:
 - **L3 only** (type-5 ↔ VPNv4/v6). No L2 stretch.
 - **Stock FRR + Linux kernel.** No custom data plane.
-- **Augment the base system, own only what it provisions.** The tool never writes
+- **Dedicated gateways only.** The tenant's metal-stack firewall as gateway ("augmenting"
+  its tenant VRFs) was tried and dropped (history: `docs/phase0b-findings.md`).
+- **Add to the base config, own only what it provisions.** The tool never writes
   `frr.conf`. It adds lines to the running FRR via `vtysh` and re-adds them when the base
-  system reloads. Block headers of the base config are never removed. Tenant VRFs of the
-  base system (e.g. a firewall's) are only augmented. Only on gateways that are not the
-  tenant's VTEP (dedicated gateways, `networks[].vni`) does it create VRF, bridge and VXLAN
-  device, tagged with the interface alias `open-dci`, and it only ever changes or deletes
-  devices with that tag.
-- **Placement-agnostic core.** Firewall and dedicated gateway share all code paths except
-  augment vs. provision (see `docs/placement.md`).
+  system reloads. Block headers of the base config are never removed. It creates the
+  tenant VRFs (VRF, bridge, VXLAN device, `networks[].vni` required), tags them with the
+  interface alias `open-dci`, and only ever changes or deletes devices with that tag. The
+  transport VRF belongs to the base config.
 - **Keep the code independent of metal-stack.** Discover state from kernel and FRR (ASN,
   router-id, VNI device chain) instead of assuming metal-networker's names. metal-stack
   specifics belong in the lab and in docs.
@@ -30,7 +29,7 @@ Scope decisions, which should not be revisited without the user:
     Route leaking does not work (see `docs/phase0b-findings.md`).
   - unset: the default VRF; the locator is announced by the default BGP instance.
 
-  The lab runs fw-a in the first mode and fw-b, gw-a and gw-b in the second.
+  The lab runs gw-a in the first mode and gw-b in the second.
 - **Go** for everything, lab tooling included. No bash scripts.
 
 ## Layout
@@ -38,24 +37,22 @@ Scope decisions, which should not be revisited without the user:
 - `cmd/open-dci`: CLI. `internal/config`: schema and validation. `internal/frr`:
   `dci.conf.tpl`, parser, drift/removals, vtysh. `internal/kernel`: netlink.
   `internal/gateway`: reconcile, pre-flight, status.
-- `internal/frr/testdata/{fw,gw}-{a,b}.golden` are the rendered configs for the lab's gateways
-  (`go test ./internal/frr -update` rewrites it; review the diff!).
-  `testdata/{fw,gw}-a.running.conf` are real FRR running-configs: every rendered line must
-  appear in them verbatim, otherwise drift detection re-applies forever.
-- `lab/`: the containerlab lab (15 nodes, `clab-open-dci-<node>`).
-  - The firewalls start as plain metal-stack firewalls (`configs/fw-*/{node.yaml,frr.conf}`)
-    and run `open-dci run` as a sidecar with `configs/fw-*/open-dci.yaml`. fw-a uses a DCI
-    network; fw-b and partition B's fabric run the transport in the IPv6 underlay.
-  - Tenant 2 (m-a2, m-b2) is stitched by dedicated gateways gw-a/gw-b at the exits, which
-    provision its VRFs. gw-a's transport uplink is a routed port in exit-a's DCI VRF.
+- `internal/frr/testdata/gw-{a,b}.golden` are the rendered configs for the lab's gateways
+  (`go test ./internal/frr -update` rewrites them; review the diff!).
+  `testdata/gw-a.running.conf` is a real FRR running-config: every rendered line must
+  appear in it verbatim, otherwise drift detection re-applies forever.
+- `lab/`: the containerlab lab (13 nodes, `clab-open-dci-<node>`).
+  - The gateways gw-a/gw-b hang off the exits, start with a base config without tenant
+    VRFs (`configs/gw-*/{node.yaml,frr.conf}`) and run `open-dci run` as a sidecar with
+    `configs/gw-*/open-dci.yaml`. They provision two tenants (m-a/m-b, m-a2/m-b2). gw-a's
+    base config has the DCI network (vrf104100); gw-b uses partition B's IPv6 underlay.
   - `lab/cmd/labnode` is the container entrypoint (node.yaml → netlink → sidecars → FRR).
   - e2e tests: `lab/*_test.go`, build tag `e2e`.
 - `docs/`: findings of phases 0/0b (historical design reasoning), the lab's routing
-  tables, and `packet-flow-{firewall,gateway}.svg`: the README animations, one per placement.
-  They're plain SVG + SMIL, no scripts, because GitHub renders them via `<img>`. They are
-  generated by `docs/packetflow` (`make docs-svg`; a test fails if a committed SVG is stale).
-  Change the generator, not the SVGs, and check both colour schemes plus a few moments of
-  each animation in a browser.
+  tables, and `packet-flow.svg`: the README animation. It's plain SVG + SMIL, no scripts,
+  because GitHub renders it via `<img>`. It is generated by `docs/packetflow` (`make
+  docs-svg`; a test fails if the committed SVG is stale). Change the generator, not the SVG,
+  and check both colour schemes plus a few moments of the animation in a browser.
 - Publishing: `LICENSE` (MIT), `Dockerfile` (FRR base image for vtysh),
   `deploy/systemd/`, `.goreleaser.yaml` + `.github/workflows/release.yaml` (tag `v*`), and
   `.github/workflows/ci.yaml` (unit tests + the full lab on a GitHub runner; containerlab and
@@ -72,7 +69,7 @@ make lab-check       # e2e tests against the running lab
 make lab-redeploy    # down + up + check
 make lab-capture
 make lab-down
-docker exec clab-open-dci-fw-a open-dci status -c /etc/open-dci/config.yaml
+docker exec clab-open-dci-gw-a open-dci status -c /etc/open-dci/config.yaml
 docker exec clab-open-dci-<node> vtysh -c '<cmd>'
 ```
 
@@ -90,10 +87,10 @@ old binary until it is redeployed (or you `docker cp` for a quick look).
   VPN session must enter via a default-VRF interface (the veth).
 - The local `ip rule` at priority 0 makes default-VRF addresses "local" inside VRFs; it
   must go behind l3mdev.
-- metal-stack's 9000 B on bridge/vni/vlan black-holes full-size SRv6 packets without an
+- 9000 B on the DCI network's bridge/vni/vlan black-holes full-size SRv6 packets without an
   ICMP error; the DCI chain needs ≥ tenant MTU + 48.
-- The veth uses link-local next hops (`fe80::1`/`fe80::2`), so metal-networker's
-  `redistribute connected` in the DCI VRF doesn't announce a transfer net.
+- The veth uses link-local next hops (`fe80::1`/`fe80::2`), so a `redistribute connected`
+  in the base config's DCI VRF doesn't announce a transfer net.
 - FRR prints some lines differently from how they are typed (e.g. `func-bits 16` is dropped
   as the default). Render in canonical form; `TestRenderMatchesRunningConfig` guards this.
 - Removing a provisioned VRF only works in this order: `no vni`, then (after zebra has told
@@ -105,8 +102,8 @@ old binary until it is redeployed (or you `docker cp` for a quick look).
   `frr.Vtysh` checks both.
 - FRR daemons' stdout doesn't reach `docker logs`; open-dci's and labnode's output does.
 - Auto RTs with 4-byte ASNs use the low 16 bits of the ASN; import falls back to the VNI.
-- containerlab needs SUID-root; the agent has no sudo, so ask the user. Only touch
-  `clab-open-dci-*` containers (others, e.g. `clab-open-dci-sonic-simple-*`, are unrelated).
+- containerlab needs SUID-root (it is on this machine; the agent has no sudo). Only touch
+  `clab-open-dci-*` containers (others, e.g. `clab-srv6-dci-sonic-simple-*`, are unrelated).
 
 ## Conventions
 

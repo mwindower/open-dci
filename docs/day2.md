@@ -3,8 +3,7 @@
 What has to change where when the DCI grows, how the gateways' configs relate to each
 other, and how route targets can be allocated. Today every gateway has its own hand-written
 config, and nothing checks consistency *between* gateways. The last sections describe how
-this could be automated (see the [roadmap](development.md#roadmap)). Where the gateways
-should run at all: [placement.md](placement.md).
+this could be automated (see the [roadmap](development.md#roadmap)).
 
 ## Global and local parts of the config
 
@@ -24,7 +23,8 @@ should run at all: [placement.md](placement.md).
   - pick a free locator inside the block
   - choose the transport mode
   - list all other gateways as `peers`
-  - list its tenant VRFs with the RTs of the networks they join
+  - list its tenant VRFs with their VNIs in G's partition and the RTs of the networks they
+    join
 - **On every existing gateway:** add G to `peers`. This is the only change that touches all
   locations.
 - **Transport:**
@@ -37,10 +37,11 @@ should run at all: [placement.md](placement.md).
 
 ### A new stitched network
 
-- Its VRFs must already exist on the member gateways (metal-stack: one private network per
-  partition). Their VNIs may differ.
+- The tenant has a network (an L3VNI) in each partition (metal-stack: one private network
+  per partition). Its VNIs may differ.
 - Allocate one new route target (see below). On each member gateway, add
-  `{vrf, routeTarget}`.
+  `{vrf, vni, routeTarget}` with the tenant's VNI in that partition; open-dci provisions
+  the VRF.
 - No peer changes. Gateways that aren't members stay untouched.
 - The network's prefixes must be disjoint across partitions.
 
@@ -113,16 +114,11 @@ These options build on each other and are not implemented yet:
    Adding a partition becomes a single change in one file.
 2. **Route reflectors instead of the full mesh.** One or two VPNv4/v6 route reflectors
    accept every gateway with `bgp listen range <locatorBlock> peer-group GW`. Gateways peer
-   only with the reflectors, so a new gateway needs no change on any other gateway. This also
-   handles metal-stack firewall rolling updates, where a second firewall with its own ASN
-   and router-id exists for a while. Still to verify: FRR reflects SRv6 VPN routes
-   unchanged.
-3. **Config from metal-api** (Phase 4). The inventory or the per-firewall config is
-   generated from metal-api:
-   - labelled private networks (project, partition, VRF ID) become stitched networks and
-     their VRFs
-   - firewalls become gateways
+   only with the reflectors, so a new gateway needs no change on any other gateway. Still
+   to verify: FRR reflects SRv6 VPN routes unchanged.
+3. **Config from metal-api** (Phase 4). The inventory, or each gateway's config, is
+   generated from metal-api: labelled private networks (project, partition, VRF ID) become
+   stitched networks, and their VRF IDs the gateways' `vni`s.
 
-   Still open: where the locator's node ID comes from, and whether this runs in the
-   firewall-controller or in a central generator. It stays outside open-dci itself, which
-   keeps discovering everything else from kernel and FRR.
+   Still open: where this generator runs. It stays outside open-dci itself, which keeps
+   discovering everything else from kernel and FRR.

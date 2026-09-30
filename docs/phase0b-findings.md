@@ -1,11 +1,13 @@
 # Phase 0b findings: gateway on the metal-stack firewall, transit via a DCI network
 
-> Since Phase 1, the lab lives in `lab/`, and its firewalls start as plain metal-stack
-> firewalls. `open-dci` adds everything described here at runtime. One change against this
+> Historical. The gateway on the tenant's metal-stack firewall was implemented in Phase 1
+> and later **removed**: open-dci now runs only on dedicated gateways at the exits, which
+> provision the tenant VRFs themselves (trust domain, lifecycle; see the README's "Why this
+> design"). What still applies: the DCI network transport (veth, `ip rule`, MTU) described
+> here, which dedicated gateways use with `transport.vrf`. One change against this
 > document: the veth ends use fixed link-local addresses (`fe80::1` in main, `fe80::2` in
-> the DCI VRF) instead of `fd00:dc2::/64`. Otherwise the DCI VRF's `redistribute connected`
-> (from metal-networker's template) would announce the same transfer network from every
-> firewall into the DCI network.
+> the DCI VRF) instead of `fd00:dc2::/64`, so a `redistribute connected` in the DCI VRF
+> doesn't announce the same transfer network from every gateway.
 
 Lab: `lab/firewall/` (11 nodes, FRR 10.6.0). `make lab-redeploy LAB=firewall` passes all
 34 e2e checks from a clean deploy: control plane, kernel dataplane, v4/v6 in both

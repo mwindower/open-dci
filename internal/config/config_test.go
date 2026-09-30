@@ -14,7 +14,7 @@ transport:
 peers:
   - {address: "fd00:dc1:b::1", asn: 4200000022}
 networks:
-  - {vrf: vrf3981, routeTarget: "65535:1001"}
+  - {vrf: vrf3981, vni: 3981, routeTarget: "65535:1001"}
 `
 
 func TestDefaultsAndDerived(t *testing.T) {
@@ -50,9 +50,9 @@ func TestValidate(t *testing.T) {
 		{"tenant vrf is dci vrf", "vrf: vrf3981", "vrf: vrf104100", "used twice"},
 		{"mtu too small", "vrf: vrf104100\n", "vrf: vrf104100\n  mtu: 9000\n", "transport.mtu"},
 		{"unknown field", "vrf: vrf104100\n", "vrf: vrf104100\n  typo: 1\n", "unknown field"},
-		{"vni too large", "routeTarget: \"65535:1001\"}", "routeTarget: \"65535:1001\", vni: 16777216}", "networks[0].vni"},
-		{"table without vni", "routeTarget: \"65535:1001\"}", "routeTarget: \"65535:1001\", table: 5}", "only used with vni"},
-		{"reserved table", "routeTarget: \"65535:1001\"}", "routeTarget: \"65535:1001\", vni: 254}", "reserved"},
+		{"vni missing", "vni: 3981, ", "", "networks[0].vni: required"},
+		{"vni too large", "vni: 3981", "vni: 16777216", "networks[0].vni"},
+		{"reserved table", "vni: 3981", "vni: 254", "reserved"},
 		{"bad vtep", "locatorBlock: fd00:dc1::/32\n", "locatorBlock: fd00:dc1::/32\n  vtep: fd00::1\n", "gateway.vtep"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -79,7 +79,7 @@ func TestDefaultVRFTransport(t *testing.T) {
 }
 
 func TestLabConfigsValid(t *testing.T) {
-	for _, fw := range []string{"fw-a", "fw-b", "gw-a", "gw-b"} {
+	for _, fw := range []string{"gw-a", "gw-b"} {
 		if _, err := Load("../../lab/configs/" + fw + "/open-dci.yaml"); err != nil {
 			t.Errorf("%s: %v", fw, err)
 		}
@@ -87,23 +87,19 @@ func TestLabConfigsValid(t *testing.T) {
 }
 
 func TestProvisioned(t *testing.T) {
-	c, err := Parse([]byte(valid + `  - {vrf: vrf3982, vni: 3982, routeTarget: "65535:1002"}
-  - {vrf: vrf3983, vni: 3983, table: 2000, routeTarget: "65535:1003"}
+	c, err := Parse([]byte(valid + `  - {vrf: vrf3983, vni: 3983, table: 2000, routeTarget: "65535:1003"}
 `))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Networks[0].Provisioned() || !c.Networks[1].Provisioned() || !c.HasProvisioned() {
-		t.Fatalf("provisioned: %+v", c.Networks)
-	}
-	if c.Networks[1].Table != 3982 || c.Networks[2].Table != 2000 {
+	if c.Networks[0].Table != 3981 || c.Networks[1].Table != 2000 {
 		t.Fatalf("table defaults to the vni: %+v", c.Networks)
 	}
-	if c.Networks[1].BridgeName() != "dcibr3982" || c.Networks[1].VxlanName() != "dcivx3982" {
-		t.Fatalf("device names: %s %s", c.Networks[1].BridgeName(), c.Networks[1].VxlanName())
+	if c.Networks[0].BridgeName() != "dcibr3981" || c.Networks[0].VxlanName() != "dcivx3981" {
+		t.Fatalf("device names: %s %s", c.Networks[0].BridgeName(), c.Networks[0].VxlanName())
 	}
-	for _, dup := range []string{"vni: 3982, table: 7", "vni: 3984, table: 3982"} {
-		raw := valid + "  - {vrf: vrf3982, vni: 3982, routeTarget: \"65535:1002\"}\n  - {vrf: vrf3984, " + dup + ", routeTarget: \"65535:1004\"}\n"
+	for _, dup := range []string{"vni: 3981, table: 7", "vni: 3984, table: 3981"} {
+		raw := valid + "  - {vrf: vrf3984, " + dup + ", routeTarget: \"65535:1004\"}\n"
 		if _, err := Parse([]byte(raw)); err == nil || !strings.Contains(err.Error(), "used twice") {
 			t.Errorf("%s: want duplicate error, got %v", dup, err)
 		}

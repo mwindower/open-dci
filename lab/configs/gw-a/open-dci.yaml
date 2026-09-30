@@ -1,13 +1,18 @@
-# open-dci config of gw-a: a dedicated gateway at exit-a. Unlike the firewalls it
-# is not the tenant's VTEP, so open-dci provisions the tenant VRF itself as an
-# EVPN L3VNI (vni). The SRv6 transport runs in the default VRF.
+# open-dci config of gw-a: a dedicated gateway at exit-a. open-dci provisions
+# the tenant VRFs as EVPN L3VNIs (vni) and joins partition A's EVPN with them.
+# The SRv6 transport runs in the DCI network of the base config.
 gateway:
-  locator: fd00:dc1:a2::/48       # loopback fd00:dc1:a2::1, End.DT46 SIDs fd00:dc1:a2:<n>::
+  locator: fd00:dc1:a::/48        # loopback fd00:dc1:a::1, End.DT46 SIDs fd00:dc1:a:<n>::
   locatorBlock: fd00:dc1::/32     # all gateways' locators
   # vtep: 10.0.0.16               # VXLAN source, defaults to the BGP router-id
+transport:
+  vrf: vrf104100                  # DCI network (base config) carrying the SRv6 transport
 peers:
-  - {address: "fd00:dc1:b2::1", asn: 4200000026}   # gw-b
+  - {address: "fd00:dc1:b::1", asn: 4200000026}   # gw-b
 networks:
-  - vrf: vrf3982                  # created by open-dci (kernel table 3982 = the VNI)
-    vni: 3982                     # tenant 2's VNI in partition A (as on leaf-a)
-    routeTarget: "65535:1002"     # the stitched network's global identity
+  - vrf: vrf3981                  # created by open-dci (kernel table 3981 = the VNI)
+    vni: 3981                     # tenant 1's VNI in partition A (as on leaf-a)
+    routeTarget: "65535:1001"     # the stitched network's global identity
+  - vrf: vrf3982
+    vni: 3982                     # tenant 2's VNI in partition A
+    routeTarget: "65535:1002"

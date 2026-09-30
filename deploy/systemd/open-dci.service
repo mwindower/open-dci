@@ -1,4 +1,4 @@
-# open-dci as a host service next to FRR (e.g. on a metal-stack firewall).
+# open-dci as a host service next to FRR on a dedicated gateway.
 # Install: binary to /usr/local/bin, config to /etc/open-dci/config.yaml, then
 #   systemctl daemon-reload && systemctl enable --now open-dci
 [Unit]

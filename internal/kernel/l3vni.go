@@ -90,7 +90,7 @@ func ensureOwned(l netlink.Link, mtu int, check func(netlink.Link) error) (netli
 	case err != nil:
 		return nil, err
 	case got.Attrs().Alias != OwnerAlias:
-		return nil, fmt.Errorf("%s exists but was not created by open-dci (alias %q); remove the network's vni to augment it instead", name, got.Attrs().Alias)
+		return nil, fmt.Errorf("%s exists but was not created by open-dci (alias %q); open-dci only manages devices it created", name, got.Attrs().Alias)
 	case got.Type() != l.Type():
 		return nil, fmt.Errorf("%s is a %s, want %s", name, got.Type(), l.Type())
 	}

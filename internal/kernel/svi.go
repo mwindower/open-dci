@@ -6,9 +6,10 @@ import (
 	"github.com/vishvananda/netlink"
 )
 
-// VNIPath is the device chain that carries one EVPN L3VNI in metal-networker's
-// layout: VRF <- SVI (vlan device on the VLAN-aware bridge) <- bridge <- vxlan
-// port with the SVI's VLAN as PVID.
+// VNIPath is the device chain that carries one EVPN L3VNI of the base config in
+// the VLAN-aware bridge layout (as e.g. metal-networker sets it up): VRF <- SVI
+// (vlan device on the VLAN-aware bridge) <- bridge <- vxlan port with the SVI's
+// VLAN as PVID.
 type VNIPath struct {
 	VRF    string
 	SVI    netlink.Link

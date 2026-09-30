@@ -23,7 +23,7 @@ docs-svg:         ## regenerate the README animations docs/packet-flow-*.svg
 labnode:          ## static container entrypoint used by all lab nodes
 	CGO_ENABLED=0 go build -o $(BIN)/labnode ./lab/cmd/labnode
 
-lab-up: build labnode   ## deploy the lab; the firewalls run open-dci as sidecar
+lab-up: build labnode   ## deploy the lab; the gateways run open-dci as sidecar
 	$(CLAB) deploy -t $(TOPO)
 
 lab-check:        ## e2e tests against the running lab
@@ -34,9 +34,9 @@ lab-down:
 
 lab-redeploy: lab-down lab-up lab-check
 
-# SRv6 in VXLAN on the fabric (IPv6 routing header = next header 43)
-CAPTURE_NODE ?= spine-a
-CAPTURE_IF   ?= swp1
+# SRv6 in VXLAN between gw-a and exit-a (IPv6 routing header = next header 43)
+CAPTURE_NODE ?= exit-a
+CAPTURE_IF   ?= swp3
 PING_FROM    ?= m-a
 PING_TO      ?= 10.0.32.10
 lab-capture:

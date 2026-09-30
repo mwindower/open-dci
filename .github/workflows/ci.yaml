@@ -22,9 +22,8 @@ jobs:
       - run: go test ./...
       - run: make build labnode
 
-  # The containerlab lab as integration test: 15 FRR nodes, two partitions,
-  # both transport modes, open-dci as sidecar on the firewalls and on the
-  # dedicated gateways at the exits.
+  # The containerlab lab as integration test: 13 FRR nodes, two partitions,
+  # both transport modes, open-dci as sidecar on the gateways at the exits.
   e2e:
     runs-on: ubuntu-24.04
     needs: unit
@@ -54,10 +53,10 @@ jobs:
             docker exec "$c" vtysh -c 'show bgp vrf all summary' || true
             echo "::endgroup::"
           done
-          for fw in fw-a fw-b gw-a gw-b; do
-            echo "::group::$fw open-dci status / running-config"
-            docker exec clab-open-dci-$fw open-dci status -c /etc/open-dci/config.yaml || true
-            docker exec clab-open-dci-$fw vtysh -c 'show running-config' || true
+          for gw in gw-a gw-b; do
+            echo "::group::$gw open-dci status / running-config"
+            docker exec clab-open-dci-$gw open-dci status -c /etc/open-dci/config.yaml || true
+            docker exec clab-open-dci-$gw vtysh -c 'show running-config' || true
             echo "::endgroup::"
           done
       - name: Destroy lab

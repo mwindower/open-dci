@@ -92,8 +92,8 @@ func Missing(want, have []Line) []Line {
 }
 
 // ProvisionedVRFs returns the VRFs (name -> "vni N" line) whose L3VNI a
-// rendered open-dci snippet provisions. open-dci renders a "vrf X" block with
-// a "vni" line only for them; augmented VRFs never get one.
+// rendered open-dci snippet provisions: the "vrf X" blocks with a "vni" line
+// (the transport VRF's block never has one).
 func ProvisionedVRFs(lines []Line) map[string]string {
 	out := map[string]string{}
 	for _, l := range lines {
@@ -109,7 +109,7 @@ func ProvisionedVRFs(lines []Line) map[string]string {
 // Removals returns the commands that undo leaf lines which were applied
 // before (prev) but are no longer desired (want), rendered with their
 // contexts. Block headers are never removed: they may belong to the base
-// configuration (e.g. metal-networker's "router bgp X vrf Y").
+// configuration (e.g. the transport VRF's "router bgp X vrf Y").
 //
 // The exception are VRFs open-dci provisioned itself and no longer wants
 // (see ProvisionedVRFs). Their BGP instance is removed as a whole. FRR only

@@ -41,10 +41,10 @@ type PeerStatus struct {
 type NetworkStatus struct {
 	VRF, RouteTarget, RD string
 	SID, Behavior        string
-	// VNI and L3VNIState only for provisioned networks: the EVPN state of the
-	// L3VNI as zebra sees it ("Up" once VRF, bridge and VXLAN device are bound)
-	VNI        uint32 `json:",omitempty"`
-	L3VNIState string `json:",omitempty"`
+	// VNI and the EVPN state of the L3VNI as zebra sees it ("Up" once VRF,
+	// bridge and VXLAN device are bound)
+	VNI        uint32
+	L3VNIState string
 	// local = learned in this partition (exported), remote = imported via VPN
 	LocalV4, LocalV6, RemoteV4, RemoteV6 int
 }
@@ -99,9 +99,7 @@ func (g *Gateway) Status() (*Status, error) {
 				ns.SID, ns.Behavior = sid, s.Behavior
 			}
 		}
-		if n.Provisioned() {
-			ns.VNI, ns.L3VNIState = n.VNI, g.l3vniState(n.VNI, st.RouterID)
-		}
+		ns.VNI, ns.L3VNIState = n.VNI, g.l3vniState(n.VNI, st.RouterID)
 		ns.LocalV4, ns.RemoteV4 = g.countRoutes(n.VRF, "ipv4")
 		ns.LocalV6, ns.RemoteV6 = g.countRoutes(n.VRF, "ipv6")
 		st.Networks = append(st.Networks, ns)
@@ -109,7 +107,7 @@ func (g *Gateway) Status() (*Status, error) {
 	return st, nil
 }
 
-// l3vniState returns zebra's state of a provisioned L3VNI, or "missing" if
+// l3vniState returns zebra's state of an L3VNI, or "missing" if
 // its kernel devices are not in place.
 func (g *Gateway) l3vniState(vni uint32, routerID string) string {
 	for _, v := range l3vnis(g.Config, frr.Identity{RouterID: routerID}) {
@@ -186,7 +184,7 @@ func (s *Status) Healthy() bool {
 		}
 	}
 	for _, n := range s.Networks {
-		if n.SID == "" || (n.VNI != 0 && n.L3VNIState != "Up") {
+		if n.SID == "" || n.L3VNIState != "Up" {
 			return false
 		}
 	}

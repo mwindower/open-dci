@@ -1,8 +1,6 @@
 // Package config defines the open-dci gateway configuration: which tenant VRFs
-// are stitched via SRv6 L3VPN, where the SRv6 transport runs, and who the
-// remote gateways are. The gateway either augments tenant VRFs of an existing
-// EVPN VTEP (e.g. a metal-stack firewall) or, on a dedicated gateway,
-// provisions them as EVPN L3VNIs itself (networks[].vni).
+// the gateway provisions as EVPN L3VNIs and stitches via SRv6 L3VPN, where the
+// SRv6 transport runs, and who the remote gateways are.
 package config
 
 import (
@@ -45,14 +43,15 @@ type Gateway struct {
 	// NodeLength is the locator's node part in bits (default 16). Together
 	// with the block length it must equal the locator prefix length.
 	NodeLength int `json:"nodeLength,omitempty"`
-	// VTEP is the VXLAN source address of provisioned L3VNIs (networks with
-	// a vni). Optional: defaults to the BGP router-id.
+	// VTEP is the VXLAN source address of the provisioned L3VNIs. Optional:
+	// defaults to the BGP router-id.
 	VTEP string `json:"vtep,omitempty"`
 }
 
 type Transport struct {
-	// VRF is an existing EVPN VRF (a "DCI network", e.g. vrf104100) carrying
-	// the SRv6 transport through the fabric. open-dci joins it to the default
+	// VRF is an existing EVPN VRF of the gateway's base config (a "DCI
+	// network", e.g. vrf104100) carrying the SRv6 transport through the
+	// fabric. open-dci joins it to the default
 	// VRF with a veth pair. Empty: the transport is routed in the default VRF
 	// (the locator is announced to the default BGP instance's IPv6 peers).
 	VRF string `json:"vrf,omitempty"`
@@ -79,25 +78,20 @@ type Peer struct {
 }
 
 type Network struct {
-	// VRF is the existing tenant VRF, e.g. vrf3981.
+	// VRF is the tenant VRF open-dci creates, e.g. vrf3981.
 	VRF string `json:"vrf"`
 	// RouteTarget identifies the stitched network across all partitions,
 	// e.g. 65535:1001. It must be the same on all gateways of this network.
 	RouteTarget string `json:"routeTarget"`
 	// RD is the route distinguisher. Default: <routerID>:<RT local part>.
 	RD string `json:"rd,omitempty"`
-	// VNI makes open-dci provision the tenant VRF itself as an EVPN L3VNI
-	// with this VNI: VRF, bridge, VXLAN device and the FRR VRF with its BGP
-	// instance. For gateways that are not the tenant's VTEP, e.g. dedicated
-	// gateways at the exit. Empty: the VRF belongs to the base system (e.g.
-	// metal-networker) and open-dci only augments it.
-	VNI uint32 `json:"vni,omitempty"`
-	// Table is the kernel routing table of a provisioned VRF (default: the VNI).
+	// VNI is the tenant's L3VNI in this partition. open-dci provisions the
+	// VRF with it: VRF, bridge, VXLAN device and the FRR VRF with its BGP
+	// instance, which joins the partition's EVPN.
+	VNI uint32 `json:"vni"`
+	// Table is the kernel routing table of the VRF (default: the VNI).
 	Table uint32 `json:"table,omitempty"`
 }
-
-// Provisioned reports whether open-dci owns the network's VRF and L3VNI.
-func (n Network) Provisioned() bool { return n.VNI != 0 }
 
 // Device names of a provisioned L3VNI: a plain (not VLAN-aware) bridge per VNI
 // acts as the SVI, so no VLAN IDs have to be allocated.
@@ -152,20 +146,10 @@ func (c *Config) Default() {
 		c.Transport.VethPeer = "dci1"
 	}
 	for i := range c.Networks {
-		if n := &c.Networks[i]; n.Provisioned() && n.Table == 0 {
+		if n := &c.Networks[i]; n.Table == 0 {
 			n.Table = n.VNI
 		}
 	}
-}
-
-// HasProvisioned reports whether open-dci provisions at least one L3VNI.
-func (c *Config) HasProvisioned() bool {
-	for _, n := range c.Networks {
-		if n.Provisioned() {
-			return true
-		}
-	}
-	return false
 }
 
 var (
@@ -274,9 +258,8 @@ func (c *Config) Validate() error {
 			}
 		}
 		switch {
-		case !n.Provisioned() && n.Table != 0:
-			fail("networks[%d].table: only used with vni (a provisioned VRF)", i)
-		case !n.Provisioned():
+		case n.VNI == 0:
+			fail("networks[%d].vni: required", i)
 		case n.VNI > MaxVNI:
 			fail("networks[%d].vni: %d is larger than %d", i, n.VNI, MaxVNI)
 		case seenVNI[n.VNI]:

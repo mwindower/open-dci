@@ -1,7 +1,6 @@
-# leaf (stand-in for metal-stack SONiC leaf): tenant VRF with the machine port,
-# firewall on swp3, spine on swp31; tenant 2 (served by the dedicated gateway
-# gw-a at the exit) with its machine on swp2
-waitInterfaces: [swp1, swp2, swp3, swp31]
+# leaf (stand-in for a metal-stack SONiC leaf): one tenant VRF per machine port
+# (tenant 1 on swp1, tenant 2 on swp2), spine on swp31
+waitInterfaces: [swp1, swp2, swp31]
 loopback: [10.0.0.11/32]
 vrfs:
   - {name: vrf3981, table: 1000}
@@ -13,5 +12,4 @@ vnis:
 interfaces:
   - {name: swp1, vrf: vrf3981, mtu: 9000}
   - {name: swp2, vrf: vrf3982, mtu: 9000}
-  - {name: swp3, mtu: 9216}
   - {name: swp31, mtu: 9216}

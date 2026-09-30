@@ -69,11 +69,7 @@ func printStatus(w io.Writer, st *gateway.Status) {
 		} else {
 			sid += " (" + n.Behavior + ")"
 		}
-		l3vni := "base" // the base system's VRF, augmented
-		if n.VNI != 0 {
-			l3vni = fmt.Sprintf("%d %s", n.VNI, n.L3VNIState)
-		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%d/%d\t%d/%d\n", n.VRF, n.RouteTarget, n.RD, sid, l3vni, n.LocalV4, n.LocalV6, n.RemoteV4, n.RemoteV6)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d %s\t%d/%d\t%d/%d\n", n.VRF, n.RouteTarget, n.RD, sid, n.VNI, n.L3VNIState, n.LocalV4, n.LocalV6, n.RemoteV4, n.RemoteV6)
 	}
 	tw.Flush()
 }

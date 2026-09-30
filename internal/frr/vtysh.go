@@ -77,7 +77,7 @@ var (
 	reRouterID  = regexp.MustCompile(`^bgp router-id (\S+)$`)
 )
 
-// Base describes the existing (base) BGP configuration open-dci augments.
+// Base describes the existing (base) BGP configuration open-dci adds to.
 type Base struct {
 	Identity
 	VRFInstances map[string]bool // VRFs with a "router bgp <asn> vrf <name>" instance

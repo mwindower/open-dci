@@ -20,25 +20,25 @@ var sysctls = []struct{ key, value string }{
 	{"net.vrf.strict_mode", "1"},
 }
 
-// preflightKernel verifies that the VRFs open-dci augments exist. It never
-// creates them: they belong to the base system (e.g. metal-networker). Only
-// provisioned networks (with a vni) get their VRF from open-dci.
+// preflightKernel verifies that the transport VRF (if any) exists. It belongs
+// to the gateway's base config; open-dci only creates the tenant VRFs.
 func preflightKernel(cfg *config.Config) error {
-	for _, vrf := range baseVRFs(cfg) {
-		ok, err := kernel.IsVRF(vrf)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			return fmt.Errorf("vrf %s does not exist (open-dci only augments existing VRFs)", vrf)
-		}
+	if !cfg.Transport.InVRF() {
+		return nil
+	}
+	ok, err := kernel.IsVRF(cfg.Transport.VRF)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("transport vrf %s does not exist (it belongs to the base config)", cfg.Transport.VRF)
 	}
 	return nil
 }
 
 // ensureKernel applies the kernel part of the gateway. It is idempotent.
 //
-//   - provisioned L3VNIs: VRF, bridge and VXLAN device per network with a vni
+//   - provisioned L3VNIs: VRF, bridge and VXLAN device per network
 //   - sysctls: forwarding, seg6_enabled, net.vrf.strict_mode
 //   - the gateway loopback (<locator>::1) on lo
 //
@@ -47,7 +47,7 @@ func preflightKernel(cfg *config.Config) error {
 //   - the veth pair joining the default VRF and the transport VRF, with fixed
 //     link-local addresses used as static-route next hops
 //   - MTU of the transport VRF's device chain raised to cfg.Transport.MTU
-//     (metal-networker pins 9000, which black-holes full-size SRv6 packets)
+//     (a base config with 9000 black-holes full-size SRv6 packets)
 //   - the "lookup local" ip rule moved behind the l3mdev rule, so traffic to
 //     the loopback that arrives in the transport VRF crosses the veth instead
 //     of being answered inside the VRF
@@ -96,21 +96,6 @@ func ensureKernel(cfg *config.Config, id frr.Identity) error {
 	return kernel.MoveLocalRule()
 }
 
-// baseVRFs returns the VRFs the base system must provide: the augmented
-// tenant VRFs plus the transport VRF (if any).
-func baseVRFs(cfg *config.Config) []string {
-	var out []string
-	if cfg.Transport.InVRF() {
-		out = append(out, cfg.Transport.VRF)
-	}
-	for _, n := range cfg.Networks {
-		if !n.Provisioned() {
-			out = append(out, n.VRF)
-		}
-	}
-	return out
-}
-
 // l3vnis returns the L3VNIs open-dci provisions. The VTEP defaults to the
 // BGP router-id.
 func l3vnis(cfg *config.Config, id frr.Identity) []kernel.L3VNI {
@@ -120,13 +105,11 @@ func l3vnis(cfg *config.Config, id frr.Identity) []kernel.L3VNI {
 	}
 	var out []kernel.L3VNI
 	for _, n := range cfg.Networks {
-		if n.Provisioned() {
-			out = append(out, kernel.L3VNI{
-				VRF: n.VRF, Table: n.Table, VNI: n.VNI,
-				Bridge: n.BridgeName(), Vxlan: n.VxlanName(),
-				VTEP: net.ParseIP(vtep), MTU: cfg.Transport.TenantMTU,
-			})
-		}
+		out = append(out, kernel.L3VNI{
+			VRF: n.VRF, Table: n.Table, VNI: n.VNI,
+			Bridge: n.BridgeName(), Vxlan: n.VxlanName(),
+			VTEP: net.ParseIP(vtep), MTU: cfg.Transport.TenantMTU,
+		})
 	}
 	return out
 }

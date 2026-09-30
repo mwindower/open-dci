@@ -1,8 +1,7 @@
 # Installation
 
-`open-dci` runs on the gateway itself, next to FRR: on a metal-stack firewall, any other
-FRR-based EVPN VTEP, or a dedicated gateway at the exit (see [placement](placement.md)). Write the [configuration](configuration.md) first, then pick one of the
-following.
+`open-dci` runs on the gateway itself, next to FRR: a dedicated box at the exit of an EVPN
+fabric. Write the [configuration](configuration.md) first, then pick one of the following.
 
 ## Binary + systemd
 
@@ -36,16 +35,11 @@ Keep the image's FRR major version in line with the FRR it talks to.
 
 ## metal-stack
 
-On a metal-stack firewall, two things are needed besides open-dci itself:
-- **DCI network mode:** the DCI network is a metal-stack network attached to the firewall.
-  That creates its VRF and VNI (via metal-networker) and lets the leaves send its VNI to the
-  firewall (via metal-core's `match evpn vni` route-map).
+The gateway needs no metal-stack changes. It peers EVPN with the exit like any fabric
+member, and open-dci provisions the tenant VRFs from its config: each tenant's VNI in that
+partition (the VRF ID of the tenant's metal-stack private network) as `networks[].vni`.
+- The fabric must pass these VNIs' type-5 routes between leaves and gateway.
 - **The exits** route the DCI network, or the IPv6 underlay in default-VRF mode, to the
   other partitions.
 
-A **dedicated gateway at the exit** needs no metal-stack changes. It peers EVPN with the
-exit like any fabric member, and open-dci provisions the tenant VRFs from its config (the
-tenant's VNI per partition as `networks[].vni`). The fabric must pass these VNIs' type-5
-routes to the gateway.
-
-The [lab](../lab/README.md) reproduces both setups.
+The [lab](../lab/README.md) reproduces this setup.

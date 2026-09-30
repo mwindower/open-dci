@@ -1,6 +1,6 @@
 // labnode is the container entrypoint for lab nodes. It waits for containerlab
 // to plumb the data interfaces, applies the node's declarative kernel setup
-// (node.yaml) via netlink, starts sidecars (open-dci on the firewalls) and
+// (node.yaml) via netlink, starts sidecars (open-dci on the gateways) and
 // then execs FRR.
 package main
 
