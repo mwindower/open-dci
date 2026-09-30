@@ -25,8 +25,16 @@ whenever the base system reloads its config.
 > **Status: experimental.** Tested end to end in a [containerlab lab](lab/README.md) that
 > runs in CI. Redundancy and RT hygiene are next on the [roadmap](docs/development.md#roadmap).
 
+### Firewall mode
+
 <p align="center">
-  <img src="docs/packet-flow.svg" width="960" alt="Animated packet flow in two scenes. First, open-dci on the tenant's metal-stack firewalls: a tenant-1 packet from m-a travels over VXLAN with VNI 3981 to fw-a, SRv6-encapsulated in the DCI network (VNI 104100) to the exit, as plain IPv6 through the core and partition B's underlay to fw-b, which decapsulates it (End.DT46) and forwards it with partition B's VNI 4011 to m-b. Second, dedicated gateways at the exits: a tenant-2 packet from m-a2 travels over VXLAN with VNI 3982 through the fabric to gw-a, whose tenant VRF open-dci provisioned, SRv6 through exits and core to gw-b, and with VNI 4012 via leaf-b to m-b2.">
+  <img src="docs/packet-flow-firewall.svg" width="960" alt="Animated packet flow with open-dci on the tenant's metal-stack firewalls: a tenant packet from m-a travels over VXLAN with VNI 3981 to fw-a, SRv6-encapsulated in the DCI network (VNI 104100) to the exit, as plain IPv6 through the core and partition B's underlay to fw-b, which decapsulates it (End.DT46) and forwards it with partition B's VNI 4011 to m-b.">
+</p>
+
+### Gateway mode
+
+<p align="center">
+  <img src="docs/packet-flow-gateway.svg" width="960" alt="Animated packet flow with dedicated gateways at the exits: a tenant packet from m-a2 travels over VXLAN with VNI 3982 through the fabric to gw-a, whose tenant VRF open-dci provisioned, SRv6-encapsulated through exits and core to gw-b, which decapsulates it (End.DT46) and forwards it with partition B's VNI 4012 via leaf-b to m-b2.">
 </p>
 
 Between partitions only IPv6 is needed: exits and core see one locator prefix per gateway,

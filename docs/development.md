@@ -9,8 +9,8 @@ internal/frr/        rendering (dci.conf.tpl), running-config parser, drift/remo
 internal/kernel/     netlink primitives: veth, MTU path discovery, ip rules, sysctls
 internal/gateway/    reconcile loop, pre-flight checks, status
 lab/                 containerlab lab: topology, configs/<node>/, e2e tests, labnode
-docs/                user docs, feasibility findings, lab routing tables, packet-flow.svg
-docs/packetflow/     generator of packet-flow.svg (make docs-svg)
+docs/                user docs, feasibility findings, lab routing tables, packet-flow-*.svg
+docs/packetflow/     generator of the packet-flow animations (make docs-svg)
 deploy/systemd/      systemd unit
 Dockerfile           container image (FRR base for vtysh)
 .github/workflows/   ci (unit + lab e2e), release (goreleaser)
