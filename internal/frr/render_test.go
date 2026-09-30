@@ -185,8 +185,8 @@ func TestRenderProvisioned(t *testing.T) {
 gateway: {locator: "fd00:dc1:a2::/48", locatorBlock: "fd00:dc1::/32"}
 peers: [{address: "fd00:dc1:b2::1", asn: 4200000026}]
 networks:
-  - {vrf: vrf3982, vni: 3982, routeTarget: "65535:1002"}
-  - {vrf: vrf3983, vni: 3983, routeTarget: "65535:1003"}
+  - {vrf: vrf3982, vni: 3982, routeTarget: "65535:1002", prefixes: ["10.0.17.0/24 le 32"]}
+  - {vrf: vrf3983, vni: 3983, routeTarget: "65535:1003", prefixes: ["2001:db8:17::/48 le 128"]}
 `))
 	if err != nil {
 		t.Fatal(err)
@@ -266,5 +266,81 @@ func TestDiscoverAdvertiseAllVNI(t *testing.T) {
 	b, _ = DiscoverBase("router bgp 1\nexit\nrouter bgp 1 vrf x\n address-family l2vpn evpn\n  advertise-all-vni\n exit-address-family\nexit\n")
 	if b.AdvertiseAllVNI {
 		t.Fatal("advertise-all-vni of a vrf instance must not count")
+	}
+}
+
+// Only allowlisted prefixes are exported and imported; a family without
+// prefixes is denied completely; peers only deliver configured RTs.
+func TestRenderFilters(t *testing.T) {
+	cfg, err := config.Parse([]byte(`
+gateway: {locator: "fd00:dc1:a::/48", locatorBlock: "fd00:dc1::/32"}
+peers: [{address: "fd00:dc1:b::1", asn: 2, maxPrefixes: 500}]
+networks:
+  - {vrf: t1, vni: 1, routeTarget: "65535:1", prefixes: ["10.0.16.0/24 le 32", "10.0.32.0/24 le 32"]}
+  - {vrf: t2, vni: 2, routeTarget: "65535:1", prefixes: ["2001:db8::/32 ge 48 le 64"]}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := Render(cfg, Identity{ASN: 1, RouterID: "10.0.0.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []string{
+		"ip prefix-list DCI-t1-v4 seq 5 permit 10.0.16.0/24 le 32\nip prefix-list DCI-t1-v4 seq 10 permit 10.0.32.0/24 le 32\nroute-map DCI-t1-v4 permit 10\n match ip address prefix-list DCI-t1-v4\nexit\n",
+		"route-map DCI-t1-v6 deny 10\nexit\n",
+		"ipv6 prefix-list DCI-t2-v6 seq 5 permit 2001:db8::/32 ge 48 le 64\nroute-map DCI-t2-v6 permit 10\n match ipv6 address prefix-list DCI-t2-v6\nexit\n",
+		"route-map DCI-t2-v4 deny 10\nexit\n",
+		" address-family ipv4 unicast\n  rd vpn export 10.0.0.1:1\n  rt vpn both 65535:1\n  route-map vpn import DCI-t1-v4\n  route-map vpn export DCI-t1-v4\n",
+		"  neighbor fd00:dc1:b::1 activate\n  neighbor fd00:dc1:b::1 route-map DCI-PEER-IN in\n  neighbor fd00:dc1:b::1 maximum-prefix 500\n",
+		"bgp extcommunity-list standard DCI-RT seq 5 permit rt 65535:1\nroute-map DCI-PEER-IN permit 10\n match extcommunity DCI-RT\nexit\n",
+	} {
+		if !strings.Contains(got, s) {
+			t.Errorf("missing %q in:\n%s", s, got)
+		}
+	}
+	if strings.Count(got, "maximum-prefix 500") != 2 || strings.Contains(got, "seq 10 permit rt") {
+		t.Errorf("max-prefix per VPN family, and each RT once:\n%s", got)
+	}
+}
+
+// Filters of a dropped network go completely (route-maps as a whole, list
+// entries one by one); a changed prefix only swaps its entry.
+func TestRemovalsFilters(t *testing.T) {
+	prev := Parse(`ip prefix-list DCI-t1-v4 seq 5 permit 10.0.16.0/24 le 32
+route-map DCI-t1-v4 permit 10
+ match ip address prefix-list DCI-t1-v4
+exit
+route-map DCI-t1-v6 deny 10
+exit
+ip prefix-list DCI-t2-v4 seq 5 permit 10.0.17.0/24 le 32
+route-map DCI-t2-v4 permit 10
+ match ip address prefix-list DCI-t2-v4
+exit
+route-map BASE permit 10
+ match ip address prefix-list X
+exit
+`)
+	want := Parse(`ip prefix-list DCI-t2-v4 seq 5 permit 10.0.18.0/24 le 32
+route-map DCI-t2-v4 permit 10
+ match ip address prefix-list DCI-t2-v4
+exit
+`)
+	got := Removals(prev, want)
+	for _, s := range []string{
+		"no ip prefix-list DCI-t1-v4 seq 5 permit 10.0.16.0/24 le 32\n",
+		"no ip prefix-list DCI-t2-v4 seq 5 permit 10.0.17.0/24 le 32\n",
+		"no route-map DCI-t1-v4\n",
+		"no route-map DCI-t1-v6\n",
+		"route-map BASE permit 10\n no match ip address prefix-list X\n",
+	} {
+		if !strings.Contains(got, s) {
+			t.Errorf("removals lack %q:\n%s", s, got)
+		}
+	}
+	for _, s := range []string{"no route-map DCI-t2-v4", "no route-map BASE", "no match ip address prefix-list DCI-t1-v4", "no route-map DCI-t1-v6 deny 10"} {
+		if strings.Contains(got, s) {
+			t.Errorf("removals must not contain %q:\n%s", s, got)
+		}
 	}
 }

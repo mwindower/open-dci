@@ -39,6 +39,23 @@ mixed freely:
 | DCI network (`transport.vrf`) | in an EVPN VRF of the base config, over VXLAN through the fabric | gateways that reach the core only through the fabric |
 | Default VRF | in the IPv6 underlay | gateways whose uplink carries IPv6 towards the core |
 
+## What can be stitched
+
+| Scenario | Supported | In the lab |
+|---|---|---|
+| Different VNIs per partition (3981 ↔ 4011) | yes: VNIs are local, the route target is the identity | yes |
+| The same VNI in both partitions | yes, same as above | no |
+| Different ASNs per partition and per router, auto RTs on the EVPN side | yes | yes |
+| Several tenants per gateway, isolated from each other | yes, one VRF each | yes (2) |
+| Overlapping prefixes of *different* tenants | yes, by design (separate VRFs) | no |
+| One network across more than two partitions | yes, with a peer per remote gateway | no |
+| IPv4 and IPv6 | yes (End.DT46) | yes |
+| Mixed transport modes (DCI network ↔ default VRF) | yes | yes |
+| Overlapping prefixes *within* one stitched network | no: the partitions share one routing domain | – |
+| Explicit (non-auto) RTs on the leaves | not yet: the gateway's L3VNIs use auto RTs | – |
+| Redundant gateways per partition | not yet (Phase 2) | – |
+| L2: stretched subnets, MAC/IP routes | no | – |
+
 ## Why this design
 
 - **L3 only, SRv6 L3VPN between domains.** Stretching EVPN would couple the partitions'
@@ -63,21 +80,87 @@ mixed freely:
 
 The gateway's base FRR config peers EVPN with the fabric and has `advertise-all-vni` (see
 [Configuration](docs/configuration.md)). Each network is a tenant VRF that open-dci
-provisions with the tenant's VNI in this partition:
+provisions with the tenant's VNI in that partition. The lab's two gateways
+(`/etc/open-dci/config.yaml`, from `lab/configs/gw-*/open-dci.yaml`):
+
+<table>
+<tr>
+<th>gw-a: partition A, transport in a DCI network</th>
+<th>gw-b: partition B, transport in the default VRF</th>
+</tr>
+<tr>
+<td>
 
 ```yaml
-# /etc/open-dci/config.yaml
 gateway:
-  locator: fd00:dc1:a::/48        # this gateway; its loopback is fd00:dc1:a::1
-  locatorBlock: fd00:dc1::/32     # all gateways' locators
+  locator: fd00:dc1:a::/48      # own
+  locatorBlock: fd00:dc1::/32   # all gateways
 transport:
-  vrf: vrf104100                  # DCI network of the base config; omit for the default VRF
+  vrf: vrf104100                # DCI network
 peers:
-  - {address: "fd00:dc1:b::1", asn: 4200000026}
+  - address: "fd00:dc1:b::1"    # gw-b
+    asn: 4200000026
 networks:
-  - {vrf: vrf3981, vni: 3981, routeTarget: "65535:1001"}
-  - {vrf: vrf3982, vni: 3982, routeTarget: "65535:1002"}
+  - vrf: vrf3981
+    vni: 3981                   # tenant 1 in A
+    routeTarget: "65535:1001"
+    prefixes:                   # tenant 1, all partitions
+      - 10.0.16.0/24 le 32
+      - 10.0.32.0/24 le 32
+      - 2001:db8:16::/48 le 128
+      - 2001:db8:32::/48 le 128
+  - vrf: vrf3982
+    vni: 3982                   # tenant 2 in A
+    routeTarget: "65535:1002"
+    prefixes:                   # tenant 2, all partitions
+      - 10.0.17.0/24 le 32
+      - 10.0.33.0/24 le 32
+      - 2001:db8:17::/48 le 128
+      - 2001:db8:33::/48 le 128
 ```
+
+</td>
+<td>
+
+```yaml
+gateway:
+  locator: fd00:dc1:b::/48      # own
+  locatorBlock: fd00:dc1::/32   # same everywhere
+# no transport: default VRF (underlay)
+
+peers:
+  - address: "fd00:dc1:a::1"    # gw-a
+    asn: 4200000016
+networks:
+  - vrf: vrf4011
+    vni: 4011                   # tenant 1 in B
+    routeTarget: "65535:1001"   # = gw-a's
+    prefixes:                   # tenant 1, all partitions
+      - 10.0.16.0/24 le 32
+      - 10.0.32.0/24 le 32
+      - 2001:db8:16::/48 le 128
+      - 2001:db8:32::/48 le 128
+  - vrf: vrf4012
+    vni: 4012                   # tenant 2 in B
+    routeTarget: "65535:1002"   # = gw-a's
+    prefixes:                   # tenant 2, all partitions
+      - 10.0.17.0/24 le 32
+      - 10.0.33.0/24 le 32
+      - 2001:db8:17::/48 le 128
+      - 2001:db8:33::/48 le 128
+```
+
+</td>
+</tr>
+</table>
+
+What must match across gateways: the `locatorBlock`, each peer's address and ASN, and per
+stitched network the `routeTarget` and the `prefixes`. The VNIs are local to each partition.
+
+**Safety net.** Only prefixes in a network's `prefixes` leave or enter its VRF; anything
+else, including a default route unless listed, stays in its partition. Each peer only
+delivers routes with a configured route target, up to `maxPrefixes` (default 10000) per
+address family. See [Configuration](docs/configuration.md#networks).
 
 ```sh
 open-dci validate -c /etc/open-dci/config.yaml

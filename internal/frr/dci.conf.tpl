@@ -43,11 +43,15 @@ router bgp {{ .ASN }}
  address-family ipv4 vpn
 {{- range .Peers }}
   neighbor {{ .Address }} activate
+  neighbor {{ .Address }} route-map {{ peerIn }} in
+  neighbor {{ .Address }} maximum-prefix {{ .MaxPrefixes }}
 {{- end }}
  exit-address-family
  address-family ipv6 vpn
 {{- range .Peers }}
   neighbor {{ .Address }} activate
+  neighbor {{ .Address }} route-map {{ peerIn }} in
+  neighbor {{ .Address }} maximum-prefix {{ .MaxPrefixes }}
 {{- end }}
  exit-address-family
 {{- if not .TransportVRF }}
@@ -65,6 +69,8 @@ router bgp {{ $.ASN }} vrf {{ $n.VRF }}
  address-family {{ $af }} unicast
   rd vpn export {{ $.RD $n.VRF }}
   rt vpn both {{ $.RT $n.VRF }}
+  route-map vpn import {{ filter $n.VRF (familyOf $af) }}
+  route-map vpn export {{ filter $n.VRF (familyOf $af) }}
   export vpn
   import vpn
  exit-address-family
@@ -92,3 +98,26 @@ vrf {{ .TransportVRF }}
  ipv6 route {{ .Locator }} {{ .VethLL }} {{ .VethPeer }}
 exit-vrf
 {{- end }}
+!
+{{- /* Prefix allowlists: only these routes leave or enter a tenant VRF. */}}
+{{- range $f := .Filters }}
+{{- range $i, $e := $f.Entries }}
+{{ $f.PrefixList }} prefix-list {{ $f.Name }} seq {{ seq $i }} permit {{ $e }}
+{{- end }}
+{{- if $f.Entries }}
+route-map {{ $f.Name }} permit 10
+ match {{ $f.PrefixList }} address prefix-list {{ $f.Name }}
+exit
+{{- else }}
+route-map {{ $f.Name }} deny 10
+exit
+{{- end }}
+!
+{{- end }}
+{{- /* Peers: only routes with a configured route target are accepted. */}}
+{{- range $i, $rt := .RTs }}
+bgp extcommunity-list standard {{ rtList }} seq {{ seq $i }} permit rt {{ $rt }}
+{{- end }}
+route-map {{ peerIn }} permit 10
+ match extcommunity {{ rtList }}
+exit

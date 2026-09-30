@@ -32,9 +32,13 @@ router bgp 4200000016
  exit-address-family
  address-family ipv4 vpn
   neighbor fd00:dc1:b::1 activate
+  neighbor fd00:dc1:b::1 route-map DCI-PEER-IN in
+  neighbor fd00:dc1:b::1 maximum-prefix 10000
  exit-address-family
  address-family ipv6 vpn
   neighbor fd00:dc1:b::1 activate
+  neighbor fd00:dc1:b::1 route-map DCI-PEER-IN in
+  neighbor fd00:dc1:b::1 maximum-prefix 10000
  exit-address-family
 exit
 !
@@ -44,12 +48,16 @@ router bgp 4200000016 vrf vrf3981
  address-family ipv4 unicast
   rd vpn export 10.0.0.16:1001
   rt vpn both 65535:1001
+  route-map vpn import DCI-vrf3981-v4
+  route-map vpn export DCI-vrf3981-v4
   export vpn
   import vpn
  exit-address-family
  address-family ipv6 unicast
   rd vpn export 10.0.0.16:1001
   rt vpn both 65535:1001
+  route-map vpn import DCI-vrf3981-v6
+  route-map vpn export DCI-vrf3981-v6
   export vpn
   import vpn
  exit-address-family
@@ -65,12 +73,16 @@ router bgp 4200000016 vrf vrf3982
  address-family ipv4 unicast
   rd vpn export 10.0.0.16:1002
   rt vpn both 65535:1002
+  route-map vpn import DCI-vrf3982-v4
+  route-map vpn export DCI-vrf3982-v4
   export vpn
   import vpn
  exit-address-family
  address-family ipv6 unicast
   rd vpn export 10.0.0.16:1002
   rt vpn both 65535:1002
+  route-map vpn import DCI-vrf3982-v6
+  route-map vpn export DCI-vrf3982-v6
   export vpn
   import vpn
  exit-address-family
@@ -92,3 +104,33 @@ ipv6 route fd00:dc1:a::/48 blackhole
 vrf vrf104100
  ipv6 route fd00:dc1:a::/48 fe80::1 dci1
 exit-vrf
+!
+ip prefix-list DCI-vrf3981-v4 seq 5 permit 10.0.16.0/24 le 32
+ip prefix-list DCI-vrf3981-v4 seq 10 permit 10.0.32.0/24 le 32
+route-map DCI-vrf3981-v4 permit 10
+ match ip address prefix-list DCI-vrf3981-v4
+exit
+!
+ipv6 prefix-list DCI-vrf3981-v6 seq 5 permit 2001:db8:16::/48 le 128
+ipv6 prefix-list DCI-vrf3981-v6 seq 10 permit 2001:db8:32::/48 le 128
+route-map DCI-vrf3981-v6 permit 10
+ match ipv6 address prefix-list DCI-vrf3981-v6
+exit
+!
+ip prefix-list DCI-vrf3982-v4 seq 5 permit 10.0.17.0/24 le 32
+ip prefix-list DCI-vrf3982-v4 seq 10 permit 10.0.33.0/24 le 32
+route-map DCI-vrf3982-v4 permit 10
+ match ip address prefix-list DCI-vrf3982-v4
+exit
+!
+ipv6 prefix-list DCI-vrf3982-v6 seq 5 permit 2001:db8:17::/48 le 128
+ipv6 prefix-list DCI-vrf3982-v6 seq 10 permit 2001:db8:33::/48 le 128
+route-map DCI-vrf3982-v6 permit 10
+ match ipv6 address prefix-list DCI-vrf3982-v6
+exit
+!
+bgp extcommunity-list standard DCI-RT seq 5 permit rt 65535:1001
+bgp extcommunity-list standard DCI-RT seq 10 permit rt 65535:1002
+route-map DCI-PEER-IN permit 10
+ match extcommunity DCI-RT
+exit

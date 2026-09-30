@@ -96,8 +96,8 @@ accepts:
 2. Renders its lines (`open-dci render`) in FRR's canonical form.
 3. Applies them only when some are missing from the running config.
 4. Removes lines it applied earlier that are no longer desired (state in `--state`). Block
-   headers of the base config are never removed. The tenant VRFs are removed as a whole
-   (see above).
+   headers of the base config are never removed. The tenant VRFs, and open-dci's own
+   route-maps (all named `DCI-...`), are removed as a whole (see above).
 
 The lines for the lab's gw-a in DCI network mode (full version:
 [`internal/frr/testdata/gw-a.golden`](../internal/frr/testdata/gw-a.golden)):
@@ -127,6 +127,8 @@ router bgp 4200000016
   no neighbor fd00:dc1:b::1 activate
  address-family ipv4 vpn                  (and ipv6 vpn)
   neighbor fd00:dc1:b::1 activate
+  neighbor fd00:dc1:b::1 route-map DCI-PEER-IN in       ! only configured RTs
+  neighbor fd00:dc1:b::1 maximum-prefix 10000
 !
 router bgp 4200000016 vrf vrf3981          (one per network)
  bgp router-id 10.0.0.16
@@ -134,6 +136,8 @@ router bgp 4200000016 vrf vrf3981          (one per network)
  address-family ipv4 unicast              (and ipv6 unicast)
   rd vpn export 10.0.0.16:1001
   rt vpn both 65535:1001
+  route-map vpn import DCI-vrf3981-v4     (-v6 in ipv6 unicast)
+  route-map vpn export DCI-vrf3981-v4
   export vpn
   import vpn
  address-family l2vpn evpn
@@ -148,6 +152,16 @@ ipv6 route fd00:dc1::/32 fe80::2 dci0          ! remote locators → DCI VRF
 ipv6 route fd00:dc1:a::/48 blackhole
 vrf vrf104100
  ipv6 route fd00:dc1:a::/48 fe80::1 dci1       ! own locator → default VRF (SIDs, loopback)
+!
+ip prefix-list DCI-vrf3981-v4 seq 5 permit 10.0.16.0/24 le 32      ! networks[].prefixes
+ip prefix-list DCI-vrf3981-v4 seq 10 permit 10.0.32.0/24 le 32
+route-map DCI-vrf3981-v4 permit 10
+ match ip address prefix-list DCI-vrf3981-v4
+!                                               (IPv6 alike; a family without prefixes: "deny 10")
+bgp extcommunity-list standard DCI-RT seq 5 permit rt 65535:1001   ! one per route target
+bgp extcommunity-list standard DCI-RT seq 10 permit rt 65535:1002
+route-map DCI-PEER-IN permit 10
+ match extcommunity DCI-RT
 ```
 
 In default-VRF mode ([`gw-b.golden`](../internal/frr/testdata/gw-b.golden)), the DCI VRF

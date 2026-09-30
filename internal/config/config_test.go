@@ -14,7 +14,7 @@ transport:
 peers:
   - {address: "fd00:dc1:b::1", asn: 4200000022}
 networks:
-  - {vrf: vrf3981, vni: 3981, routeTarget: "65535:1001"}
+  - {vrf: vrf3981, vni: 3981, routeTarget: "65535:1001", prefixes: ["10.0.16.0/24 le 32"]}
 `
 
 func TestDefaultsAndDerived(t *testing.T) {
@@ -53,6 +53,14 @@ func TestValidate(t *testing.T) {
 		{"vni missing", "vni: 3981, ", "", "networks[0].vni: required"},
 		{"vni too large", "vni: 3981", "vni: 16777216", "networks[0].vni"},
 		{"reserved table", "vni: 3981", "vni: 254", "reserved"},
+		{"prefixes missing", `, prefixes: ["10.0.16.0/24 le 32"]`, "", "prefixes: at least one"},
+		{"prefix with host bits", "10.0.16.0/24 le 32", "10.0.16.1/24", "host bits"},
+		{"prefix le too small", "10.0.16.0/24 le 32", "10.0.16.0/24 le 24", "between 25 and 32"},
+		{"prefix le too large", "10.0.16.0/24 le 32", "10.0.16.0/24 le 33", "between 25 and 32"},
+		{"prefix ge above le", "10.0.16.0/24 le 32", "10.0.16.0/24 ge 30 le 28", "ge must not be larger"},
+		{"prefix garbage", "10.0.16.0/24 le 32", "10.0.16.0/24 lt 32", "want PREFIX"},
+		{"prefix listed twice", `"10.0.16.0/24 le 32"]`, `"10.0.16.0/24 le 32", "10.0.16.0/24  le 32"]`, "listed twice"},
+		{"max prefixes negative", "asn: 4200000022}", "asn: 4200000022, maxPrefixes: -1}", "maxPrefixes"},
 		{"bad vtep", "locatorBlock: fd00:dc1::/32\n", "locatorBlock: fd00:dc1::/32\n  vtep: fd00::1\n", "gateway.vtep"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -87,7 +95,7 @@ func TestLabConfigsValid(t *testing.T) {
 }
 
 func TestProvisioned(t *testing.T) {
-	c, err := Parse([]byte(valid + `  - {vrf: vrf3983, vni: 3983, table: 2000, routeTarget: "65535:1003"}
+	c, err := Parse([]byte(valid + `  - {vrf: vrf3983, vni: 3983, table: 2000, routeTarget: "65535:1003", prefixes: ["10.0.18.0/24"]}
 `))
 	if err != nil {
 		t.Fatal(err)
@@ -99,9 +107,36 @@ func TestProvisioned(t *testing.T) {
 		t.Fatalf("device names: %s %s", c.Networks[0].BridgeName(), c.Networks[0].VxlanName())
 	}
 	for _, dup := range []string{"vni: 3981, table: 7", "vni: 3984, table: 3981"} {
-		raw := valid + "  - {vrf: vrf3984, " + dup + ", routeTarget: \"65535:1004\"}\n"
+		raw := valid + "  - {vrf: vrf3984, " + dup + ", routeTarget: \"65535:1004\", prefixes: [10.0.19.0/24]}\n"
 		if _, err := Parse([]byte(raw)); err == nil || !strings.Contains(err.Error(), "used twice") {
 			t.Errorf("%s: want duplicate error, got %v", dup, err)
 		}
+	}
+}
+
+func TestPrefixRules(t *testing.T) {
+	n := Network{Prefixes: []string{"10.0.16.0/24 le 32", "0.0.0.0/0", "2001:db8::/32 ge 48 le 64"}}
+	v4, v6 := n.PrefixRules()
+	if len(v4) != 2 || len(v6) != 1 {
+		t.Fatalf("v4 %v v6 %v", v4, v6)
+	}
+	for got, want := range map[string]string{
+		v4[0].String(): "10.0.16.0/24 le 32",
+		v4[1].String(): "0.0.0.0/0", // a bare prefix matches exactly: only the default route
+		v6[0].String(): "2001:db8::/32 ge 48 le 64",
+	} {
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	}
+}
+
+func TestMaxPrefixesDefault(t *testing.T) {
+	c, err := Parse([]byte(valid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Peers[0].MaxPrefixes != DefaultMaxPrefixes {
+		t.Fatalf("maxPrefixes: %d", c.Peers[0].MaxPrefixes)
 	}
 }

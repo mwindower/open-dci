@@ -28,6 +28,24 @@ type Identity struct {
 	RouterID string
 }
 
+// Names of the route-maps and lists open-dci renders. They all start with
+// "DCI-", which marks them as open-dci's (see Removals).
+const (
+	PeerInRouteMap = "DCI-PEER-IN"
+	RTList         = "DCI-RT"
+)
+
+// FilterName is the prefix-list and route-map that filter a network's VPN
+// export and import per family ("v4", "v6").
+func FilterName(vrf, family string) string { return "DCI-" + vrf + "-" + family }
+
+// filter is one prefix-list plus route-map; no entries means deny all.
+type filter struct {
+	Name       string
+	PrefixList string // "ip" or "ipv6"
+	Entries    []string
+}
+
 type renderData struct {
 	*config.Config
 	ASN          uint32
@@ -44,6 +62,8 @@ type renderData struct {
 	VethLL       string
 	VethPeerLL   string
 	Networks     []config.Network
+	Filters      []filter
+	RTs          []string // all route targets, for the peers' inbound filter
 }
 
 func (d renderData) RD(vrf string) string {
@@ -88,8 +108,36 @@ func Render(cfg *config.Config, id Identity) (string, error) {
 		VethPeerLL:   VethPeerLL,
 		Networks:     cfg.Networks,
 	}
+	seenRT := map[string]bool{}
+	for _, n := range cfg.Networks {
+		v4, v6 := n.PrefixRules()
+		for _, f := range []struct {
+			family, list string
+			rules        []config.PrefixRule
+		}{{"v4", "ip", v4}, {"v6", "ipv6", v6}} {
+			flt := filter{Name: FilterName(n.VRF, f.family), PrefixList: f.list}
+			for _, r := range f.rules {
+				flt.Entries = append(flt.Entries, r.String())
+			}
+			d.Filters = append(d.Filters, flt)
+		}
+		if !seenRT[n.RouteTarget] {
+			seenRT[n.RouteTarget] = true
+			d.RTs = append(d.RTs, n.RouteTarget)
+		}
+	}
 	tpl, err := template.New("dci").Funcs(template.FuncMap{
-		"list": func(s ...string) []string { return s },
+		"list":   func(s ...string) []string { return s },
+		"seq":    func(i int) int { return (i + 1) * 5 },
+		"filter": FilterName,
+		"peerIn": func() string { return PeerInRouteMap },
+		"rtList": func() string { return RTList },
+		"familyOf": func(af string) string {
+			if af == "ipv4" {
+				return "v4"
+			}
+			return "v6"
+		},
 	}).Parse(dciTemplate)
 	if err != nil {
 		return "", err

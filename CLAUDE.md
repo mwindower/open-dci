@@ -96,6 +96,11 @@ old binary until it is redeployed (or you `docker cp` for a quick look).
 - Removing a provisioned VRF only works in this order: `no vni`, then (after zebra has told
   bgpd, asynchronously) `no router bgp X vrf Y`, then the kernel devices, then `no vrf Y`.
   `no vrf` of an active VRF fails and makes vtysh fail the whole batch.
+- In a `route-map vpn export`, `set extcommunity rt X` *adds* X to the export RTs, and
+  `set extcommunity none` drops the route entirely; only `rt vpn export` replaces them.
+  Route-map changes take effect after FRR's route-map delay timer (~5 s).
+- The sidecar reverts manual FRR changes to its own lines within one interval; e2e tests
+  that need a deliberately wrong state pause it (`pkill -STOP -f "open-dci run"`).
 - `frr-reload.py` may exit 1 from its own second pass ("Refusing to remove a non-existent
   route") even though it worked.
 - vtysh reports config errors on stdout (`% ...`), not always via the exit code;

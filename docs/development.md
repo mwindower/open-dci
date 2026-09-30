@@ -46,9 +46,10 @@ make lab-redeploy  # lab down + up + e2e tests (see lab/README.md)
 | 0 / 0b | Feasibility: [standalone](phase0-findings.md), [metal-stack firewall + DCI network](phase0b-findings.md) (the firewall placement was dropped later) | done |
 | 1 | Tool MVP: config, validation, kernel, FRR render/diff/apply/reconcile, status, golden + e2e tests | done |
 | 1.1 | Default-VRF transport, lab in CI, releases (binaries, image, systemd unit) | done |
-| 2 | Robustness: strip the DCI RT from EVPN exports, SoO, redundant gateways / multiple peers, BFD, pinned SIDs, nftables, prefix policies, validate RT/RD local-part widths per admin type and decouple the default RD from the RT | next |
+| 2 | Robustness: strip the DCI RT from EVPN exports, SoO, redundant gateways / multiple peers, BFD, pinned SIDs, nftables, validate RT/RD local-part widths per admin type and decouple the default RD from the RT | next |
 | 3 | Operations: Prometheus metrics, health endpoint | |
 | 3.1 | Multi-site config ([day2.md](day2.md)): shared inventory file, RTs derived from network names, VPN route reflectors with `bgp listen range` | |
+| 2.1 | Safety net: per-network prefix allowlists (`prefixes`), inbound route-target filter and `maxPrefixes` per peer | done |
 | 3.2 | Dedicated gateways: provisioned tenant L3VNIs (`networks[].vni`), lab gateways at the exits; the firewall placement removed | done |
 | 3.3 | Scale test for dedicated gateways: number of provisioned VRFs, packets per second | |
 | 4 | metal-stack integration: gateway configs (tenant VNIs, RTs) generated from metal-api | |

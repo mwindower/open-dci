@@ -75,6 +75,9 @@ type Peer struct {
 	// Address is the remote gateway's loopback (<its locator>::1).
 	Address string `json:"address"`
 	ASN     uint32 `json:"asn"`
+	// MaxPrefixes limits the VPN prefixes accepted from the peer per address
+	// family (default 10000). FRR tears the session down when it is exceeded.
+	MaxPrefixes int `json:"maxPrefixes,omitempty"`
 }
 
 type Network struct {
@@ -85,6 +88,12 @@ type Network struct {
 	RouteTarget string `json:"routeTarget"`
 	// RD is the route distinguisher. Default: <routerID>:<RT local part>.
 	RD string `json:"rd,omitempty"`
+	// Prefixes are the stitched network's address space, in FRR prefix-list
+	// syntax ("10.0.16.0/24 le 32"). Only matching routes are exported from
+	// and imported into the VRF; everything else, including a default route
+	// unless listed, stays in its partition. Like the route target, the list
+	// is the same on all gateways of the network.
+	Prefixes []string `json:"prefixes"`
 	// VNI is the tenant's L3VNI in this partition. open-dci provisions the
 	// VRF with it: VRF, bridge, VXLAN device and the FRR VRF with its BGP
 	// instance, which joins the partition's EVPN.
@@ -103,7 +112,9 @@ const (
 	DefaultMTU       = 9166
 	DefaultTenantMTU = 9000
 	LocatorName      = "DCI"
-	MaxVNI           = 1<<24 - 1
+	// DefaultMaxPrefixes is the default VPN prefix limit per peer and family.
+	DefaultMaxPrefixes = 10000
+	MaxVNI             = 1<<24 - 1
 )
 
 // Tables the kernel reserves (unspec, default, main, local).
@@ -150,6 +161,83 @@ func (c *Config) Default() {
 			n.Table = n.VNI
 		}
 	}
+	for i := range c.Peers {
+		if p := &c.Peers[i]; p.MaxPrefixes == 0 {
+			p.MaxPrefixes = DefaultMaxPrefixes
+		}
+	}
+}
+
+// PrefixRule is one entry of a network's prefix allowlist.
+type PrefixRule struct {
+	Prefix netip.Prefix
+	Ge, Le int // 0 = not set
+}
+
+// String renders the rule in FRR's canonical prefix-list form.
+func (r PrefixRule) String() string {
+	s := r.Prefix.String()
+	if r.Ge != 0 {
+		s += fmt.Sprintf(" ge %d", r.Ge)
+	}
+	if r.Le != 0 {
+		s += fmt.Sprintf(" le %d", r.Le)
+	}
+	return s
+}
+
+// ParsePrefixRule parses "PREFIX [ge N] [le N]": the prefix alone matches
+// exactly, ge/le extend it to more-specific prefixes as in FRR.
+func ParsePrefixRule(s string) (PrefixRule, error) {
+	f := strings.Fields(s)
+	if len(f) == 0 {
+		return PrefixRule{}, fmt.Errorf("empty prefix")
+	}
+	var r PrefixRule
+	p, err := netip.ParsePrefix(f[0])
+	if err != nil {
+		return r, fmt.Errorf("%q: %v", s, err)
+	}
+	if p != p.Masked() {
+		return r, fmt.Errorf("%q: host bits set", s)
+	}
+	r.Prefix = p
+	max := p.Addr().BitLen()
+	for rest := f[1:]; len(rest) > 0; rest = rest[2:] {
+		if len(rest) < 2 {
+			return r, fmt.Errorf("%q: want PREFIX [ge N] [le N]", s)
+		}
+		n, err := strconv.Atoi(rest[1])
+		if err != nil || n <= p.Bits() || n > max {
+			return r, fmt.Errorf("%q: %s must be between %d and %d", s, rest[0], p.Bits()+1, max)
+		}
+		switch {
+		case rest[0] == "ge" && r.Ge == 0 && r.Le == 0:
+			r.Ge = n
+		case rest[0] == "le" && r.Le == 0:
+			r.Le = n
+		default:
+			return r, fmt.Errorf("%q: want PREFIX [ge N] [le N]", s)
+		}
+	}
+	if r.Ge != 0 && r.Le != 0 && r.Ge > r.Le {
+		return r, fmt.Errorf("%q: ge must not be larger than le", s)
+	}
+	return r, nil
+}
+
+// PrefixRules returns the parsed allowlist, IPv4 and IPv6 separately. The
+// config must have been validated.
+func (n Network) PrefixRules() (v4, v6 []PrefixRule) {
+	for _, s := range n.Prefixes {
+		r, _ := ParsePrefixRule(s)
+		if r.Prefix.Addr().Is4() {
+			v4 = append(v4, r)
+		} else {
+			v6 = append(v6, r)
+		}
+	}
+	return v4, v6
 }
 
 var (
@@ -230,6 +318,9 @@ func (c *Config) Validate() error {
 		if p.ASN == 0 {
 			fail("peers[%d].asn: required", i)
 		}
+		if p.MaxPrefixes < 1 {
+			fail("peers[%d].maxPrefixes: must be at least 1", i)
+		}
 	}
 
 	if len(c.Networks) == 0 {
@@ -270,6 +361,20 @@ func (c *Config) Validate() error {
 			fail("networks[%d].table: %d used twice", i, n.Table)
 		}
 		seenVNI[n.VNI], seenTable[n.Table] = true, true
+		if len(n.Prefixes) == 0 {
+			fail("networks[%d].prefixes: at least one prefix is required (nothing is exchanged otherwise)", i)
+		}
+		seenRule := map[PrefixRule]bool{}
+		for j, s := range n.Prefixes {
+			r, err := ParsePrefixRule(s)
+			switch {
+			case err != nil:
+				fail("networks[%d].prefixes[%d]: %v", i, j, err)
+			case seenRule[r]:
+				fail("networks[%d].prefixes[%d]: %s listed twice", i, j, r)
+			}
+			seenRule[r] = true
+		}
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("invalid config:\n  - %s", strings.Join(errs, "\n  - "))

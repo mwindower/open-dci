@@ -135,8 +135,25 @@ func Removals(prev, want []Line) string {
 			}
 		}
 	}
+	// open-dci's own route-maps ("DCI-" prefix) that are no longer wanted are
+	// deleted as a whole, after everything that references them
+	wantedMaps := map[string]bool{}
+	for _, l := range want {
+		if name := ownRouteMap(l); name != "" {
+			wantedMaps[name] = true
+		}
+	}
+	var droppedMaps []string
 	for _, l := range prev {
-		if !l.Leaf || idx[l.Key()] {
+		if name := ownRouteMap(l); name != "" && !wantedMaps[name] {
+			if !slices.Contains(droppedMaps, name) {
+				droppedMaps = append(droppedMaps, name)
+			}
+			dropped[l.Text] = true
+		}
+	}
+	for _, l := range prev {
+		if !l.Leaf || idx[l.Key()] || dropped[l.Text] && len(l.Context) == 0 {
 			continue
 		}
 		if len(l.Context) > 0 && dropped[l.Context[0]] {
@@ -160,7 +177,20 @@ func Removals(prev, want []Line) string {
 			b.WriteString(strings.Repeat(" ", i) + exitFor(l.Context[i]) + "\n")
 		}
 	}
+	for _, name := range droppedMaps {
+		fmt.Fprintf(&b, "no route-map %s\n", name)
+	}
 	return b.String()
+}
+
+// ownRouteMap returns the name of an open-dci route-map ("route-map DCI-...
+// permit|deny N" at the top level), or "".
+func ownRouteMap(l Line) string {
+	f := strings.Fields(l.Text)
+	if len(l.Context) == 0 && len(f) == 4 && f[0] == "route-map" && strings.HasPrefix(f[1], "DCI-") {
+		return f[1]
+	}
+	return ""
 }
 
 // L3VNIRemovals returns the commands that release the L3VNIs of provisioned

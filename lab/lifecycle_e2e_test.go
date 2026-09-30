@@ -15,7 +15,7 @@ import (
 func TestRemovesProvisionedNetwork(t *testing.T) {
 	const node, vni = "gw-b", "4099"
 	if _, err := lab.Exec(node, "sh", "-c",
-		`cat /etc/open-dci/config.yaml > /tmp/extra.yaml && echo '  - {vrf: vrf`+vni+`, vni: `+vni+`, routeTarget: "65535:1099"}' >> /tmp/extra.yaml`); err != nil {
+		`cat /etc/open-dci/config.yaml > /tmp/extra.yaml && echo '  - {vrf: vrf`+vni+`, vni: `+vni+`, routeTarget: "65535:1099", prefixes: [10.99.99.0/24 le 32]}' >> /tmp/extra.yaml`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := lab.Exec(node, "/usr/local/bin/open-dci", "apply", "-c", "/tmp/extra.yaml"); err != nil {
@@ -58,7 +58,7 @@ func TestRefusesForeignVRF(t *testing.T) {
 	}
 	defer lab.Exec(node, "ip", "link", "del", "vrf"+vni)
 	if _, err := lab.Exec(node, "sh", "-c",
-		`cat /etc/open-dci/config.yaml > /tmp/foreign.yaml && echo '  - {vrf: vrf`+vni+`, vni: `+vni+`, routeTarget: "65535:1098"}' >> /tmp/foreign.yaml`); err != nil {
+		`cat /etc/open-dci/config.yaml > /tmp/foreign.yaml && echo '  - {vrf: vrf`+vni+`, vni: `+vni+`, routeTarget: "65535:1098", prefixes: [10.99.98.0/24 le 32]}' >> /tmp/foreign.yaml`); err != nil {
 		t.Fatal(err)
 	}
 	out, err := lab.Exec(node, "sh", "-c", "/usr/local/bin/open-dci apply -c /tmp/foreign.yaml --state /tmp/foreign.state 2>&1")
