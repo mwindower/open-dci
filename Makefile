@@ -4,7 +4,7 @@ BIN     := lab/bin
 CLAB    ?= containerlab   # CI: CLAB="sudo containerlab"
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: build test lint labnode lab-up lab-check lab-down lab-redeploy lab-capture
+.PHONY: build test lint labnode docs-svg lab-up lab-check lab-down lab-redeploy lab-capture
 
 build:            ## open-dci binary (static)
 	CGO_ENABLED=0 go build -trimpath -ldflags "-X main.version=$(VERSION)" -o $(BIN)/open-dci ./cmd/open-dci
@@ -16,6 +16,9 @@ lint:             ## what CI checks besides tests
 	@test -z "$$(gofmt -l .)" || { gofmt -l .; exit 1; }
 	go vet ./...
 	go vet -tags e2e ./lab/...
+
+docs-svg:         ## regenerate the README animation docs/packet-flow.svg
+	go run ./docs/packetflow
 
 labnode:          ## static container entrypoint used by all lab nodes
 	CGO_ENABLED=0 go build -o $(BIN)/labnode ./lab/cmd/labnode
