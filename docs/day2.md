@@ -3,7 +3,8 @@
 What has to change where when the DCI grows, how the gateways' configs relate to each
 other, and how route targets can be allocated. Today every gateway has its own hand-written
 config, and nothing checks consistency *between* gateways. The last sections describe how
-this could be automated (see the [roadmap](development.md#roadmap)).
+this could be automated (see the [roadmap](development.md#roadmap)). Where the gateways
+should run at all: [placement.md](placement.md).
 
 ## Global and local parts of the config
 

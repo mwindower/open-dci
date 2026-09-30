@@ -60,6 +60,7 @@ srv6-dci status   -c /etc/srv6-dci/config.yaml
 | [Configuration](docs/configuration.md) | all fields, validation, requirements per mode |
 | [Operation](docs/operation.md) | commands, `status`, what exactly is changed in kernel and FRR |
 | [Adding partitions and networks](docs/day2.md) | what changes where, route targets, keeping locations in sync |
+| [Gateway placement](docs/placement.md) | metal-stack firewall vs. dedicated gateways at the exit |
 | [Lab](lab/README.md) | the containerlab lab and its e2e tests |
 | [Routing tables](docs/lab-routing.md) | which node knows which routes, in both modes |
 | [Development](docs/development.md) | layout, tests, CI, releases, roadmap |

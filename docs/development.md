@@ -48,4 +48,5 @@ make lab-redeploy  # lab down + up + e2e tests (see lab/README.md)
 | 2 | Robustness: strip the DCI RT from EVPN exports, SoO, redundant firewalls / multiple peers, BFD, pinned SIDs, nftables, prefix policies, validate RT/RD local-part widths per admin type and decouple the default RD from the RT | next |
 | 3 | Operations: Prometheus metrics, health endpoint | |
 | 3.1 | Multi-site config ([day2.md](day2.md)): shared inventory file, RTs derived from network names, VPN route reflectors with `bgp listen range` | |
+| 3.2 | Dedicated gateways ([placement.md](placement.md)): gateway mode that provisions tenant L3VNIs, lab variant with a gateway pair at the exits, scale test | |
 | 4 | metal-stack integration: DCI network as metal-stack network, config from metal-api / firewall-controller | |
