@@ -171,6 +171,8 @@ old binary until it is redeployed (or you `docker cp` for a quick look).
 ## Conventions
 
 - Lab configs are readable reference configs; keep them commented.
+- Lab BGP sessions: unnumbered (`neighbor <if> interface`) wherever there is a direct link,
+  and always `remote-as external`. Only the exits' ladder (loopback multihop) is numbered.
 - New behaviour gets a unit test (config/render/parse) and, if it touches the data plane or
   FRR, an e2e test.
 - The README stays short (mascot, intro, "Why open-dci" with key properties and use cases,
