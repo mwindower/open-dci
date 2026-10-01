@@ -1,0 +1,19 @@
+# open-dci as a host service next to FRR on a dedicated gateway.
+# Install: binary to /usr/local/bin, config to /etc/open-dci/config.yaml, then
+#   systemctl daemon-reload && systemctl enable --now open-dci
+[Unit]
+Description=open-dci: stitch EVPN tenant VRFs via SRv6 L3VPN
+Documentation=https://github.com/mwindower/open-dci
+# open-dci talks to FRR via vtysh and retries until FRR is up; it re-applies
+# its configuration whenever the base system reloads FRR.
+After=network-online.target frr.service
+Wants=network-online.target frr.service
+
+[Service]
+ExecStart=/usr/local/bin/open-dci run -c /etc/open-dci/config.yaml
+Restart=always
+RestartSec=5
+StateDirectory=open-dci
+
+[Install]
+WantedBy=multi-user.target

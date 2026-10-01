@@ -1,0 +1,65 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - run: go vet ./... && go vet -tags e2e ./lab/... && go vet -tags 'e2e perf' ./lab/...
+      - run: go test ./...
+      - run: make build labnode
+
+  # The containerlab lab as integration test: 25 FRR nodes, three partitions,
+  # both transport modes, open-dci as sidecar on the redundant gateway pairs
+  # at the exits.
+  e2e:
+    runs-on: ubuntu-24.04
+    needs: unit
+    env:
+      CLAB_VERSION: "0.79.0"
+      FRR_IMAGE: quay.io/frrouting/frr:10.4.1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Install containerlab
+        run: bash -c "$(curl -sL https://get.containerlab.dev)" -- -v "$CLAB_VERSION"
+      - name: Kernel modules (VRF, VXLAN)
+        run: sudo modprobe -a vrf vxlan
+      - run: docker pull "$FRR_IMAGE"
+      - name: Deploy lab
+        run: make lab-up CLAB="sudo containerlab"
+      - name: e2e tests
+        run: make lab-check
+      - name: Diagnostics
+        if: failure()
+        run: |
+          for c in $(docker ps --format '{{.Names}}' | grep '^clab-open-dci-'); do
+            echo "::group::$c"
+            docker logs "$c" 2>&1 | tail -50
+            docker exec "$c" vtysh -c 'show bgp vrf all summary' || true
+            echo "::endgroup::"
+          done
+          for gw in gw-a1 gw-a2 gw-b1 gw-b2 gw-c1 gw-c2; do
+            echo "::group::$gw open-dci status / running-config"
+            docker exec clab-open-dci-$gw open-dci status -c /etc/open-dci/config.yaml || true
+            docker exec clab-open-dci-$gw vtysh -c 'show running-config' || true
+            echo "::endgroup::"
+          done
+      - name: Destroy lab
+        if: always()
+        run: make lab-down CLAB="sudo containerlab" || true

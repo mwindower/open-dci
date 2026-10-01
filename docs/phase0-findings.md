@@ -1,8 +1,8 @@
 # Phase 0 findings: EVPN type-5 ↔ SRv6 L3VPN stitching
 
 > Historical. The standalone-gateway lab (`lab/spike`) used here has been removed. It was
-> superseded by the firewall lab in `lab/` ([Phase 0b](phase0b-findings.md)), which covers
-> everything shown here. The findings, especially the RT behaviour, still apply.
+> superseded by the lab in `lab/`, which today runs dedicated gateways at the exits. The
+> findings, especially the RT behaviour, still apply.
 
 Lab: `lab/spike/` (containerlab, FRR 10.6.0, host kernel 7.2). Result of `make lab-check LAB=spike` (originally a bash check script, now `lab/spike/e2e_test.go`):
 **23/23 checks pass** from a clean deploy. This covers the control plane, the kernel

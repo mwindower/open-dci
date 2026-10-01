@@ -8,7 +8,7 @@ import (
 
 	"github.com/vishvananda/netlink"
 
-	"github.com/mwindower/srv6-dci/internal/kernel"
+	"github.com/mwindower/open-dci/internal/kernel"
 )
 
 var defaultSysctls = []struct{ key, value string }{
@@ -37,6 +37,10 @@ func Apply(s *Spec, log *slog.Logger) error {
 		if err := kernel.EnsureLink(&netlink.Vrf{LinkAttrs: netlink.LinkAttrs{Name: v.Name}, Table: v.Table}, 0); err != nil {
 			return fmt.Errorf("vrf %s: %w", v.Name, err)
 		}
+		// as ifupdown2 does: no fall-through from the VRF to the main table
+		if err := kernel.EnsureUnreachableDefault(v.Table); err != nil {
+			return fmt.Errorf("vrf %s: %w", v.Name, err)
+		}
 		log.Info("vrf", "name", v.Name, "table", v.Table)
 	}
 	if err := applyBridge(s, log); err != nil {
@@ -47,6 +51,14 @@ func Apply(s *Spec, log *slog.Logger) error {
 			return fmt.Errorf("interface %s: %w", i.Name, err)
 		}
 		log.Info("interface", "name", i.Name, "vrf", i.VRF, "mtu", i.MTU)
+	}
+	var rules []kernel.DropRule
+	for _, f := range s.EdgeFilter {
+		r, _ := f.DropRule() // validated
+		rules = append(rules, r)
+	}
+	if err := kernel.EnsureFilter("lab-edge", rules); err != nil {
+		return err
 	}
 	for k, v := range s.Sysctls {
 		if err := kernel.Sysctl(k, v); err != nil {

@@ -1,6 +1,7 @@
-// Package gateway turns an existing EVPN VTEP (a metal-stack firewall) into
-// an srv6-dci gateway: it applies the kernel part, adds the FRR configuration
-// and keeps both in place when the base system rewrites its own config.
+// Package gateway turns an FRR box attached to EVPN fabrics (a dedicated
+// gateway, e.g. at the exit) into an open-dci gateway: it provisions the tenant
+// VRFs as L3VNIs, applies the kernel part, adds the FRR configuration and keeps
+// both in place when the base system rewrites its own config.
 package gateway
 
 import (
@@ -13,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mwindower/srv6-dci/internal/config"
-	"github.com/mwindower/srv6-dci/internal/frr"
+	"github.com/mwindower/open-dci/internal/config"
+	"github.com/mwindower/open-dci/internal/frr"
 )
 
 // Gateway reconciles one gateway.
@@ -27,6 +28,15 @@ type Gateway struct {
 	StateFile string
 	// SkipKernel leaves the kernel alone (render/diff on a non-gateway host).
 	SkipKernel bool
+
+	lastReadiness Readiness
+	// gate is the debounced readiness Run renders with; nil outside Run
+	gate       *Readiness
+	lastLogged string
+	// withdrawn is set by Run while the gateway is unhealthy: it announces
+	// nothing, like a drained one
+	withdrawn *Health
+	routerID  string
 }
 
 // Result describes what a reconcile did.
@@ -34,7 +44,16 @@ type Result struct {
 	Identity frr.Identity
 	Missing  []frr.Line // desired lines that were not in the running config
 	Removed  string     // commands applied to remove stale lines
-	Applied  bool
+	// RemovedL3VNIs releases the L3VNIs of dropped provisioned VRFs; it is
+	// applied before Removed
+	RemovedL3VNIs string
+	Applied       bool
+	// Readiness decides whether locator and loopback are announced
+	Readiness Readiness
+	// Drained: announces nothing (open-dci drain)
+	Drained bool
+	// Withdrawn: Run found the gateway unhealthy and withdrew it (Reason)
+	Withdrawn Health
 }
 
 // Plan computes the desired FRR snippet and its difference to the running
@@ -48,6 +67,17 @@ func (g *Gateway) Plan() (desired string, res Result, err error) {
 	if err != nil {
 		return "", res, err
 	}
+	res.Readiness = g.readiness()
+	if g.gate != nil {
+		res.Readiness = *g.gate
+	}
+	id.Withhold = !res.Readiness.Ready
+	id.Drain = g.Drained() || g.withdrawn != nil
+	res.Drained = g.Drained()
+	if g.withdrawn != nil {
+		res.Withdrawn = *g.withdrawn
+	}
+	g.routerID = id.RouterID
 	res.Identity = id
 	desired, err = frr.Render(g.Config, id)
 	if err != nil {
@@ -56,26 +86,58 @@ func (g *Gateway) Plan() (desired string, res Result, err error) {
 	want := frr.Parse(desired)
 	res.Missing = frr.Missing(want, frr.Parse(running))
 	if prev, err := os.ReadFile(g.StateFile); err == nil {
+		res.RemovedL3VNIs = frr.L3VNIRemovals(frr.Parse(string(prev)), want)
 		res.Removed = frr.Removals(frr.Parse(string(prev)), want)
 	}
 	return desired, res, nil
 }
 
 // Reconcile brings kernel and FRR to the desired state once.
+//
+// Order: the kernel first (FRR needs the VRFs), then stale FRR lines are
+// removed, then devices of provisioned networks that are gone (FRR must have
+// released their L3VNI), then their FRR VRFs, and finally missing lines are
+// applied.
 func (g *Gateway) Reconcile() (Result, error) {
-	if !g.SkipKernel {
-		if err := ensureKernel(g.Config); err != nil {
-			return Result{}, fmt.Errorf("kernel: %w", err)
-		}
-	}
 	desired, res, err := g.Plan()
 	if err != nil {
 		return res, err
 	}
+	if !g.SkipKernel {
+		if err := ensureKernel(g.Config, res.Identity); err != nil {
+			return res, fmt.Errorf("kernel: %w", err)
+		}
+	}
+	if res.RemovedL3VNIs != "" {
+		g.Log.Info("releasing L3VNIs", "commands", res.RemovedL3VNIs)
+		if err := g.FRR.Apply(res.RemovedL3VNIs); err != nil {
+			return res, fmt.Errorf("release L3VNIs: %w", err)
+		}
+	}
 	if res.Removed != "" {
 		g.Log.Info("removing stale configuration", "commands", res.Removed)
-		if err := g.FRR.Apply(res.Removed); err != nil {
+		// zebra tells bgpd asynchronously that an L3VNI is gone; until then
+		// bgpd refuses to delete the VRF's instance
+		err := g.FRR.Apply(res.Removed)
+		for i := 0; err != nil && res.RemovedL3VNIs != "" && i < 10; i++ {
+			time.Sleep(500 * time.Millisecond)
+			err = g.FRR.Apply(res.Removed)
+		}
+		if err != nil {
 			return res, fmt.Errorf("remove stale configuration: %w", err)
+		}
+	}
+	if !g.SkipKernel {
+		vrfs, err := removeStaleL3VNIs(g.Config, res.Identity)
+		if err != nil {
+			return res, fmt.Errorf("kernel: %w", err)
+		}
+		for _, vrf := range vrfs {
+			g.Log.Info("removed provisioned vrf", "vrf", vrf)
+			// best effort: an inactive, empty FRR VRF is harmless
+			if err := g.FRR.Apply(frr.RemoveVRF(vrf)); err != nil {
+				g.Log.Warn("remove FRR vrf", "vrf", vrf, "err", err)
+			}
 		}
 	}
 	if len(res.Missing) > 0 {
@@ -109,9 +171,24 @@ func (g *Gateway) Reconcile() (Result, error) {
 
 // Run reconciles until ctx is done. Errors are logged and retried, which also
 // covers FRR not being up yet and the base system reloading its config.
+// Between reconciles it checks readiness every readyPoll. A change that holds
+// for readyDebounce polls triggers a reconcile at once: the locator is
+// withdrawn when the EVPN sessions go down and announced again once they have
+// converged. The debounce keeps a transient reading (e.g. while frr-reload
+// rewrites the config) from reconciling in the middle of someone else's
+// change.
 func (g *Gateway) Run(ctx context.Context, interval time.Duration) {
 	t := time.NewTicker(interval)
 	defer t.Stop()
+	poll := time.NewTicker(readyPoll)
+	defer poll.Stop()
+	healthTick := time.NewTicker(healthPoll)
+	defer healthTick.Stop()
+	defer func() { g.withdrawn = nil }()
+	bad, good := 0, 0
+	initial := g.readiness()
+	g.gate = &initial
+	defer func() { g.gate = nil }()
 	for {
 		res, err := g.Reconcile()
 		switch {
@@ -122,10 +199,60 @@ func (g *Gateway) Run(ctx context.Context, interval time.Duration) {
 		default:
 			g.Log.Debug("in sync")
 		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
+		if err == nil {
+			state, reason := "announced", ""
+			switch {
+			case res.Drained:
+				state = "drained"
+			case res.Withdrawn.Reason != "":
+				state, reason = "withdrawn", res.Withdrawn.Reason
+			case !res.Readiness.Ready:
+				state, reason = "withheld", res.Readiness.Reason
+			}
+			if state != g.lastLogged {
+				g.lastLogged = state
+				g.Log.Info("locator "+state, "reason", reason)
+			}
+		}
+		changed := 0
+	wait:
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				break wait
+			case <-healthTick.C:
+				if g.routerID == "" {
+					continue
+				}
+				h := g.checkHealth(g.routerID)
+				if h.OK {
+					bad, good = 0, good+1
+				} else {
+					bad, good = bad+1, 0
+				}
+				switch {
+				case g.withdrawn == nil && bad >= healthDown:
+					g.withdrawn = &h
+					break wait
+				case g.withdrawn != nil && good >= healthUp:
+					g.withdrawn = nil
+					break wait
+				case g.withdrawn != nil && !h.OK:
+					g.withdrawn = &h // keep the reason current
+				}
+			case <-poll.C:
+				r := g.readiness()
+				if r.Ready == g.gate.Ready {
+					changed = 0
+					continue
+				}
+				if changed++; changed >= readyDebounce {
+					g.gate = &r
+					break wait
+				}
+			}
 		}
 	}
 }
@@ -151,10 +278,11 @@ func (g *Gateway) identity(running string) (frr.Identity, error) {
 	if id.RouterID == "" {
 		return id, fmt.Errorf("the BGP instance has no explicit router-id; set gateway.routerID")
 	}
-	for _, vrf := range append([]string{g.Config.DCINetwork.VRF}, vrfNames(g.Config)...) {
-		if !base.VRFInstances[vrf] {
-			return id, fmt.Errorf("no BGP instance for vrf %s (router bgp %d vrf %s) in the running configuration", vrf, id.ASN, vrf)
-		}
+	if tv := g.Config.Transport.VRF; tv != "" && !base.VRFInstances[tv] {
+		return id, fmt.Errorf("no BGP instance for the transport vrf %s (router bgp %d vrf %s) in the running configuration", tv, id.ASN, tv)
+	}
+	if !base.AdvertiseAllVNI {
+		return id, fmt.Errorf("the provisioned L3VNIs need \"advertise-all-vni\" in the default BGP instance's l2vpn evpn address family")
 	}
 	return id, nil
 }

@@ -1,0 +1,133 @@
+vrf vrf4011
+ vni 4011
+exit-vrf
+!
+vrf vrf4012
+ vni 4012
+exit-vrf
+!
+segment-routing
+ srv6
+  encapsulation
+   source-address fd00:dc1:ff::b1
+  exit
+  locators
+   locator DCI
+    prefix fd00:dc1:b::/48 block-len 32 node-len 16
+   exit
+  exit
+ exit
+exit
+!
+router bgp 4200000026
+ bgp disable-ebgp-connected-route-check
+ segment-routing srv6
+  locator DCI
+ exit
+ address-family ipv4 vpn
+  neighbor uplink0 activate
+  neighbor uplink0 route-map DCI-PEER-IN in
+  neighbor uplink0 maximum-prefix 10000
+  neighbor uplink1 activate
+  neighbor uplink1 route-map DCI-PEER-IN in
+  neighbor uplink1 maximum-prefix 10000
+ exit-address-family
+ address-family ipv6 vpn
+  neighbor uplink0 activate
+  neighbor uplink0 route-map DCI-PEER-IN in
+  neighbor uplink0 maximum-prefix 10000
+  neighbor uplink1 activate
+  neighbor uplink1 route-map DCI-PEER-IN in
+  neighbor uplink1 maximum-prefix 10000
+ exit-address-family
+ address-family ipv6 unicast
+  network fd00:dc1:b::/48
+  network fd00:dc1:ff::b1/128
+ exit-address-family
+exit
+!
+router bgp 4200000026 vrf vrf4011
+ bgp router-id 10.0.1.16
+ sid vpn per-vrf export 4011
+ address-family ipv4 unicast
+  rd vpn export 10.0.1.16:1001
+  rt vpn both 65535:1001
+  route-map vpn import DCI-vrf4011-v4
+  route-map vpn export DCI-vrf4011-v4
+  export vpn
+  import vpn
+ exit-address-family
+ address-family ipv6 unicast
+  rd vpn export 10.0.1.16:1001
+  rt vpn both 65535:1001
+  route-map vpn import DCI-vrf4011-v6
+  route-map vpn export DCI-vrf4011-v6
+  export vpn
+  import vpn
+ exit-address-family
+ address-family l2vpn evpn
+  advertise ipv4 unicast
+  advertise ipv6 unicast
+ exit-address-family
+exit
+!
+router bgp 4200000026 vrf vrf4012
+ bgp router-id 10.0.1.16
+ sid vpn per-vrf export 4012
+ address-family ipv4 unicast
+  rd vpn export 10.0.1.16:1002
+  rt vpn both 65535:1002
+  route-map vpn import DCI-vrf4012-v4
+  route-map vpn export DCI-vrf4012-v4
+  export vpn
+  import vpn
+ exit-address-family
+ address-family ipv6 unicast
+  rd vpn export 10.0.1.16:1002
+  rt vpn both 65535:1002
+  route-map vpn import DCI-vrf4012-v6
+  route-map vpn export DCI-vrf4012-v6
+  export vpn
+  import vpn
+ exit-address-family
+ address-family l2vpn evpn
+  advertise ipv4 unicast
+  advertise ipv6 unicast
+ exit-address-family
+exit
+!
+ipv6 route fd00:dc1:b::/48 blackhole
+!
+ip prefix-list DCI-vrf4011-v4 seq 5 permit 10.0.16.0/24 le 32
+ip prefix-list DCI-vrf4011-v4 seq 10 permit 10.0.32.0/24 le 32
+ip prefix-list DCI-vrf4011-v4 seq 15 permit 10.0.48.0/24 le 32
+route-map DCI-vrf4011-v4 permit 10
+ match ip address prefix-list DCI-vrf4011-v4
+exit
+!
+ipv6 prefix-list DCI-vrf4011-v6 seq 5 permit 2001:db8:16::/48 le 128
+ipv6 prefix-list DCI-vrf4011-v6 seq 10 permit 2001:db8:32::/48 le 128
+ipv6 prefix-list DCI-vrf4011-v6 seq 15 permit 2001:db8:48::/48 le 128
+route-map DCI-vrf4011-v6 permit 10
+ match ipv6 address prefix-list DCI-vrf4011-v6
+exit
+!
+ip prefix-list DCI-vrf4012-v4 seq 5 permit 10.0.17.0/24 le 32
+ip prefix-list DCI-vrf4012-v4 seq 10 permit 10.0.33.0/24 le 32
+ip prefix-list DCI-vrf4012-v4 seq 15 permit 10.0.49.0/24 le 32
+route-map DCI-vrf4012-v4 permit 10
+ match ip address prefix-list DCI-vrf4012-v4
+exit
+!
+ipv6 prefix-list DCI-vrf4012-v6 seq 5 permit 2001:db8:17::/48 le 128
+ipv6 prefix-list DCI-vrf4012-v6 seq 10 permit 2001:db8:33::/48 le 128
+ipv6 prefix-list DCI-vrf4012-v6 seq 15 permit 2001:db8:49::/48 le 128
+route-map DCI-vrf4012-v6 permit 10
+ match ipv6 address prefix-list DCI-vrf4012-v6
+exit
+!
+bgp extcommunity-list standard DCI-RT seq 5 permit rt 65535:1001
+bgp extcommunity-list standard DCI-RT seq 10 permit rt 65535:1002
+route-map DCI-PEER-IN permit 10
+ match extcommunity DCI-RT
+exit

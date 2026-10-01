@@ -1,6 +1,6 @@
 // labnode is the container entrypoint for lab nodes. It waits for containerlab
 // to plumb the data interfaces, applies the node's declarative kernel setup
-// (node.yaml) via netlink, starts sidecars (srv6-dci on the firewalls) and
+// (node.yaml) via netlink, starts sidecars (open-dci on the gateways) and
 // then execs FRR.
 package main
 
@@ -11,7 +11,7 @@ import (
 	"os/exec"
 	"syscall"
 
-	"github.com/mwindower/srv6-dci/lab/internal/node"
+	"github.com/mwindower/open-dci/lab/internal/node"
 )
 
 func main() {

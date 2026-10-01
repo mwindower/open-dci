@@ -1,0 +1,29 @@
+# exit exit-a1 of partition A (one of two): terminates the DCI network (vrf104100)
+# and routes it into the inter-partition core on swp2. DCI devices sized for
+# SRv6 (9000 + 48 B). Both gateways hang off swp3/swp4 (their uplink0), like any
+# fabric peer, and reach the DCI network via EVPN; the shared locator arrives
+# from both (ECMP). The gateways' other uplink goes to exit-a2.
+# swp5: a default-VRF link to the core for the VPN sessions to the other exits
+# (VPN address families only exist in FRR's default instance; swp2 is in the
+# DCI VRF).
+waitInterfaces: [swp1, swp2, swp3, swp4, swp5]
+loopback: [10.0.0.14/32, "2001:db8:e::a1/128"]
+vrfs:
+  - {name: vrf104100, table: 1001}
+bridge: {name: bridge, mtu: 9166}
+vnis:
+  - {vni: 104100, vlan: 1001, vrf: vrf104100, local: 10.0.0.14, mtu: 9166}
+interfaces:
+  - {name: swp1, mtu: 9216}
+  - {name: swp2, vrf: vrf104100, mtu: 9216}
+  - {name: swp3, mtu: 9216}
+  - {name: swp4, mtu: 9216}
+  - {name: swp5, mtu: 9216}
+# edge of the SRv6 domain (in a real exit: switch ACLs). The locator block
+# fd00:dc1::/32 is only reachable from the gateways (swp3/swp4) and from the
+# core with a source inside the block; the fabric never reaches it.
+edgeFilter:
+  - {name: core-spoofed, iif: swp2, daddr: "fd00:dc1::/32", saddrNot: "fd00:dc1::/32"}
+  - {name: core-control-to-transport, iif: swp5, daddr: "fd00:dc1::/32"}
+  - {name: fabric-to-transport, iif: swp1, daddr: "fd00:dc1::/32"}
+  - {name: fabric-spoofed, iif: swp1, saddr: "fd00:dc1::/32"}

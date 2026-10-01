@@ -1,10 +1,13 @@
-// Package frr renders the configuration srv6-dci adds to an existing FRR
+// Package frr renders the configuration open-dci adds to an existing FRR
 // setup, compares it with FRR's running configuration, applies it via vtysh
 // and reads operational state.
 package frr
 
 import (
 	"bufio"
+	"fmt"
+	"maps"
+	"slices"
 	"strings"
 )
 
@@ -24,7 +27,7 @@ func (l Line) Key() string {
 }
 
 // Parse splits an FRR configuration (as written by "show running-config" or
-// rendered by srv6-dci) into lines with their context. Nesting is taken from
+// rendered by open-dci) into lines with their context. Nesting is taken from
 // the indentation, which FRR emits consistently. Separators ("!"), "exit*",
 // "end" and preamble lines are dropped.
 func Parse(cfg string) []Line {
@@ -88,10 +91,31 @@ func Missing(want, have []Line) []Line {
 	return out
 }
 
+// ProvisionedVRFs returns the VRFs (name -> "vni N" line) whose L3VNI a
+// rendered open-dci snippet provisions: the "vrf X" blocks with a "vni" line
+// (the transport VRF's block never has one).
+func ProvisionedVRFs(lines []Line) map[string]string {
+	out := map[string]string{}
+	for _, l := range lines {
+		if len(l.Context) == 1 && strings.HasPrefix(l.Text, "vni ") {
+			if vrf, ok := strings.CutPrefix(l.Context[0], "vrf "); ok {
+				out[vrf] = l.Text
+			}
+		}
+	}
+	return out
+}
+
 // Removals returns the commands that undo leaf lines which were applied
 // before (prev) but are no longer desired (want), rendered with their
 // contexts. Block headers are never removed: they may belong to the base
-// configuration (e.g. metal-networker's "router bgp X vrf Y").
+// configuration (e.g. the transport VRF's "router bgp X vrf Y").
+//
+// The exception are VRFs open-dci provisioned itself and no longer wants
+// (see ProvisionedVRFs). Their BGP instance is removed as a whole. FRR only
+// accepts that once zebra has released the L3VNI, which happens
+// asynchronously after L3VNIRemovals was applied; the FRR VRF itself can only
+// be deleted once the kernel VRF is gone (see RemoveVRF).
 func Removals(prev, want []Line) string {
 	idx := make(map[string]bool, len(want))
 	for _, l := range want {
@@ -100,9 +124,39 @@ func Removals(prev, want []Line) string {
 	var (
 		b       strings.Builder
 		removed = map[string]bool{} // neighbors deleted via "no neighbor X remote-as"
+		dropped = map[string]bool{} // top-level blocks removed as a whole
 	)
+	for vrf := range sortedMap(droppedVRFs(prev, want)) {
+		dropped["vrf "+vrf] = true
+		for _, l := range prev {
+			if len(l.Context) == 0 && strings.HasPrefix(l.Text, "router bgp ") && strings.HasSuffix(l.Text, " vrf "+vrf) {
+				fmt.Fprintf(&b, "no %s\n", l.Text)
+				dropped[l.Text] = true
+			}
+		}
+	}
+	// open-dci's own route-maps ("DCI-" prefix) that are no longer wanted are
+	// deleted as a whole, after everything that references them
+	wantedMaps := map[string]bool{}
+	for _, l := range want {
+		if name := ownRouteMap(l); name != "" {
+			wantedMaps[name] = true
+		}
+	}
+	var droppedMaps []string
 	for _, l := range prev {
-		if !l.Leaf || idx[l.Key()] {
+		if name := ownRouteMap(l); name != "" && !wantedMaps[name] {
+			if !slices.Contains(droppedMaps, name) {
+				droppedMaps = append(droppedMaps, name)
+			}
+			dropped[l.Text] = true
+		}
+	}
+	for _, l := range prev {
+		if !l.Leaf || idx[l.Key()] || dropped[l.Text] && len(l.Context) == 0 {
+			continue
+		}
+		if len(l.Context) > 0 && dropped[l.Context[0]] {
 			continue
 		}
 		if n := neighborOf(l.Text); n != "" && removed[n] {
@@ -123,7 +177,55 @@ func Removals(prev, want []Line) string {
 			b.WriteString(strings.Repeat(" ", i) + exitFor(l.Context[i]) + "\n")
 		}
 	}
+	for _, name := range droppedMaps {
+		fmt.Fprintf(&b, "no route-map %s\n", name)
+	}
 	return b.String()
+}
+
+// ownRouteMap returns the name of an open-dci route-map ("route-map DCI-...
+// permit|deny N" at the top level), or "".
+func ownRouteMap(l Line) string {
+	f := strings.Fields(l.Text)
+	if len(l.Context) == 0 && len(f) == 4 && f[0] == "route-map" && strings.HasPrefix(f[1], "DCI-") {
+		return f[1]
+	}
+	return ""
+}
+
+// L3VNIRemovals returns the commands that release the L3VNIs of provisioned
+// VRFs that are no longer wanted. They must be applied before Removals.
+func L3VNIRemovals(prev, want []Line) string {
+	var b strings.Builder
+	for vrf, vni := range sortedMap(droppedVRFs(prev, want)) {
+		fmt.Fprintf(&b, "vrf %s\n no %s\nexit-vrf\n", vrf, vni)
+	}
+	return b.String()
+}
+
+// droppedVRFs returns the provisioned VRFs (name -> "vni N") of prev that
+// want no longer provisions.
+func droppedVRFs(prev, want []Line) map[string]string {
+	out := ProvisionedVRFs(prev)
+	for vrf := range ProvisionedVRFs(want) {
+		delete(out, vrf)
+	}
+	return out
+}
+
+// RemoveVRF returns the command that deletes an FRR VRF. FRR refuses it
+// while the kernel VRF exists, so it is applied after the VRF was deleted.
+func RemoveVRF(vrf string) string { return "no vrf " + vrf + "\n" }
+
+// sortedMap returns an iterator over m in key order, for stable output.
+func sortedMap(m map[string]string) func(func(string, string) bool) {
+	return func(yield func(string, string) bool) {
+		for _, k := range slices.Sorted(maps.Keys(m)) {
+			if !yield(k, m[k]) {
+				return
+			}
+		}
+	}
 }
 
 func neighborOf(text string) string {

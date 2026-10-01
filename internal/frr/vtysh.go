@@ -56,7 +56,7 @@ func (v Vtysh) RunningConfig() (string, error) { return v.Show("show running-con
 // Apply feeds configuration commands to FRR (incrementally, like a config
 // file read at startup). It does not touch /etc/frr/frr.conf.
 func (v Vtysh) Apply(cfg string) error {
-	f, err := os.CreateTemp("", "srv6-dci-*.conf")
+	f, err := os.CreateTemp("", "open-dci-*.conf")
 	if err != nil {
 		return err
 	}
@@ -77,10 +77,13 @@ var (
 	reRouterID  = regexp.MustCompile(`^bgp router-id (\S+)$`)
 )
 
-// Base describes the existing (base) BGP configuration srv6-dci augments.
+// Base describes the existing (base) BGP configuration open-dci adds to.
 type Base struct {
 	Identity
 	VRFInstances map[string]bool // VRFs with a "router bgp <asn> vrf <name>" instance
+	// AdvertiseAllVNI: the default instance has "advertise-all-vni", which
+	// provisioned L3VNIs need to be announced as EVPN type-5.
+	AdvertiseAllVNI bool
 }
 
 // DiscoverBase extracts the default BGP instance's ASN and router-id and the
@@ -102,6 +105,9 @@ func DiscoverBase(running string) (Base, error) {
 			if m := reRouterID.FindStringSubmatch(l.Text); m != nil {
 				b.RouterID = m[1]
 			}
+		}
+		if len(l.Context) == 2 && reRouterBGP.MatchString(l.Context[0]) && l.Context[1] == "address-family l2vpn evpn" && l.Text == "advertise-all-vni" {
+			b.AdvertiseAllVNI = true
 		}
 	}
 	if b.ASN == 0 {

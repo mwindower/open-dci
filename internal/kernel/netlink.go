@@ -1,4 +1,4 @@
-// Package kernel holds the netlink primitives used by srv6-dci (and by the lab
+// Package kernel holds the netlink primitives used by open-dci (and by the lab
 // tooling). All functions are idempotent: they create what is missing and leave
 // what already matches alone.
 package kernel

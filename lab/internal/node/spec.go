@@ -4,15 +4,17 @@
 //
 // The device layout follows metal-networker's convention: one VLAN-aware
 // bridge ("bridge"), and per EVPN network a vxlan device "vni<VNI>", an SVI
-// "vlan<VNI>" and a VRF "vrf<VNI>". On the firewalls, node.yaml deliberately
-// reproduces only what metal-stack itself sets up; the DCI parts are added by
-// srv6-dci at runtime (see Sidecars).
+// "vlan<VNI>" and a VRF "vrf<VNI>". On the gateways, node.yaml holds only the
+// operator's base setup; the tenant VRFs and DCI parts are added by open-dci at
+// runtime (see Sidecars).
 package node
 
 import (
 	"fmt"
 	"net/netip"
 	"os"
+
+	"github.com/mwindower/open-dci/internal/kernel"
 
 	"sigs.k8s.io/yaml"
 )
@@ -33,8 +35,11 @@ type Spec struct {
 	VNIs []VNI `json:"vnis,omitempty"`
 	// Interfaces are existing (containerlab) interfaces to configure.
 	Interfaces []Interface `json:"interfaces,omitempty"`
+	// EdgeFilter drops IPv6 packets as they arrive (nftables prerouting),
+	// e.g. the ACLs of an exit at the edge of the SRv6 domain.
+	EdgeFilter []FilterRule `json:"edgeFilter,omitempty"`
 	// Sidecars are commands started in the background right before FRR,
-	// e.g. srv6-dci on the firewalls. Their output goes to the container log.
+	// e.g. open-dci on the gateways. Their output goes to the container log.
 	Sidecars [][]string `json:"sidecars,omitempty"`
 }
 
@@ -59,6 +64,15 @@ type VNI struct {
 
 func (v VNI) VxlanName() string { return fmt.Sprintf("vni%d", v.VNI) }
 func (v VNI) SVIName() string   { return fmt.Sprintf("vlan%d", v.VNI) }
+
+// FilterRule drops packets that match all given fields.
+type FilterRule struct {
+	Name     string `json:"name"`
+	Iif      string `json:"iif,omitempty"`      // incoming interface
+	Daddr    string `json:"daddr,omitempty"`    // destination inside
+	Saddr    string `json:"saddr,omitempty"`    // source inside
+	SaddrNot string `json:"saddrNot,omitempty"` // source outside
+}
 
 type Interface struct {
 	Name      string   `json:"name"`
@@ -112,6 +126,11 @@ func (s *Spec) Validate() error {
 			return fmt.Errorf("interface %s: %w", i.Name, err)
 		}
 	}
+	for _, f := range s.EdgeFilter {
+		if _, err := f.DropRule(); err != nil {
+			return fmt.Errorf("edgeFilter %s: %w", f.Name, err)
+		}
+	}
 	for _, c := range s.Sidecars {
 		if len(c) == 0 {
 			return fmt.Errorf("empty sidecar command")
@@ -127,4 +146,26 @@ func prefixes(ps []string) error {
 		}
 	}
 	return nil
+}
+
+// DropRule converts the rule for the kernel package.
+func (f FilterRule) DropRule() (kernel.DropRule, error) {
+	r := kernel.DropRule{Name: f.Name, IifPrefix: f.Iif}
+	for _, p := range []struct {
+		s   string
+		dst *netip.Prefix
+	}{{f.Daddr, &r.Daddr}, {f.Saddr, &r.Saddr}, {f.SaddrNot, &r.SaddrNot}} {
+		if p.s == "" {
+			continue
+		}
+		v, err := netip.ParsePrefix(p.s)
+		if err != nil || !v.Addr().Is6() {
+			return r, fmt.Errorf("want an IPv6 prefix: %q", p.s)
+		}
+		*p.dst = v
+	}
+	if f.Name == "" || (!r.Daddr.IsValid() && !r.Saddr.IsValid() && !r.SaddrNot.IsValid()) {
+		return r, fmt.Errorf("needs a name and an address match")
+	}
+	return r, nil
 }
