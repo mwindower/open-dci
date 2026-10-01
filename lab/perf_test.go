@@ -20,6 +20,10 @@ import (
 // long the TCP streams stalled. It fails only if a TCP connection breaks or a
 // flow doesn't recover.
 //
+// The failed exit is the one spine-b uses towards the gateways: then every
+// direction of every flow crosses it (the gateways and the core spread over
+// both exits anyway).
+//
 // "link": all links of the node go down (the neighbours see it at once).
 // "hung": the node silently drops everything, links stay up (the neighbours
 // notice when the BGP hold timer expires).
@@ -44,7 +48,8 @@ func TestPerfFailover(t *testing.T) {
 	for _, n := range []string{"m-a", "m-b", "m-c", "m-a2", "m-b2"} {
 		ensureTool(t, n, "iperf3", "iperf3")
 	}
-	for _, n := range []string{"gw-b2", "exit-b1"} {
+	exit := fabricExit(t)
+	for _, n := range []string{"gw-b2", exit} {
 		ensureTool(t, n, "nft", "nftables")
 	}
 	exitLinks := "for i in swp1 swp2 swp3 swp4; do ip link set $i %s; done"
@@ -53,8 +58,8 @@ func TestPerfFailover(t *testing.T) {
 	}{
 		{"gateway-link", "gw-b2", "ip link set uplink0 down; ip link set uplink1 down", "ip link set uplink0 up; ip link set uplink1 up"},
 		{"gateway-hung", "gw-b2", hang, "nft delete table inet perf-hang"},
-		{"exit-link", "exit-b1", fmt.Sprintf(exitLinks, "down"), fmt.Sprintf(exitLinks, "up")},
-		{"exit-hung", "exit-b1", hang, "nft delete table inet perf-hang"},
+		{"exit-link", exit, fmt.Sprintf(exitLinks, "down"), fmt.Sprintf(exitLinks, "up")},
+		{"exit-hung", exit, hang, "nft delete table inet perf-hang"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			waitForHealthyLab(t)
@@ -119,6 +124,24 @@ func TestPerfFailover(t *testing.T) {
 			}
 		})
 	}
+}
+
+// fabricExit returns the exit spine-b forwards leaf-b's VXLAN traffic for
+// gw-b2 through (ECMP picks one per VTEP pair).
+func fabricExit(t *testing.T) string {
+	t.Helper()
+	out, err := lab.Exec("spine-b", "ip", "route", "get", "10.0.1.17", "from", "10.0.1.11", "iif", "swp1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	switch {
+	case strings.Contains(out, "dev swp2 "):
+		return "exit-b1"
+	case strings.Contains(out, "dev swp3 "):
+		return "exit-b2"
+	}
+	t.Fatalf("spine-b: no route to gw-b2 via an exit:\n%s", out)
+	return ""
 }
 
 func waitForHealthyLab(t *testing.T) {

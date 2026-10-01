@@ -61,6 +61,8 @@ Requirements:
   - Pair A's base config has the DCI network (`vrf104100`, at MTU 9000). SRv6 runs in VXLAN
     to either exit, which routes the DCI VRF into the core; open-dci raises the MTU.
   - Pairs B and C and their exits carry the transport in their partition's IPv6 underlay.
+- **BFD** (`bfd profile dci`, 300 ms × 3) on every session of gateways and exits: gateway
+  ↔ exit, exit ↔ spine, exit ↔ core. It lives in the base configs, not in open-dci.
 - **The edge of the SRv6 domain:** the exits filter the locator block (`edgeFilter` in
   their `node.yaml`, standing in for switch ACLs); the gateways run open-dci's ingress
   filter.
@@ -107,7 +109,8 @@ Routing tables of every node: [docs/lab-routing.md](../docs/lab-routing.md).
 | `TestMaxPrefixes` | a peer exceeding `maxPrefixes` loses its session; limit restored by open-dci, session back after `clear bgp` |
 
 `TestPerfFailover` (build tags `e2e perf`, `make lab-perf`, ~4 min) is not part of the
-suite: it fails gw-b2 and exit-b1 (links down, or silently dropping everything) while pings
+suite: it fails gw-b2 and the exit spine-b forwards leaf-b's traffic through (links down,
+or silently dropping everything) while pings
 and iperf3 TCP streams run between the partitions, and logs the packet loss on failure and
 recovery and the longest TCP stall. It fails only if a TCP connection breaks or a flow
 doesn't recover. Results: [Operation](../docs/operation.md#failure-semantics).

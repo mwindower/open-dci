@@ -131,6 +131,9 @@ old binary until it is redeployed (or you `docker cp` for a quick look).
   `disable-connected-check` is refused for interface peers); takes effect after a session
   reset. Exits need `allowas-in 1` towards their gateways (the VPN routes carry the exit's
   AS from EVPN) and, in FRR, VPN families only exist in the default instance.
+- BFD only helps if *every* neighbour of a node runs it: with BFD on gateway↔exit and
+  exit↔core but not spine↔exit, a hung exit still black-holes the fabric's traffic for the
+  spine's hold time. `make lab-perf` fails the exit on spine-b's ECMP path for that reason.
 - `frr-reload.py` may exit 1 from its own second pass ("Refusing to remove a non-existent
   route") even though it worked.
 - vtysh reports config errors on stdout (`% ...`), not always via the exit code;

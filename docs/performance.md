@@ -23,9 +23,16 @@ the behaviour, see [Operation](operation.md#failure-semantics).
   - **hung:** the node silently drops everything (nftables, prerouting and output), and its
     links stay up (frozen kernel, broken NIC firmware, a one-way link). The neighbours only
     notice when the BGP hold timer expires.
-- Timers: the sessions between gateways and exits (and between exits and spines) use
+- Timers: the sessions between gateways and exits, and between exits and spines, use
   metal-stack's `timers 2 8` (keepalive 2 s, hold 8 s). All other sessions use FRR's
-  `datacenter` defaults (3 s, 9 s). No BFD.
+  `datacenter` defaults (3 s, 9 s).
+- BFD (`bfd profile dci`: 300 ms × 3, so detection in ≤ 0.9 s), measured in three setups:
+  1. **no BFD**
+  2. **BFD on gateway ↔ exit and exit ↔ core**
+  3. **BFD on every session of gateways and exits**: setup 2 plus exit ↔ spine (the lab's
+     configuration)
+- The failed exit is the one spine-b forwards leaf-b's VXLAN traffic through, so every
+  direction of every flow crosses it.
 - Caveats:
   - The lab runs as containers on one host, so absolute throughput means nothing. The
     timings come from the protocols (carrier detection, hold timers, FRR route
@@ -35,44 +42,58 @@ the behaviour, see [Operation](operation.md#failure-semantics).
 
 ## Results
 
-One run of `make lab-perf`. Loss is shown as "on failure / on return", in seconds.
+Loss of the affected flows on failure (and on return), and the longest TCP stall, per setup.
+
+| Failure | no BFD | BFD gateway ↔ exit, exit ↔ core | BFD on every session |
+|---|---|---|---|
+| gateway, link | 0.16 s (return ≤ 1.5 s), TCP 1.4 s | 0.16 s (return 1.8 s), TCP 3.0 s | 0.17 s (return 2.3 s), TCP 0.8 s |
+| gateway, hung | **6.4 s**, TCP **12.6 s** | 0.8 s, TCP 1.2 s | 1.0 s, TCP 1.2 s |
+| exit, link | 0 s (return 1.9–3.2 s), TCP 6.2 s | 0.12 s (return 1.3–2.3 s), TCP 3.0 s | 0.12 s (return 1.9–2.1 s), TCP 2.8 s |
+| exit, hung | **7.9 s, all flows**, TCP **12.8 s** | **7.9 s, all flows**, TCP **12.6 s** | 0.85 s, all flows, TCP 1.2 s |
+
+- No TCP connection broke in any run (16 per scenario).
+- In the "link" rows, the TCP stalls come from the return, not the failure.
+
+Per flow, in the lab's configuration (BFD on every session). Loss is shown as "on failure /
+on return", in seconds.
 
 | Flow | gateway, link | gateway, hung | exit, link | exit, hung |
 |---|---|---|---|---|
-| m-a → m-b | 0.16 / 0.54 | 7.50 / 0.30 | 0.12 / 1.90 | 6.88 / 0 |
-| m-c → m-b | 0 / 0 | 0 / 0 | 0 / 1.12 | 6.88 / 0 |
-| m-b → m-a | 0.16 / 0.54 | 7.52 / 0.30 | 0.12 / 1.90 | 6.90 / 0 |
-| m-b → m-c | 0 / 0 | 0 / 0 | 0 / 1.12 | 6.92 / 0 |
-| m-a2 → m-b2 | 0.16 / 0.54 | 7.50 / 0.30 | 0.14 / 1.90 | 6.88 / 0 |
-| m-b2 → m-a2 | 0.16 / 0.54 | 7.50 / 0.30 | 0.14 / 1.90 | 6.90 / 0 |
-| TCP m-a → m-b, longest stall | 0.2 | 13.0 | 2.8 | 12.8 |
-| TCP m-c → m-b, longest stall | 0.4 | 1.2 | 2.8 | 12.8 |
-| TCP connections broken | 0 / 16 | 0 / 16 | 0 / 16 | 0 / 16 |
-
-Across repeated runs:
-- Loss on failure is stable: link failures cost 0.12–0.18 s, hung nodes 6.9–8.5 s.
-- Loss on return varies: up to 1.8 s for the gateway, 1.1–2.0 s for the exit.
+| m-a → m-b | 0.18 / 2.28 | 1.02 / 0.30 | 0 / 1.88 | 0.86 / 0 |
+| m-c → m-b | 0 / 0 | 0 / 0 | 0.12 / 2.12 | 0.82 / 0 |
+| m-b → m-a | 0.18 / 2.28 | 1.02 / 0.30 | 0 / 1.88 | 0.86 / 0 |
+| m-b → m-c | 0 / 0 | 0 / 0 | 0.12 / 2.14 | 0.82 / 0 |
+| m-a2 → m-b2 | 0.16 / 2.30 | 1.02 / 0.30 | 0 / 1.88 | 0.88 / 0 |
+| m-b2 → m-a2 | 0.16 / 2.30 | 1.02 / 0.30 | 0 / 1.88 | 0.88 / 0 |
+| TCP m-a → m-b, longest stall | 0.8 | 1.2 | 2.8 | 1.2 |
+| TCP m-c → m-b, longest stall | 0 | 1.2 | 2.8 | 1.2 |
 
 ## Reading the results
 
 - **No TCP connection broke.** Gateways and exits keep no per-flow state, so every lost
   packet is retransmitted. The only question is how long a flow stalls.
-- **Link failures are cheap.** About 150 ms: losing carrier tears down the BGP session at
-  once, and FRR removes the next hop.
-- **Hung nodes cost a hold time.** The loss lasts about as long as the 8 s hold timer, minus
-  the time since the last keepalive.
+- **Link failures are cheap,** with or without BFD. Losing carrier tears down the BGP
+  session at once, and FRR removes the next hop within ~150 ms.
+- **Without BFD, a hung node costs a hold time.** The loss lasts about as long as the 8 s
+  hold timer, minus the time since the last keepalive.
 - **TCP stalls about twice as long as the loss.** TCP's retransmission timeout doubles with
   each attempt (200 ms, 400 ms, …). After a 7 s outage, the next attempt comes at about
-  12.6 s, which matches the 12.8–13.0 s stalls.
+  12.6 s.
+- **BFD cuts a hung node to under a second.** Detection takes ≤ 0.9 s (300 ms × 3), and
+  TCP then stalls ~1.2 s instead of ~13 s.
+- **BFD only helps on every neighbour.** With BFD on gateway ↔ exit and exit ↔ core only, a
+  hung exit still lost 7.9 s on all flows: the spine doesn't run BFD towards it, keeps
+  forwarding the fabric's traffic into it, and only stops when its hold timer expires.
+  Every session of a node that can hang needs BFD.
 - **A gateway only affects its share of the flows.** The flows hashed to gw-b1 (m-c ↔ m-b)
-  lost nothing when gw-b2 failed. The 1.2 s stall of one m-c stream is the exception; its
-  pings lost nothing.
+  lost nothing when gw-b2 failed.
 - **An exit affects the whole partition.** Leaves, spines, gateways and the core all spread
-  over both exits, so every flow uses both.
-- **The return loses packets too.** When links come back, the returning node attracts
-  traffic for up to 2 s before all its routes are in place. A hung node that returns gets
-  its sessions back with its routing tables still intact, and loses next to nothing. The
-  exact cause, and a remedy such as delaying advertisements on startup, is still open.
+  over both exits.
+- **The return loses packets, BFD or not.** When links come back, the returning node
+  attracts traffic for up to 2–3 s before all its routes are in place. A hung node that
+  returns gets its sessions back with its routing tables still intact, and loses next to
+  nothing. The cause is not analysed yet; a remedy could be delaying advertisements after
+  the links come up.
 - **Nothing outside partition B reacted.** With an anycast locator and SIDs, the remote
   gateways' encapsulation routes stay the same during a failure.
 

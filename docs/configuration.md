@@ -176,6 +176,15 @@ At runtime, `apply`/`run`/`diff`/`status` also check the system:
 - Routes pass the exits with RD, RT and SID unchanged; the BGP next hop becomes the exit,
   which doesn't matter, since SRv6 forwards by the SID.
 
+**Failure detection (recommended: BFD):** without BFD, a gateway or exit that stops
+forwarding while its links stay up is only noticed when the BGP hold timer expires, and
+traffic is lost for that long. Run BFD on every session of the gateways and exits: gateway
+↔ exit (the gateway's base config, e.g. on its fabric peer-group), exit ↔ spine and exit ↔
+core. A node needs BFD towards *all* its neighbours. A neighbour without it keeps
+forwarding into a hung node until its hold timer expires. open-dci doesn't render BFD; the
+lab uses `bfd profile dci` (300 ms × 3). Measurements:
+[performance.md](performance.md).
+
 **The edge of the SRv6 domain** (see [Operation](operation.md#the-srv6-domain-and-its-edge)):
 the exits must keep the locator block unreachable from anything but the gateways and the
 core, and drop packets from the core into the block with a source outside it.

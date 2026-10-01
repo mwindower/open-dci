@@ -249,21 +249,22 @@ How long packets are lost depends on how the failure is detected. Measured in th
 exit-b1 fails, then returns; per-flow results and method in
 [performance.md](performance.md)):
 
-| Failure | Detected by | Packet loss (affected flows) | TCP | Recovery |
+| Failure | Detected by | Loss without BFD | Loss with BFD (lab) | Return |
 |---|---|---|---|---|
-| Gateway loses its links (crash, power, cable) | link down at the exits | ~0.15 s | stalls ≤ 0.4 s | 0.3–1.8 s loss |
-| Gateway hangs, links stay up | BGP hold timer (8 s, `timers 2 8`) | ~7.5 s | stalls ~13 s | ≤ 0.3 s loss |
-| Exit loses its links | link down at its neighbours | ~0.15 s | stalls ≤ 0.4 s | 1.1–2 s loss |
-| Exit hangs, links stay up | BGP hold timers (8–9 s) | ~7 s, all flows of the partition | stalls ~13 s | none |
+| Gateway loses its links (crash, power, cable) | link down at the exits | ~0.15 s | ~0.15 s | ≤ 2.3 s loss |
+| Gateway hangs, links stay up | BGP hold timer (8 s) or BFD | ~6.5–7.5 s, TCP stalls ~13 s | ~1 s, TCP ~1.2 s | ≤ 0.3 s loss |
+| Exit loses its links | link down at its neighbours | ≤ 0.15 s | ≤ 0.15 s | ≤ 3 s loss |
+| Exit hangs, links stay up | BGP hold timers (8–9 s) or BFD | ~7–8 s, all flows of the partition | ~0.9 s, TCP ~1.2 s | none |
 
 - **TCP stalls longer than the loss** because of exponential retransmission backoff: after
   a 7.5 s outage, the next retransmission comes at ~12.6 s (200 ms RTO doubled per
   attempt). Connections survive; a connection only gives up after ~15 min
   (`tcp_retries2`), but applications with shorter timeouts may not.
-- **A silent failure costs a hold time.** BFD (FRR `bfdd`, e.g. 3 × 300 ms) on the sessions
-  between gateways and exits, and between exits and core, would detect it in under a
-  second. That needs BFD in the base configs (and on the exit switches); open-dci doesn't
-  render it. The lab doesn't run BFD.
+- **A silent failure costs a hold time,** unless BFD detects it. The lab runs BFD (300 ms ×
+  3) on every session of gateways and exits: gateway ↔ exit, exit ↔ spine, exit ↔ core.
+  All of them are needed: a neighbour without BFD keeps forwarding into a hung node until
+  its own hold timer expires. BFD is part of the base configs (and the exit switches);
+  open-dci doesn't render it.
 - **Recovery also loses packets** for a moment when a node's links come back: the returning
   node attracts traffic before all its routes are in place. The cause isn't analysed in
   detail yet; a hung node that returns, whose sessions come back with routes already in
