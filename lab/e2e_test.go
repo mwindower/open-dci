@@ -38,24 +38,32 @@ type machine struct {
 var (
 	pairA = []string{"gw-a1", "gw-a2"}
 	pairB = []string{"gw-b1", "gw-b2"}
+	pairC = []string{"gw-c1", "gw-c2"}
 
 	gateways = []gateway{
 		{"gw-a1", "vrf104100", "fd00:dc1:b::/48"}, {"gw-a2", "vrf104100", "fd00:dc1:b::/48"},
 		{"gw-b1", "", "fd00:dc1:a::/48"}, {"gw-b2", "", "fd00:dc1:a::/48"},
+		{"gw-c1", "", "fd00:dc1:a::/48"}, {"gw-c2", "", "fd00:dc1:b::/48"},
 	}
 
-	mA  = machine{"m-a", pairA, "vrf3981", "3981", "fd00:dc1:a:f8d::", "10.0.16.10", "2001:db8:16::10"}  // tenant 1
-	mB  = machine{"m-b", pairB, "vrf4011", "4011", "fd00:dc1:b:fab::", "10.0.32.10", "2001:db8:32::10"}  // tenant 1
-	mA2 = machine{"m-a2", pairA, "vrf3982", "3982", "fd00:dc1:a:f8e::", "10.0.17.10", "2001:db8:17::10"} // tenant 2
-	mB2 = machine{"m-b2", pairB, "vrf4012", "4012", "fd00:dc1:b:fac::", "10.0.33.10", "2001:db8:33::10"} // tenant 2
+	mA  = machine{"m-a", pairA, "vrf3981", "3981", "fd00:dc1:a:f8d::", "10.0.16.10", "2001:db8:16::10"}   // tenant 1
+	mB  = machine{"m-b", pairB, "vrf4011", "4011", "fd00:dc1:b:fab::", "10.0.32.10", "2001:db8:32::10"}   // tenant 1
+	mA2 = machine{"m-a2", pairA, "vrf3982", "3982", "fd00:dc1:a:f8e::", "10.0.17.10", "2001:db8:17::10"}  // tenant 2
+	mB2 = machine{"m-b2", pairB, "vrf4012", "4012", "fd00:dc1:b:fac::", "10.0.33.10", "2001:db8:33::10"}  // tenant 2
+	mC  = machine{"m-c", pairC, "vrf5011", "5011", "fd00:dc1:c:1393::", "10.0.48.10", "2001:db8:48::10"}  // tenant 1
+	mC2 = machine{"m-c2", pairC, "vrf5012", "5012", "fd00:dc1:c:1394::", "10.0.49.10", "2001:db8:49::10"} // tenant 2
 
-	machines = []machine{mA, mB, mA2, mB2}
-	// stitched pairs, both directions
-	flows = [][2]machine{{mA, mB}, {mB, mA}, {mA2, mB2}, {mB2, mA2}}
+	machines = []machine{mA, mB, mC, mA2, mB2, mC2}
+	// stitched pairs, both directions; every partition pair per tenant
+	flows = [][2]machine{
+		{mA, mB}, {mB, mA}, {mB, mC}, {mC, mB}, {mC, mA}, {mA, mC},
+		{mA2, mB2}, {mB2, mA2}, {mB2, mC2}, {mC2, mB2}, {mC2, mA2}, {mA2, mC2},
+	}
 )
 
 func TestControlPlane(t *testing.T) {
-	for _, n := range []string{"m-a", "m-a2", "leaf-a", "spine-a", "exit-a1", "exit-a2", "gw-a1", "gw-a2", "core", "gw-b1", "gw-b2", "exit-b1", "exit-b2", "spine-b", "leaf-b", "m-b", "m-b2"} {
+	for _, n := range []string{"m-a", "m-a2", "leaf-a", "spine-a", "exit-a1", "exit-a2", "gw-a1", "gw-a2", "core", "gw-b1", "gw-b2", "exit-b1", "exit-b2", "spine-b", "leaf-b", "m-b", "m-b2",
+		"gw-c1", "gw-c2", "exit-c1", "exit-c2", "spine-c", "leaf-c", "m-c", "m-c2"} {
 		t.Run("bgp-established/"+n, func(t *testing.T) {
 			labtest.Eventually(t, converge, func() error { return lab.BGPEstablished(n) })
 		})
@@ -129,7 +137,7 @@ func TestControlPlane(t *testing.T) {
 	}
 
 	// tenant prefixes never leave the tenant VRFs: exits and core only see locators
-	for _, n := range []string{"exit-a1", "exit-a2", "core", "exit-b1", "exit-b2"} {
+	for _, n := range []string{"exit-a1", "exit-a2", "core", "exit-b1", "exit-b2", "exit-c1", "exit-c2"} {
 		t.Run("no-tenant-state/"+n, func(t *testing.T) {
 			out, err := lab.Vtysh(n, "show ip route vrf all")
 			if err != nil {

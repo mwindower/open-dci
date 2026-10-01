@@ -22,7 +22,7 @@ jobs:
       - run: go test ./...
       - run: make build labnode
 
-  # The containerlab lab as integration test: 15 FRR nodes, two partitions,
+  # The containerlab lab as integration test: 25 FRR nodes, three partitions,
   # both transport modes, open-dci as sidecar on the redundant gateway pairs
   # at the exits.
   e2e:
@@ -54,7 +54,7 @@ jobs:
             docker exec "$c" vtysh -c 'show bgp vrf all summary' || true
             echo "::endgroup::"
           done
-          for gw in gw-a1 gw-a2 gw-b1 gw-b2; do
+          for gw in gw-a1 gw-a2 gw-b1 gw-b2 gw-c1 gw-c2; do
             echo "::group::$gw open-dci status / running-config"
             docker exec clab-open-dci-$gw open-dci status -c /etc/open-dci/config.yaml || true
             docker exec clab-open-dci-$gw vtysh -c 'show running-config' || true

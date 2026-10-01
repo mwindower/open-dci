@@ -1,0 +1,10 @@
+# dedicated DCI gateway gw-c2, dual-attached to exit-c1/exit-c2 (one of a redundant pair
+# with gw-c1): two uplinks into partition C's fabric, each
+# carrying underlay IPv4, EVPN, the VPN routes and the SRv6 transport (IPv6).
+waitInterfaces: [uplink0, uplink1]
+loopback: [10.0.2.17/32]
+interfaces:
+  - {name: uplink0, mtu: 9216}
+  - {name: uplink1, mtu: 9216}
+sidecars:
+  - [/usr/local/bin/open-dci, run, -c, /etc/open-dci/config.yaml]

@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 380" width="960" height="380" role="img" aria-label="Logical view: three partitions, each with its own private network and VNI per tenant. Tenant 1 has 10.0.16.0/24 with VNI 3981 in A, 10.0.32.0/24 with VNI 4011 in B and 10.0.48.0/24 with VNI 5011 in C; tenant 2 has 10.0.17.0/24 (VNI 3982), 10.0.33.0/24 (VNI 4012) and 10.0.49.0/24 (VNI 5012). The gateway pair of each partition exports every tenant VRF with its own SRv6 SID; SRv6 L3VPN joins each tenant's networks into one routed network (route targets 65535:1001 and 65535:1002). Tenants stay separate.">
+<style>
+  text { font-family: ui-sans-serif, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fill: #1f2328; }
+  .scene { font-size: 13px; font-weight: 600; }
+  .part { fill: #f6f8fa; stroke: #d0d7de; }
+  .plabel { font-size: 12px; font-weight: 600; fill: #59636e; }
+  .ns { font-size: 10.5px; fill: #59636e; }
+  .tt { font-size: 12px; font-weight: 600; }
+  .net { stroke-width: 1.5; }
+  .nl { font-size: 12px; font-weight: 600; }
+  .mono { font-size: 10.5px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .band { stroke-width: 6; stroke-linecap: round; }
+  .sr { font-size: 10.5px; font-weight: 600; fill: #bc4c00; }
+  .t1.net { fill: #ddf4ff; stroke: #0969da; } .t1.band { stroke: #54aeff; }
+  .t2.net { fill: #dafbe1; stroke: #1a7f37; } .t2.band { stroke: #4ac26b; }
+  @media (prefers-color-scheme: dark) {
+    text { fill: #e6edf3; }
+    .part { fill: #161b22; stroke: #3d444d; }
+    .plabel, .ns { fill: #9198a1; }
+    .sr { fill: #f0883e; }
+    .t1.net { fill: #0c2d6b; stroke: #4493f8; } .t1.band { stroke: #1f6feb; }
+    .t2.net { fill: #04260f; stroke: #3fb950; } .t2.band { stroke: #238636; }
+  }
+</style>
+<text class="scene" x="480" y="26" text-anchor="middle">Logical view: per partition a private network and VNI per tenant, stitched by SRv6 L3VPN</text>
+<rect class="part" x="8" y="44" width="304" height="282" rx="10"/><text class="plabel" x="160" y="64" text-anchor="middle">Partition A · EVPN domain</text><text class="ns" x="160" y="80" text-anchor="middle">gw-a1 + gw-a2 · locator fd00:dc1:a::/48</text>
+<rect class="part" x="328" y="44" width="304" height="282" rx="10"/><text class="plabel" x="480" y="64" text-anchor="middle">Partition B · EVPN domain</text><text class="ns" x="480" y="80" text-anchor="middle">gw-b1 + gw-b2 · locator fd00:dc1:b::/48</text>
+<rect class="part" x="648" y="44" width="304" height="282" rx="10"/><text class="plabel" x="800" y="64" text-anchor="middle">Partition C · EVPN domain</text><text class="ns" x="800" y="80" text-anchor="middle">gw-c1 + gw-c2 · locator fd00:dc1:c::/48</text>
+<text class="tt" x="480" y="109" text-anchor="middle">Tenant 1 · one routed network · RT 65535:1001</text>
+<line class="band t1" x1="160" y1="150" x2="800" y2="150"/>
+<text class="sr" x="320" y="142" text-anchor="middle">SRv6</text>
+<text class="sr" x="640" y="142" text-anchor="middle">SRv6</text>
+<rect class="net t1" x="42" y="119" width="236" height="62" rx="8"/>
+<text class="nl" x="160" y="138" text-anchor="middle">10.0.16.0/24 · 2001:db8:16::/48</text>
+<text class="mono" x="160" y="154" text-anchor="middle">VNI 3981 · vrf3981</text>
+<text class="mono" x="160" y="169" text-anchor="middle">SID fd00:dc1:a:f8d::</text>
+<rect class="net t1" x="362" y="119" width="236" height="62" rx="8"/>
+<text class="nl" x="480" y="138" text-anchor="middle">10.0.32.0/24 · 2001:db8:32::/48</text>
+<text class="mono" x="480" y="154" text-anchor="middle">VNI 4011 · vrf4011</text>
+<text class="mono" x="480" y="169" text-anchor="middle">SID fd00:dc1:b:fab::</text>
+<rect class="net t1" x="682" y="119" width="236" height="62" rx="8"/>
+<text class="nl" x="800" y="138" text-anchor="middle">10.0.48.0/24 · 2001:db8:48::/48</text>
+<text class="mono" x="800" y="154" text-anchor="middle">VNI 5011 · vrf5011</text>
+<text class="mono" x="800" y="169" text-anchor="middle">SID fd00:dc1:c:1393::</text>
+<text class="tt" x="480" y="221" text-anchor="middle">Tenant 2 · one routed network · RT 65535:1002</text>
+<line class="band t2" x1="160" y1="262" x2="800" y2="262"/>
+<text class="sr" x="320" y="254" text-anchor="middle">SRv6</text>
+<text class="sr" x="640" y="254" text-anchor="middle">SRv6</text>
+<rect class="net t2" x="42" y="231" width="236" height="62" rx="8"/>
+<text class="nl" x="160" y="250" text-anchor="middle">10.0.17.0/24 · 2001:db8:17::/48</text>
+<text class="mono" x="160" y="266" text-anchor="middle">VNI 3982 · vrf3982</text>
+<text class="mono" x="160" y="281" text-anchor="middle">SID fd00:dc1:a:f8e::</text>
+<rect class="net t2" x="362" y="231" width="236" height="62" rx="8"/>
+<text class="nl" x="480" y="250" text-anchor="middle">10.0.33.0/24 · 2001:db8:33::/48</text>
+<text class="mono" x="480" y="266" text-anchor="middle">VNI 4012 · vrf4012</text>
+<text class="mono" x="480" y="281" text-anchor="middle">SID fd00:dc1:b:fac::</text>
+<rect class="net t2" x="682" y="231" width="236" height="62" rx="8"/>
+<text class="nl" x="800" y="250" text-anchor="middle">10.0.49.0/24 · 2001:db8:49::/48</text>
+<text class="mono" x="800" y="266" text-anchor="middle">VNI 5012 · vrf5012</text>
+<text class="mono" x="800" y="281" text-anchor="middle">SID fd00:dc1:c:1394::</text>
+<text class="ns" x="480" y="350" text-anchor="middle">Inside a partition: EVPN type-5 with the partition's own VNI. Between partitions: VPNv4/v6 routes with one End.DT46 SID per VRF,</text>
+<text class="ns" x="480" y="366" text-anchor="middle">SRv6 between the gateway pairs over an IPv6-only core. VNIs may differ; the route target says which networks belong together.</text>
+</svg>

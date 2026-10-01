@@ -1,33 +1,37 @@
-# open-dci lab: redundant pairs of DCI gateways, each dual-attached to the two
-# exits of its metal-stack-like partition, stitching two tenants across an
-# IPv6-only core.
+# open-dci lab: three metal-stack-like partitions, each with two exits and a
+# redundant pair of DCI gateways attached to both, stitching two tenants
+# across an IPv6-only core.
 #
-#  Partition A                                                       Partition B
-#                          ┌─ exit-a1 ─┐           ┌─ exit-b1 ─┐
-#   m-a ── leaf-a ── spine-a           ├── core ───┤           spine-b ── leaf-b ── m-b
-#  m-a2 ──┘                └─ exit-a2 ─┘           └─ exit-b2 ─┘                 └── m-b2
-#                           ╲   ╳   ╱                ╲   ╳   ╱
-#                          gw-a1  gw-a2             gw-b1  gw-b2
+#   partition A (DCI network)    partition B (underlay)     partition C (underlay)
+#   m-a, m-a2 ── leaf-a          m-b, m-b2 ── leaf-b        m-c, m-c2 ── leaf-c
+#                 │                            │                          │
+#              spine-a                      spine-b                    spine-c
+#              ╱     ╲                      ╱     ╲                    ╱     ╲
+#        exit-a1   exit-a2            exit-b1   exit-b2          exit-c1   exit-c2
+#            │ ╲   ╱ │                    │ ╲   ╱ │                  │ ╲   ╱ │
+#        gw-a1   gw-a2                gw-b1   gw-b2              gw-c1   gw-c2
+#                       all six exits ── core (IPv6 only)
 #
 # - Machines peer BGP with their leaf inside the tenant VRF (metal-stack style):
-#   tenant 1 (m-a, m-b; VNIs 3981/4011), tenant 2 (m-a2, m-b2; VNIs 3982/4012).
+#   tenant 1 (m-a, m-b, m-c; VNIs 3981/4011/5011), tenant 2 (m-a2, m-b2, m-c2;
+#   VNIs 3982/4012/5012).
 # - The gateways hang off both exits like any fabric peer (uplink0/uplink1).
 #   They start without tenant VRFs; the open-dci sidecar provisions them as
 #   EVPN L3VNIs and exports them as SRv6 L3VPN (End.DT46).
 # - Redundancy: the two gateways of a partition share locator and ASN
 #   (anycast, pinned SIDs); each has its own loopback as encap source. Every
 #   gateway reaches the fabric, the transport and the VPN routes via both exits.
-# - Both transport modes: pair A carries SRv6 in its base config's DCI network
-#   (vrf104100, VXLAN to either exit, which routes it into the core); pair B in
-#   the IPv6 underlay of partition B.
+# - Transport modes: pair A carries SRv6 in its base config's DCI network
+#   (vrf104100, VXLAN to either exit, which routes it into the core); pairs B
+#   and C in the IPv6 underlay of their partition.
 # - MTU: machines 9000, uplinks 9216. The pair-A base config has its DCI
 #   devices at 9000; open-dci raises them to 9166 (SRv6 adds 48 B). The exits'
 #   DCI devices are configured with 9166.
 # - VPN routes: each gateway only peers with its exits (the existing fabric
-#   sessions); the exits relay them in a ladder between their loopbacks:
-#   each exit peers with both exits of the neighbouring partition (here: the
-#   other one), not with its own partner. exit-a1/a2 reach the core in the
-#   default VRF via swp5.
+#   sessions); the exits relay them in a closed ladder between their loopbacks:
+#   each exit peers with both exits of the neighbouring partitions (with three
+#   partitions: both other ones), not with its own partner. exit-a1/a2 reach
+#   the core in the default VRF via swp5.
 name: open-dci
 
 topology:
@@ -56,13 +60,22 @@ topology:
     gw-a2:    { binds: [configs/gw-a2/node.yaml:/etc/labnode/node.yaml:ro, configs/gw-a2/frr.conf:/etc/frr/frr.conf, bin/open-dci:/usr/local/bin/open-dci:ro, configs/gw-a2/open-dci.yaml:/etc/open-dci/config.yaml:ro] }
     gw-b1:    { binds: [configs/gw-b1/node.yaml:/etc/labnode/node.yaml:ro, configs/gw-b1/frr.conf:/etc/frr/frr.conf, bin/open-dci:/usr/local/bin/open-dci:ro, configs/gw-b1/open-dci.yaml:/etc/open-dci/config.yaml:ro] }
     gw-b2:    { binds: [configs/gw-b2/node.yaml:/etc/labnode/node.yaml:ro, configs/gw-b2/frr.conf:/etc/frr/frr.conf, bin/open-dci:/usr/local/bin/open-dci:ro, configs/gw-b2/open-dci.yaml:/etc/open-dci/config.yaml:ro] }
-
+    m-c:     { binds: [configs/m-c/node.yaml:/etc/labnode/node.yaml:ro, configs/m-c/frr.conf:/etc/frr/frr.conf] }
+    m-c2:    { binds: [configs/m-c2/node.yaml:/etc/labnode/node.yaml:ro, configs/m-c2/frr.conf:/etc/frr/frr.conf] }
+    leaf-c:  { binds: [configs/leaf-c/node.yaml:/etc/labnode/node.yaml:ro, configs/leaf-c/frr.conf:/etc/frr/frr.conf] }
+    spine-c: { binds: [configs/spine-c/node.yaml:/etc/labnode/node.yaml:ro, configs/spine-c/frr.conf:/etc/frr/frr.conf] }
+    exit-c1: { binds: [configs/exit-c1/node.yaml:/etc/labnode/node.yaml:ro, configs/exit-c1/frr.conf:/etc/frr/frr.conf] }
+    exit-c2: { binds: [configs/exit-c2/node.yaml:/etc/labnode/node.yaml:ro, configs/exit-c2/frr.conf:/etc/frr/frr.conf] }
+    gw-c1:   { binds: [configs/gw-c1/node.yaml:/etc/labnode/node.yaml:ro, configs/gw-c1/frr.conf:/etc/frr/frr.conf, bin/open-dci:/usr/local/bin/open-dci:ro, configs/gw-c1/open-dci.yaml:/etc/open-dci/config.yaml:ro] }
+    gw-c2:   { binds: [configs/gw-c2/node.yaml:/etc/labnode/node.yaml:ro, configs/gw-c2/frr.conf:/etc/frr/frr.conf, bin/open-dci:/usr/local/bin/open-dci:ro, configs/gw-c2/open-dci.yaml:/etc/open-dci/config.yaml:ro] }
   links:
     # tenants
     - endpoints: ["m-a:lan0", "leaf-a:swp1"]
     - endpoints: ["m-a2:lan0", "leaf-a:swp2"]
     - endpoints: ["m-b:lan0", "leaf-b:swp1"]
     - endpoints: ["m-b2:lan0", "leaf-b:swp2"]
+    - endpoints: ["m-c:lan0", "leaf-c:swp1"]
+    - endpoints: ["m-c2:lan0", "leaf-c:swp2"]
     # fabrics: leaf - spine - two exits
     - endpoints: ["leaf-a:swp31", "spine-a:swp1"]
     - endpoints: ["spine-a:swp2", "exit-a1:swp1"]
@@ -70,6 +83,9 @@ topology:
     - endpoints: ["leaf-b:swp31", "spine-b:swp1"]
     - endpoints: ["spine-b:swp2", "exit-b1:swp1"]
     - endpoints: ["spine-b:swp3", "exit-b2:swp1"]
+    - endpoints: ["leaf-c:swp31", "spine-c:swp1"]
+    - endpoints: ["spine-c:swp2", "exit-c1:swp1"]
+    - endpoints: ["spine-c:swp3", "exit-c2:swp1"]
     # gateways, dual-attached to both exits of their partition
     - endpoints: ["gw-a1:uplink0", "exit-a1:swp3"]
     - endpoints: ["gw-a1:uplink1", "exit-a2:swp3"]
@@ -79,6 +95,10 @@ topology:
     - endpoints: ["gw-b1:uplink1", "exit-b2:swp3"]
     - endpoints: ["gw-b2:uplink0", "exit-b1:swp4"]
     - endpoints: ["gw-b2:uplink1", "exit-b2:swp4"]
+    - endpoints: ["gw-c1:uplink0", "exit-c1:swp3"]
+    - endpoints: ["gw-c1:uplink1", "exit-c2:swp3"]
+    - endpoints: ["gw-c2:uplink0", "exit-c1:swp4"]
+    - endpoints: ["gw-c2:uplink1", "exit-c2:swp4"]
     # core: exit-a* via their DCI VRF (swp2) and the default VRF (swp5, VPN
     # sessions between the exits); exit-b* in the default VRF
     - endpoints: ["exit-a1:swp2", "core:swp1"]
@@ -87,3 +107,5 @@ topology:
     - endpoints: ["exit-a2:swp5", "core:swp5"]
     - endpoints: ["exit-b1:swp2", "core:swp2"]
     - endpoints: ["exit-b2:swp2", "core:swp6"]
+    - endpoints: ["exit-c1:swp2", "core:swp7"]
+    - endpoints: ["exit-c2:swp2", "core:swp8"]

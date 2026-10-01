@@ -19,7 +19,7 @@ func opendci(node string, args ...string) error {
 }
 
 func TestGatewaysHealthy(t *testing.T) {
-	for _, gw := range append(append([]string{}, pairA...), pairB...) {
+	for _, gw := range append(append(append([]string{}, pairA...), pairB...), pairC...) {
 		t.Run(gw, func(t *testing.T) {
 			// "status" exits non-zero unless drift-free, kernel in place, peers
 			// Established and a SID allocated for every network
@@ -62,7 +62,7 @@ func TestSelfHealMTU(t *testing.T) {
 // extra peer is applied once by hand; the sidecar, running with the real
 // config and sharing the state file, has to clean it up.
 func TestRemovesStaleConfig(t *testing.T) {
-	const extra = "fd00:dc1:ff::c1"
+	const extra = "fd00:dc1:ff::d1"
 	if _, err := lab.Exec("gw-a1", "sh", "-c",
 		`sed 's/^peers:.*$/peers:\n  - {address: "`+extra+`", asn: 4200000032}/' /etc/open-dci/config.yaml > /tmp/extra.yaml`); err != nil {
 		t.Fatal(err)

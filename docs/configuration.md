@@ -164,7 +164,8 @@ At runtime, `apply`/`run`/`diff`/`status` also check the system:
     | any (the lab) | **ladder**: the partitions form a ring, each exit peers with both exits of the neighbouring partitions | 4 | the exits of its two neighbour partitions |
     | many, or partitions coming and going | 2 route servers (FRR `route-server-client`, exits accepted via `bgp listen range`) | 2 | nothing else |
 
-    A plain ring (one session to each neighbour exit) also works, but two failures split
+    With three partitions, the closed ladder is the full partition mesh; it only saves
+    sessions from four partitions on. A plain ring (one session to each neighbour exit) also works, but two failures split
     it. The ladder survives a whole partition failing, since each partition is connected
     to both exits of each neighbour. Like any ring, it gets slower to converge as it grows
     (routes travel up to half the ring).

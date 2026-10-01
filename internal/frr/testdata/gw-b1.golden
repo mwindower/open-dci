@@ -100,24 +100,28 @@ ipv6 route fd00:dc1:b::/48 blackhole
 !
 ip prefix-list DCI-vrf4011-v4 seq 5 permit 10.0.16.0/24 le 32
 ip prefix-list DCI-vrf4011-v4 seq 10 permit 10.0.32.0/24 le 32
+ip prefix-list DCI-vrf4011-v4 seq 15 permit 10.0.48.0/24 le 32
 route-map DCI-vrf4011-v4 permit 10
  match ip address prefix-list DCI-vrf4011-v4
 exit
 !
 ipv6 prefix-list DCI-vrf4011-v6 seq 5 permit 2001:db8:16::/48 le 128
 ipv6 prefix-list DCI-vrf4011-v6 seq 10 permit 2001:db8:32::/48 le 128
+ipv6 prefix-list DCI-vrf4011-v6 seq 15 permit 2001:db8:48::/48 le 128
 route-map DCI-vrf4011-v6 permit 10
  match ipv6 address prefix-list DCI-vrf4011-v6
 exit
 !
 ip prefix-list DCI-vrf4012-v4 seq 5 permit 10.0.17.0/24 le 32
 ip prefix-list DCI-vrf4012-v4 seq 10 permit 10.0.33.0/24 le 32
+ip prefix-list DCI-vrf4012-v4 seq 15 permit 10.0.49.0/24 le 32
 route-map DCI-vrf4012-v4 permit 10
  match ip address prefix-list DCI-vrf4012-v4
 exit
 !
 ipv6 prefix-list DCI-vrf4012-v6 seq 5 permit 2001:db8:17::/48 le 128
 ipv6 prefix-list DCI-vrf4012-v6 seq 10 permit 2001:db8:33::/48 le 128
+ipv6 prefix-list DCI-vrf4012-v6 seq 15 permit 2001:db8:49::/48 le 128
 route-map DCI-vrf4012-v6 permit 10
  match ipv6 address prefix-list DCI-vrf4012-v6
 exit

@@ -1,0 +1,15 @@
+# leaf (stand-in for a metal-stack SONiC leaf): one tenant VRF per machine port
+# (tenant 1 on swp1, tenant 2 on swp2), spine on swp31
+waitInterfaces: [swp1, swp2, swp31]
+loopback: [10.0.2.11/32]
+vrfs:
+  - {name: vrf5011, table: 1000}
+  - {name: vrf5012, table: 1001}
+bridge: {name: bridge, mtu: 9000}
+vnis:
+  - {vni: 5011, vlan: 1000, vrf: vrf5011, local: 10.0.2.11, mtu: 9000}
+  - {vni: 5012, vlan: 1001, vrf: vrf5012, local: 10.0.2.11, mtu: 9000}
+interfaces:
+  - {name: swp1, vrf: vrf5011, mtu: 9000}
+  - {name: swp2, vrf: vrf5012, mtu: 9000}
+  - {name: swp31, mtu: 9216}

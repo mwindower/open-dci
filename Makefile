@@ -17,7 +17,7 @@ lint:             ## what CI checks besides tests
 	go vet ./...
 	go vet -tags e2e ./lab/...
 
-docs-svg:         ## regenerate the README animations docs/packet-flow-*.svg
+docs-svg:         ## regenerate the README drawings docs/packet-flow.svg, docs/logical-view.svg
 	go run ./docs/packetflow
 
 labnode:          ## static container entrypoint used by all lab nodes

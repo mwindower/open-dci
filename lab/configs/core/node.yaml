@@ -2,7 +2,8 @@
 #   swp1/swp4  exit-a1/exit-a2, their DCI VRF (locators)
 #   swp3/swp5  exit-a1/exit-a2, default VRF (exit loopbacks for the VPN sessions)
 #   swp2/swp6  exit-b1/exit-b2 (default VRF: locators and exit loopbacks)
-waitInterfaces: [swp1, swp2, swp3, swp4, swp5, swp6]
+#   swp7/swp8  exit-c1/exit-c2 (default VRF: locators and exit loopbacks)
+waitInterfaces: [swp1, swp2, swp3, swp4, swp5, swp6, swp7, swp8]
 loopback: ["2001:db8:c::1/128"]
 interfaces:
   - {name: swp1, mtu: 9216}
@@ -11,3 +12,5 @@ interfaces:
   - {name: swp4, mtu: 9216}
   - {name: swp5, mtu: 9216}
   - {name: swp6, mtu: 9216}
+  - {name: swp7, mtu: 9216}
+  - {name: swp8, mtu: 9216}

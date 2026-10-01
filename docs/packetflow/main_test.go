@@ -17,4 +17,7 @@ func TestSVGsUpToDate(t *testing.T) {
 			t.Errorf("%s is out of date: run make docs-svg", a.file)
 		}
 	}
+	if want, err := os.ReadFile("../../" + logicalFile); err != nil || renderLogical() != string(want) {
+		t.Errorf("%s is out of date: run make docs-svg (%v)", logicalFile, err)
+	}
 }

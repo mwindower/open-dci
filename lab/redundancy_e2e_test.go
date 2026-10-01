@@ -92,6 +92,7 @@ func TestGatewaysPeerWithTheirExit(t *testing.T) {
 	for _, c := range []struct{ exit, rd, prefix string }{
 		{"exit-a1", "10.0.1.16:1001", mB.v4 + "/32"}, {"exit-a2", "10.0.0.17:1002", mA2.v4 + "/32"},
 		{"exit-b1", "10.0.0.16:1001", mA.v4 + "/32"}, {"exit-b2", "10.0.1.17:1002", mB2.v4 + "/32"},
+		{"exit-c1", "10.0.1.16:1001", mB.v4 + "/32"}, {"exit-c2", "10.0.0.17:1002", mA2.v4 + "/32"},
 	} {
 		t.Run(c.exit+"/"+c.rd, func(t *testing.T) {
 			waitFor(t, converge, func() error {
@@ -136,7 +137,7 @@ func TestExitFailover(t *testing.T) {
 				waitFor(t, converge, func() error { return lab.Ping(f[0].name, f[1].v6, 0) })
 			}
 			restore()
-			for _, gw := range append(append([]string{}, pairA...), pairB...) {
+			for _, gw := range append(append(append([]string{}, pairA...), pairB...), pairC...) {
 				waitFor(t, converge, func() error { return opendci(gw, "status") })
 			}
 		})
@@ -171,7 +172,7 @@ func TestGatewaysAreNotTransit(t *testing.T) {
 // on the exits announcing locators only to gateways and core; in DCI-network
 // mode (partition A) the transport VRF doesn't exist on them at all.
 func TestFabricHasNoTransportRoutes(t *testing.T) {
-	for _, n := range []string{"leaf-a", "spine-a", "leaf-b", "spine-b"} {
+	for _, n := range []string{"leaf-a", "spine-a", "leaf-b", "spine-b", "leaf-c", "spine-c"} {
 		t.Run(n, func(t *testing.T) {
 			out, err := lab.Exec(n, "ip", "-6", "route", "show", "table", "all")
 			if err != nil {
@@ -186,20 +187,35 @@ func TestFabricHasNoTransportRoutes(t *testing.T) {
 	}
 }
 
-// The exits relay the VPN routes in a ladder: each exit peers with its two
-// gateways and with both exits of the neighbouring partition, never with the
-// other exit of its own partition.
+// The exits relay the VPN routes in a closed ladder: each exit peers with its
+// two gateways and with both exits of the neighbouring partitions (with three
+// partitions: both other ones), never with the other exit of its own
+// partition.
 func TestExitLadder(t *testing.T) {
-	for _, c := range []struct {
+	all := map[string][]string{
+		"a": {"2001:db8:e::a1", "2001:db8:e::a2"},
+		"b": {"2001:db8:e::b1", "2001:db8:e::b2"},
+		"c": {"2001:db8:e::c1", "2001:db8:e::c2"},
+	}
+	type exitCase struct {
 		exit    string
 		want    []string
 		partner string
-	}{
-		{"exit-a1", []string{"swp3", "swp4", "2001:db8:e::b1", "2001:db8:e::b2"}, "2001:db8:e::a2"},
-		{"exit-a2", []string{"swp3", "swp4", "2001:db8:e::b1", "2001:db8:e::b2"}, "2001:db8:e::a1"},
-		{"exit-b1", []string{"swp3", "swp4", "2001:db8:e::a1", "2001:db8:e::a2"}, "2001:db8:e::b2"},
-		{"exit-b2", []string{"swp3", "swp4", "2001:db8:e::a1", "2001:db8:e::a2"}, "2001:db8:e::b1"},
-	} {
+	}
+	var cases []exitCase
+	for _, p := range []string{"a", "b", "c"} {
+		// with three partitions in a ring, both other partitions are neighbours
+		var others []string
+		for _, q := range []string{"a", "b", "c"} {
+			if q != p {
+				others = append(others, all[q]...)
+			}
+		}
+		for i, n := range []string{"1", "2"} {
+			cases = append(cases, exitCase{"exit-" + p + n, append([]string{"swp3", "swp4"}, others...), all[p][1-i]})
+		}
+	}
+	for _, c := range cases {
 		t.Run(c.exit, func(t *testing.T) {
 			waitFor(t, converge, func() error {
 				var sum struct {

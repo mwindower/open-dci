@@ -1,5 +1,6 @@
-// packetflow renders docs/packet-flow.svg, the README animation: a tenant
-// packet through the redundant gateway pairs at the exits. It is plain SVG + SMIL,
+// packetflow renders the README drawings: docs/packet-flow.svg, the animation
+// of a tenant packet through the redundant gateway pairs at the exits, and
+// docs/logical-view.svg (logical.go). It is plain SVG + SMIL,
 // no scripts, because GitHub renders it via <img>.
 //
 // Usage (from the repository root): make docs-svg
@@ -13,46 +14,52 @@ import (
 )
 
 type node struct {
-	name  string
-	x, y  int
-	sub   string // label below the box
-	gw    bool   // gateway style
-	side  [2]string
-	right bool // side label to the right of the box (false: left)
+	name string
+	x, y int
+	sub  string // label below the box
+	gw   bool   // gateway style
+	// fabric: a waypoint below the partition's fabric box, not drawn itself
+	fabric bool
 }
 
-// layout: two exits per partition, a redundant gateway pair attached to both
+// partition centres; the exits sit at ±100, the gateways at ±40
+const ca, cb, cc = 160, 480, 800
+
+// layout: three partitions, each with two exits and a redundant gateway pair
+// attached to both. Spines, leaves and machines are summarised as the fabric.
 var nodes = []node{
-	{name: "m-a", x: 46, y: 170, sub: "tenant 1"},
-	{name: "leaf-a", x: 150, y: 170},
-	{name: "exit-a1", x: 270, y: 140},
-	{name: "exit-a2", x: 370, y: 205},
-	{name: "gw-a1", x: 250, y: 275, gw: true},
-	{name: "gw-a2", x: 330, y: 275, gw: true},
-	{name: "core", x: 480, y: 170, sub: "IPv6 only"},
-	{name: "exit-b1", x: 690, y: 140},
-	{name: "exit-b2", x: 590, y: 205},
-	{name: "gw-b1", x: 630, y: 275, gw: true},
-	{name: "gw-b2", x: 710, y: 275, gw: true},
-	{name: "leaf-b", x: 810, y: 170},
-	{name: "m-b", x: 914, y: 170, sub: "tenant 1"},
+	{name: "core", x: cb, y: 130, sub: "IPv6 only"},
+	{name: "exit-a1", x: ca - 100, y: 205}, {name: "exit-a2", x: ca + 100, y: 205},
+	{name: "gw-a1", x: ca - 40, y: 280, gw: true}, {name: "gw-a2", x: ca + 40, y: 280, gw: true},
+	{name: "fab-a1", x: ca - 100, y: 345, fabric: true}, {name: "fab-a2", x: ca + 100, y: 345, fabric: true},
+	{name: "exit-b1", x: cb - 100, y: 205}, {name: "exit-b2", x: cb + 100, y: 205},
+	{name: "gw-b1", x: cb - 40, y: 280, gw: true}, {name: "gw-b2", x: cb + 40, y: 280, gw: true},
+	{name: "fab-b1", x: cb - 100, y: 345, fabric: true}, {name: "fab-b2", x: cb + 100, y: 345, fabric: true},
+	{name: "exit-c1", x: cc - 100, y: 205}, {name: "exit-c2", x: cc + 100, y: 205},
+	{name: "gw-c1", x: cc - 40, y: 280, gw: true}, {name: "gw-c2", x: cc + 40, y: 280, gw: true},
+	{name: "fab-c1", x: cc - 100, y: 345, fabric: true}, {name: "fab-c2", x: cc + 100, y: 345, fabric: true},
 }
 
-var links = [][2]string{
-	{"m-a", "leaf-a"}, {"leaf-a", "exit-a1"}, {"leaf-a", "exit-a2"},
-	{"exit-a1", "gw-a1"}, {"exit-a1", "gw-a2"}, {"exit-a2", "gw-a1"}, {"exit-a2", "gw-a2"},
-	{"exit-a1", "core"}, {"exit-a2", "core"}, {"core", "exit-b1"}, {"core", "exit-b2"},
-	{"exit-b1", "gw-b1"}, {"exit-b1", "gw-b2"}, {"exit-b2", "gw-b1"}, {"exit-b2", "gw-b2"},
-	{"exit-b1", "leaf-b"}, {"exit-b2", "leaf-b"}, {"leaf-b", "m-b"},
-}
+var links = func() [][2]string {
+	var l [][2]string
+	for _, p := range []string{"a", "b", "c"} {
+		for _, e := range []string{"1", "2"} {
+			exit := "exit-" + p + e
+			l = append(l, [2]string{"core", exit}, [2]string{exit, "fab-" + p + e},
+				[2]string{exit, "gw-" + p + "1"}, [2]string{exit, "gw-" + p + "2"})
+		}
+	}
+	return l
+}()
 
-// labels below each gateway pair
-var pairLabels = []struct {
-	x          int
-	line1, two string
+// one box per partition
+var partitions = []struct {
+	x            int
+	name, detail string
 }{
-	{290, "anycast locator fd00:dc1:a::/48", "transport: DCI network"},
-	{670, "anycast locator fd00:dc1:b::/48", "transport: underlay"},
+	{ca, "Partition A", "locator fd00:dc1:a::/48 · DCI network"},
+	{cb, "Partition B", "locator fd00:dc1:b::/48 · underlay"},
+	{cc, "Partition C", "locator fd00:dc1:c::/48 · underlay"},
 }
 
 // header is one encapsulation layer; class selects its colour
@@ -70,7 +77,6 @@ type hop struct {
 // animation is one README animation: the packet's way through the lab.
 type animation struct {
 	file, title, aria string
-	nodes             []string
 	hops              []hop
 }
 
@@ -78,30 +84,28 @@ var animations = []animation{
 	{
 		file:  "docs/packet-flow.svg",
 		title: "Tenant VRFs stitched by redundant gateway pairs, dual-attached to two exits",
-		aria: "Animated packet flow: each partition has two exits and a redundant gateway pair attached to both. A tenant " +
-			"packet from m-a travels over VXLAN with VNI 3981 through leaf-a and exit-a1 to gw-a1, which provisioned the " +
-			"tenant VRF. gw-a1 encapsulates it in SRv6 to partition B's anycast SID and sends it in the DCI network (VNI " +
-			"104100) via the other exit, exit-a2, into the core. exit-b1 delivers it to gw-b2, which decapsulates it " +
-			"(End.DT46) and forwards it with partition B's VNI 4011 via exit-b2 and leaf-b to m-b.",
-		nodes: []string{"m-a", "leaf-a", "exit-a1", "exit-a2", "gw-a1", "gw-a2", "core", "gw-b1", "gw-b2", "exit-b1", "exit-b2", "leaf-b", "m-b"},
+		aria: "Animated packet flow across three partitions, each with two exits and a redundant gateway pair attached " +
+			"to both; spines, leaves and machines are summarised as the fabric. A tenant packet arrives from partition A's " +
+			"fabric over VXLAN with VNI 3981 via exit-a1 at gw-a1, which provisioned the tenant VRF. gw-a1 encapsulates it " +
+			"in SRv6 to partition B's anycast SID and sends it in the DCI network (VNI 104100) via the other exit, exit-a2, " +
+			"into the IPv6-only core. exit-b1 delivers it to gw-b2, which decapsulates it (End.DT46) and forwards it with " +
+			"partition B's VNI 4011 via exit-b2 into partition B's fabric. Partition C works alike.",
 		hops: []hop{
-			{[]string{"m-a", "leaf-a"}, []header{ip}, "m-a → leaf-a:", "A tenant machine sends a plain packet to its leaf."},
-			{[]string{"leaf-a", "exit-a1", "gw-a1"}, []header{{"vx", "VXLAN  VNI 3981 (tenant 1, A)"}, ip}, "leaf-a → gw-a1:", "EVPN type-5 via either exit to either gateway (ECMP): both are VTEPs of VNI 3981."},
+			{[]string{"fab-a1", "exit-a1", "gw-a1"}, []header{{"vx", "VXLAN  VNI 3981 (tenant 1, A)"}, ip}, "fabric A → gw-a1:", "EVPN type-5 via either exit to either gateway (ECMP): both are VTEPs of VNI 3981."},
 			{[]string{"gw-a1", "exit-a2"}, []header{{"dci", "VXLAN  VNI 104100 (DCI network)"}, {"sr", "SRv6  → fd00:dc1:b:fab:: (End.DT46)"}, ip}, "gw-a1 → exit-a2:", "SRv6 to B's anycast SID, in the DCI network via the gateway's other exit."},
-			{[]string{"exit-a2", "core", "exit-b1"}, []header{{"sr", "SRv6  → fd00:dc1:b:fab::"}, ip}, "exit-a2 → exit-b1:", "Between partitions only IPv6: locators, no tenants, no VNIs."},
+			{[]string{"exit-a2", "core", "exit-b1"}, []header{{"sr", "SRv6  → fd00:dc1:b:fab::"}, ip}, "exit-a2 → exit-b1:", "Between partitions only IPv6: locators, no tenants, no VNIs. C works alike."},
 			{[]string{"exit-b1", "gw-b2"}, []header{{"sr", "SRv6  → fd00:dc1:b:fab::"}, ip}, "exit-b1 → gw-b2:", "Both gateways own the SID; a gateway or an exit can fail without BGP changes."},
-			{[]string{"gw-b2", "exit-b2", "leaf-b"}, []header{{"vx", "VXLAN  VNI 4011 (tenant 1, B)"}, ip}, "gw-b2 → leaf-b:", "End.DT46 into the tenant VRF, type-5 with B's own VNI 4011."},
-			{[]string{"leaf-b", "m-b"}, []header{ip}, "leaf-b → m-b:", "Delivered. Tenants never see SIDs or the transport."},
+			{[]string{"gw-b2", "exit-b2", "fab-b2"}, []header{{"vx", "VXLAN  VNI 4011 (tenant 1, B)"}, ip}, "gw-b2 → fabric B:", "End.DT46 into the tenant VRF, type-5 with B's own VNI 4011. Tenants never see SIDs."},
 		},
 	},
 }
 
 // timing in seconds: every hop moves, then dwells; the animation ends with a pause
 const (
-	width, height          = 960, 356
-	nodeW, machineW, nodeH = 70, 64, 30
-	move, dwell, pause     = 1.3, 1.1, 1.2
-	packetAbove            = 26 // the packet dot sits this far above a node's centre
+	width, height      = 960, 440
+	nodeW, nodeH       = 70, 30
+	move, dwell, pause = 1.3, 1.1, 1.2
+	packetAbove        = 26 // the packet dot sits this far above a node's centre
 )
 
 const style = `<style>
@@ -112,6 +116,7 @@ const style = `<style>
   .link { stroke: #8c959f; stroke-width: 2; }
   .node { fill: #ffffff; stroke: #59636e; stroke-width: 1.5; }
   .gw { fill: #fff1e5; stroke: #bc4c00; stroke-width: 2; }
+  .fab { fill: none; stroke: #8c959f; stroke-width: 1.5; stroke-dasharray: 5 4; }
   .nl { font-size: 12px; font-weight: 600; }
   .ns { font-size: 10px; fill: #59636e; }
   .h { stroke: rgba(0,0,0,.25); }
@@ -124,6 +129,7 @@ const style = `<style>
     .part { fill: #161b22; stroke: #3d444d; }
     .plabel, .ns { fill: #9198a1; }
     .link { stroke: #656c76; }
+    .fab { stroke: #656c76; }
     .node { fill: #0d1117; stroke: #9198a1; }
     .gw { fill: #3d1d00; stroke: #f0883e; }
     .h { stroke: rgba(255,255,255,.2); }
@@ -147,6 +153,11 @@ func main() {
 		}
 		fmt.Printf("%s: %.1fs\n", a.file, dur)
 	}
+	if err := os.WriteFile(logicalFile, []byte(renderLogical()), 0o644); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	fmt.Println(logicalFile)
 }
 
 func find(name string) node {
@@ -160,10 +171,6 @@ func find(name string) node {
 
 // render returns the SVG and the duration of one animation cycle.
 func render(a animation) (string, float64) {
-	shownNode := map[string]bool{}
-	for _, n := range a.nodes {
-		shownNode[n] = true
-	}
 	var events []event
 	t := 0.0
 	for i, h := range a.hops {
@@ -217,44 +224,28 @@ func render(a animation) (string, float64) {
 	w := func(format string, a ...any) { fmt.Fprintf(&b, format+"\n", a...) }
 	w(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %d %d" width="%d" height="%d" role="img" aria-label="%s">`, width, height, width, height, a.aria)
 	w("%s", style)
-	w(`<rect class="part" x="8" y="104" width="400" height="216" rx="10"/><text class="plabel" x="20" y="124">Partition A · EVPN domain A</text>`)
-	w(`<rect class="part" x="552" y="104" width="400" height="216" rx="10"/><text class="plabel" x="940" y="124" text-anchor="end">Partition B · EVPN domain B</text>`)
+	for _, p := range partitions {
+		w(`<rect class="part" x="%d" y="160" width="304" height="236" rx="10"/><text class="plabel" x="%d" y="386" text-anchor="middle">%s · %s</text>`, p.x-152, p.x, p.name, p.detail)
+		w(`<rect class="fab" x="%d" y="332" width="260" height="26" rx="6"/><text class="ns" x="%d" y="349" text-anchor="middle">fabric: spines, leaves, machines</text>`, p.x-130, p.x)
+	}
 	for _, l := range links {
-		if !shownNode[l[0]] || !shownNode[l[1]] {
-			continue
-		}
 		p, q := find(l[0]), find(l[1])
 		w(`<line class="link" x1="%d" y1="%d" x2="%d" y2="%d"/>`, p.x, p.y, q.x, q.y)
 	}
 	for _, n := range nodes {
-		if !shownNode[n.name] {
+		if n.fabric {
 			continue
 		}
-		nw, class := nodeW, "node"
-		if strings.HasPrefix(n.name, "m-") {
-			nw = machineW
-		}
+		class := "node"
 		if n.gw {
 			class = "node gw"
 		}
 		w(`<rect class="%s" x="%.1f" y="%.1f" width="%d" height="%d" rx="6"/><text class="nl" x="%d" y="%d" text-anchor="middle">%s</text>`,
-			class, float64(n.x)-float64(nw)/2, float64(n.y)-nodeH/2.0, nw, nodeH, n.x, n.y+4, n.name)
+			class, float64(n.x)-nodeW/2.0, float64(n.y)-nodeH/2.0, nodeW, nodeH, n.x, n.y+4, n.name)
 		if n.sub != "" {
 			w(`<text class="ns" x="%d" y="%d" text-anchor="middle">%s</text>`, n.x, n.y+27, n.sub)
 		}
-		if n.side[0] != "" {
-			sx, anchor := n.x-42, "end"
-			if n.right {
-				sx, anchor = n.x+42, "start"
-			}
-			w(`<text class="ns" x="%d" y="%d" text-anchor="%s">%s</text><text class="ns" x="%d" y="%d" text-anchor="%s">%s</text>`,
-				sx, n.y-2, anchor, n.side[0], sx, n.y+10, anchor, n.side[1])
-		}
 	}
-	for _, l := range pairLabels {
-		w(`<text class="ns" x="%d" y="303" text-anchor="middle">%s</text><text class="ns" x="%d" y="314" text-anchor="middle">%s</text>`, l.x, l.line1, l.x, l.two)
-	}
-	w(`<text class="ns" x="480" y="312" text-anchor="middle">spines omitted</text>`)
 
 	w(`<text class="scene" x="480" y="26" text-anchor="middle">%s</text>`, a.title)
 	// header stack: a fixed panel, the innermost header at the bottom
@@ -270,7 +261,7 @@ func render(a animation) (string, float64) {
 	w(`<g><animateTransform attributeName="transform" type="translate" %s values="%s" keyTimes="%s"/><circle class="pkt" cx="0" cy="0" r="6"/></g>`,
 		durAttr, strings.Join(values, ";"), strings.Join(keyTimes, ";"))
 	for i, e := range events {
-		w("%s", shown(e.t0, e.t2, fmt.Sprintf(`<text class="cap" x="480" y="340" text-anchor="middle"><tspan font-weight="600">%d/%d  %s</tspan> %s</text>`, i+1, len(events), e.hop.bold, e.hop.caption)))
+		w("%s", shown(e.t0, e.t2, fmt.Sprintf(`<text class="cap" x="480" y="425" text-anchor="middle"><tspan font-weight="600">%d/%d  %s</tspan> %s</text>`, i+1, len(events), e.hop.bold, e.hop.caption)))
 	}
 	w("</svg>")
 	return b.String(), dur

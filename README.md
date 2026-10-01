@@ -27,7 +27,13 @@ and puts them back whenever the base system reloads its config.
 > L2VNIs across partitions.
 
 <p align="center">
-  <img src="docs/packet-flow.svg" width="960" alt="Animated packet flow: each partition has two exits and a redundant gateway pair attached to both. A tenant packet from m-a travels over VXLAN with VNI 3981 through leaf-a and exit-a1 to gw-a1, which provisioned the tenant VRF. gw-a1 encapsulates it in SRv6 to partition B's anycast SID and sends it in the DCI network (VNI 104100) via the other exit, exit-a2, into the core. exit-b1 delivers it to gw-b2, which decapsulates it (End.DT46) and forwards it with partition B's VNI 4011 via exit-b2 and leaf-b to m-b.">
+  <img src="docs/logical-view.svg" width="960" alt="Logical view: three partitions, each with its own private network and VNI per tenant. Tenant 1 has 10.0.16.0/24 with VNI 3981 in A, 10.0.32.0/24 with VNI 4011 in B and 10.0.48.0/24 with VNI 5011 in C; tenant 2 has 10.0.17.0/24 (VNI 3982), 10.0.33.0/24 (VNI 4012) and 10.0.49.0/24 (VNI 5012). The gateway pair of each partition exports every tenant VRF with its own SRv6 SID; SRv6 L3VPN joins each tenant's networks into one routed network (route targets 65535:1001 and 65535:1002). Tenants stay separate.">
+</p>
+
+How a packet travels (spines, leaves and machines are left out):
+
+<p align="center">
+  <img src="docs/packet-flow.svg" width="960" alt="Animated packet flow across three partitions, each with two exits and a redundant gateway pair attached to both; spines, leaves and machines are summarised as the fabric. A tenant packet arrives from partition A's fabric over VXLAN with VNI 3981 via exit-a1 at gw-a1, which provisioned the tenant VRF. gw-a1 encapsulates it in SRv6 to partition B's anycast SID and sends it in the DCI network (VNI 104100) via the other exit, exit-a2, into the IPv6-only core. exit-b1 delivers it to gw-b2, which decapsulates it (End.DT46) and forwards it with partition B's VNI 4011 via exit-b2 into partition B's fabric. Partition C works alike.">
 </p>
 
 Between partitions only IPv6 is needed: exits and core see one locator prefix per gateway,
@@ -48,7 +54,7 @@ mixed freely:
 | Different ASNs per partition and per router, auto RTs on the EVPN side | yes | yes |
 | Several tenants per gateway, isolated from each other | yes, one VRF each | yes (2) |
 | Overlapping prefixes of *different* tenants | yes, by design (separate VRFs) | no |
-| One network across more than two partitions | yes, with a peer per remote gateway | no |
+| One network across more than two partitions | yes: the exits relay the VPN routes, gateways keep their two sessions | yes (three) |
 | IPv4 and IPv6 | yes (End.DT46) | yes |
 | Mixed transport modes (DCI network ↔ default VRF) | yes | yes |
 | Overlapping prefixes *within* one stitched network | no: the partitions share one routing domain | – |
@@ -166,9 +172,9 @@ The gateway's base FRR config peers EVPN with the fabric and has `advertise-all-
 [Configuration](docs/configuration.md)). Each network is a tenant VRF that open-dci
 provisions with the tenant's VNI in that partition. Each partition runs a redundant pair of
 gateways that share the locator (anycast) and pinned SIDs (the VNI by default), each with
-its own loopback, and each attached to both exits of the partition (`uplink0`, `uplink1`). Two of the lab's four gateways
+its own loopback, and each attached to both exits of the partition (`uplink0`, `uplink1`). Two of the lab's six gateways
 (`/etc/open-dci/config.yaml`, from `lab/configs/gw-*/open-dci.yaml`; gw-a2 and gw-b2 differ
-only in `loopback`):
+only in `loopback`, partition C's pair is configured like partition B's):
 
 <table>
 <tr>
@@ -195,16 +201,20 @@ networks:
     prefixes:                   # tenant 1, all partitions
       - 10.0.16.0/24 le 32
       - 10.0.32.0/24 le 32
+      - 10.0.48.0/24 le 32
       - 2001:db8:16::/48 le 128
       - 2001:db8:32::/48 le 128
+      - 2001:db8:48::/48 le 128
   - vrf: vrf3982
     vni: 3982                   # tenant 2 in A, SID f8e
     routeTarget: "65535:1002"
     prefixes:                   # tenant 2, all partitions
       - 10.0.17.0/24 le 32
       - 10.0.33.0/24 le 32
+      - 10.0.49.0/24 le 32
       - 2001:db8:17::/48 le 128
       - 2001:db8:33::/48 le 128
+      - 2001:db8:49::/48 le 128
 ```
 
 </td>
@@ -227,16 +237,20 @@ networks:
     prefixes:                   # tenant 1, all partitions
       - 10.0.16.0/24 le 32
       - 10.0.32.0/24 le 32
+      - 10.0.48.0/24 le 32
       - 2001:db8:16::/48 le 128
       - 2001:db8:32::/48 le 128
+      - 2001:db8:48::/48 le 128
   - vrf: vrf4012
     vni: 4012                   # tenant 2 in B, SID fac
     routeTarget: "65535:1002"   # = gw-a1's
     prefixes:                   # tenant 2, all partitions
       - 10.0.17.0/24 le 32
       - 10.0.33.0/24 le 32
+      - 10.0.49.0/24 le 32
       - 2001:db8:17::/48 le 128
       - 2001:db8:33::/48 le 128
+      - 2001:db8:49::/48 le 128
 ```
 
 </td>
