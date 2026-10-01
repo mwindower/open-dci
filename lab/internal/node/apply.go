@@ -48,6 +48,14 @@ func Apply(s *Spec, log *slog.Logger) error {
 		}
 		log.Info("interface", "name", i.Name, "vrf", i.VRF, "mtu", i.MTU)
 	}
+	var rules []kernel.DropRule
+	for _, f := range s.EdgeFilter {
+		r, _ := f.DropRule() // validated
+		rules = append(rules, r)
+	}
+	if err := kernel.EnsureFilter("lab-edge", rules); err != nil {
+		return err
+	}
 	for k, v := range s.Sysctls {
 		if err := kernel.Sysctl(k, v); err != nil {
 			return err

@@ -3,6 +3,7 @@ package gateway
 import (
 	"fmt"
 	"net"
+	"net/netip"
 
 	"github.com/vishvananda/netlink"
 
@@ -39,6 +40,7 @@ func preflightKernel(cfg *config.Config) error {
 // ensureKernel applies the kernel part of the gateway. It is idempotent.
 //
 //   - provisioned L3VNIs: VRF, bridge and VXLAN device per network
+//   - the ingress filter at the gateway's edge of the SRv6 domain (FilterRules)
 //   - sysctls: forwarding, seg6_enabled, net.vrf.strict_mode
 //   - the gateway loopback (<locator>::1) on lo
 //
@@ -59,6 +61,9 @@ func ensureKernel(cfg *config.Config, id frr.Identity) error {
 		if err := kernel.EnsureL3VNI(v); err != nil {
 			return fmt.Errorf("vrf %s: %w", v.VRF, err)
 		}
+	}
+	if err := kernel.EnsureFilter(FilterTable, FilterRules(cfg)); err != nil {
+		return err
 	}
 	for _, s := range sysctls {
 		if err := kernel.Sysctl(s.key, s.value); err != nil {
@@ -94,6 +99,31 @@ func ensureKernel(cfg *config.Config, id frr.Identity) error {
 		return err
 	}
 	return kernel.MoveLocalRule()
+}
+
+// FilterTable is the nftables (ip6) table of the gateway's ingress filter.
+const FilterTable = "open-dci"
+
+// FilterRules is the gateway's part of filtering at the edge of the SRv6
+// domain. Tenants must never reach the transport (the other tenants' SIDs
+// would decapsulate their packets into foreign VRFs), and the own SIDs and
+// loopback only accept packets from inside the locator block. Exempt, since
+// they can't come from outside the domain: the gateway's own packets (via lo),
+// and link-local sources, which only the attached link can send (the own DCI
+// VRF via the veth, or the exit), e.g. ICMPv6 errors to the encap source.
+func FilterRules(cfg *config.Config) []kernel.DropRule {
+	block := netip.MustParsePrefix(cfg.Gateway.LocatorBlock)
+	ll := netip.MustParsePrefix("fe80::/10")
+	rules := []kernel.DropRule{
+		{Name: "tenant-to-transport", IifPrefix: kernel.L3VNIBridgePrefix, Daddr: block},
+		{Name: "locator-from-outside", ExceptIif: "lo", Daddr: netip.MustParsePrefix(cfg.Gateway.Locator), SaddrNot: block, ExceptSaddr: ll},
+	}
+	if cfg.Gateway.Anycast() {
+		rules = append(rules, kernel.DropRule{
+			Name: "loopback-from-outside", ExceptIif: "lo", Daddr: netip.PrefixFrom(cfg.Gateway.Loopback(), 128), SaddrNot: block, ExceptSaddr: ll,
+		})
+	}
+	return rules
 }
 
 // l3vnis returns the L3VNIs open-dci provisions. The VTEP defaults to the

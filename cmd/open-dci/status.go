@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/mwindower/open-dci/internal/gateway"
@@ -52,6 +53,15 @@ func printStatus(w io.Writer, st *gateway.Status) {
 	} else {
 		fmt.Fprintf(w, "transport default VRF  vrf strict_mode: %s\n", k.StrictMode)
 	}
+	filter := "MISSING"
+	if len(k.Filter) == k.FilterRequired {
+		var f []string
+		for _, c := range k.Filter {
+			f = append(f, fmt.Sprintf("%s %d", c.Name, c.Packets))
+		}
+		filter = "dropped: " + strings.Join(f, ", ")
+	}
+	fmt.Fprintf(w, "filter    %s\n", filter)
 	if k.Err != "" {
 		fmt.Fprintf(w, "          %s\n", k.Err)
 	}

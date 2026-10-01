@@ -28,7 +28,10 @@ type KernelStatus struct {
 	RequiredMTU   int
 	LocalRuleLast bool
 	StrictMode    string
-	Err           string `json:",omitempty"`
+	// Filter: the ingress filter's rules and their drop counters
+	Filter         []kernel.FilterCounter
+	FilterRequired int
+	Err            string `json:",omitempty"`
 }
 
 type PeerStatus struct {
@@ -154,6 +157,8 @@ func (g *Gateway) countRoutes(vrf, afi string) (local, remote int) {
 func (g *Gateway) kernelStatus() KernelStatus {
 	ks := KernelStatus{TransportVRF: g.Config.Transport.VRF, RequiredMTU: g.Config.Transport.MTU}
 	ks.StrictMode, _ = kernel.GetSysctl("net.vrf.strict_mode")
+	ks.Filter, _ = kernel.FilterCounters(FilterTable)
+	ks.FilterRequired = len(FilterRules(g.Config))
 	if !g.Config.Transport.InVRF() {
 		return ks
 	}
@@ -172,7 +177,7 @@ func (g *Gateway) kernelStatus() KernelStatus {
 // Healthy reports whether everything open-dci is responsible for is in place.
 func (s *Status) Healthy() bool {
 	k := s.Kernel
-	if s.MissingLines > 0 || k.StrictMode != "1" {
+	if s.MissingLines > 0 || k.StrictMode != "1" || len(k.Filter) != k.FilterRequired {
 		return false
 	}
 	if k.TransportVRF != "" && (!k.VethUp || k.DCIPathMTU < k.RequiredMTU || !k.LocalRuleLast) {

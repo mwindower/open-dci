@@ -14,6 +14,10 @@ import (
 // modified or deleted; everything else belongs to the base system.
 const OwnerAlias = "open-dci"
 
+// L3VNIBridgePrefix starts the name of every provisioned L3VNI's bridge
+// (config.Network.BridgeName): tenant packets arrive on these devices.
+const L3VNIBridgePrefix = "dcibr"
+
 // L3VNI is a tenant VRF provisioned as an EVPN L3VNI in the classic layout
 // FRR's zebra understands without VLANs: VRF <- bridge (acts as the SVI) <-
 // VXLAN device.
