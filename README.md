@@ -56,6 +56,48 @@ mixed freely:
 | Redundant gateways per partition (anycast locator, failover without BGP changes) | yes | yes |
 | L2: stretched subnets, MAC/IP routes | no | – |
 
+## Scale and limits
+
+Hard limits come from the design; everything else is bounded by the gateway's CPU, memory
+and FRR, and has **not been measured yet** (the lab runs 2 tenants on 2 pairs; a scale test
+is on the [roadmap](docs/development.md#roadmap)).
+
+| What | Limit | Where it comes from |
+|---|---|---|
+| Stitched networks (tenant VRFs) per gateway | 65535 by design; practically far less, untested | 16 function bits per locator give one End.DT46 SID per network (`networks[].sid`). Each network costs a VRF, a bridge and a VXLAN device, an FRR VRF with its own BGP instance, prefix-lists and route-maps. |
+| Partitions (gateway pairs) | 65536 with the default `/32` block and 16 node bits | One locator (`/48`) per pair, shared by both gateways. |
+| BGP sessions per gateway | 2 × (pairs − 1) | Full mesh to every remote gateway; route reflectors would make it constant ([day-2 notes](docs/day2.md)). |
+| VNIs | 24 bit | VXLAN. VNIs are local to a partition, so they don't add up. |
+| VPN prefixes per peer | `maxPrefixes`, default 10000 per address family | Safety net; exceeding it tears the session down. |
+| Throughput | CPU-bound, not measured | Encap and decap are done by the Linux kernel in software (no XDP, no offload); scale out with more gateways or pairs. |
+| Overhead per packet | +48 B (IPv6 + SRH), +50 B more in a DCI network | Every hop must fit tenant MTU + overhead; open-dci validates and raises the DCI devices. |
+| Reconcile | every 10 s (`run -i`) | Each run reads the whole FRR running-config; its cost grows with the number of networks. |
+
+### Why not on the switches?
+
+The stitching could run on the exits or leaves themselves (SONiC uses FRR, too). open-dci
+deliberately puts it on dedicated Linux gateways:
+
+- **Data-plane support.** End.DT46 decap plus SRv6 encap with VPN SIDs, in the same box as
+  EVPN/VXLAN, needs ASIC support. Many datacenter switch ASICs don't support SRv6 VPN at all
+  or only in recent generations, and SONiC's SRv6 support covers only some platforms. The
+  Linux kernel supports it on any server.
+- **Hardware tables.** On a switch, every tenant VRF, L3VNI, VXLAN tunnel and SRv6 encap
+  entry competes for fixed tables (VRF IDs, next hops, tunnel and TCAM entries, shared LPM
+  space). Depending on the ASIC, VRFs are typically limited to hundreds or a few thousand.
+  Stitching N tenants across partitions adds N VRFs plus their remote routes to every
+  switch that does it. A server's limits are memory and CPU, and are easy to grow.
+- **Blast radius and ownership.** The exits carry the whole partition's fabric and
+  internet traffic and are managed by the fabric's own tooling (e.g. metal-core). Putting
+  per-tenant DCI state on them couples every tenant change to the fabric. Dedicated gateways
+  add to an untouched fabric, can be updated, restarted or replaced pair by pair, and fail
+  over without the fabric noticing.
+- **Scale-out.** When one pair isn't enough, add another pair (tenants spread across pairs)
+  or bigger servers, instead of upgrading switches.
+
+The price is an extra hop through a server and software forwarding, which is why its
+throughput needs measuring before production use.
+
 ## Why this design
 
 - **L3 only, SRv6 L3VPN between domains.** Stretching EVPN would couple the partitions'
