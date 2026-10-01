@@ -1,0 +1,17 @@
+# dedicated DCI gateway gw-a1 at exit-a (one of a redundant pair with gw-a2), SRv6
+# transport in a DCI network: the base
+# config (what the operator sets up) has the DCI VRF vrf104100 as an EVPN L3VNI
+# in the VLAN-aware bridge layout, at MTU 9000. open-dci provisions the tenant
+# VRFs, joins the DCI VRF with a veth and raises the DCI devices' MTU.
+#   uplink0  exit-a's fabric side: underlay IPv4 + EVPN (VTEP 10.0.0.16)
+waitInterfaces: [uplink0]
+loopback: [10.0.0.16/32]
+vrfs:
+  - {name: vrf104100, table: 1001}
+bridge: {name: bridge, mtu: 9000}
+vnis:
+  - {vni: 104100, vlan: 1001, vrf: vrf104100, local: 10.0.0.16, mtu: 9000}
+interfaces:
+  - {name: uplink0, mtu: 9216}
+sidecars:
+  - [/usr/local/bin/open-dci, run, -c, /etc/open-dci/config.yaml]

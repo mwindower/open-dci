@@ -1,5 +1,5 @@
 // packetflow renders docs/packet-flow.svg, the README animation: a tenant
-// packet through the dedicated gateways at the exits. It is plain SVG + SMIL,
+// packet through the redundant gateway pairs at the exits. It is plain SVG + SMIL,
 // no scripts, because GitHub renders it via <img>.
 //
 // Usage (from the repository root): make docs-svg
@@ -21,22 +21,33 @@ type node struct {
 	right bool // side label to the right of the box (false: left)
 }
 
-// layout: the gateways hang off the exits
+// layout: a redundant gateway pair hangs off each exit
 var nodes = []node{
 	{name: "m-a", x: 46, y: 186, sub: "tenant 1"},
 	{name: "leaf-a", x: 160, y: 186},
 	{name: "exit-a", x: 330, y: 186},
-	{name: "gw-a", x: 330, y: 252, gw: true, side: [2]string{"gateway", "via DCI network"}, right: true},
+	{name: "gw-a1", x: 290, y: 252, gw: true},
+	{name: "gw-a2", x: 370, y: 252, gw: true},
 	{name: "core", x: 480, y: 186, sub: "IPv6 only"},
 	{name: "exit-b", x: 630, y: 186},
-	{name: "gw-b", x: 630, y: 252, gw: true, side: [2]string{"gateway", "via underlay"}},
+	{name: "gw-b1", x: 590, y: 252, gw: true},
+	{name: "gw-b2", x: 670, y: 252, gw: true},
 	{name: "leaf-b", x: 800, y: 186},
 	{name: "m-b", x: 914, y: 186, sub: "tenant 1"},
 }
 
 var links = [][2]string{
-	{"m-a", "leaf-a"}, {"leaf-a", "exit-a"}, {"exit-a", "gw-a"}, {"exit-a", "core"},
-	{"core", "exit-b"}, {"exit-b", "gw-b"}, {"exit-b", "leaf-b"}, {"leaf-b", "m-b"},
+	{"m-a", "leaf-a"}, {"leaf-a", "exit-a"}, {"exit-a", "gw-a1"}, {"exit-a", "gw-a2"}, {"exit-a", "core"},
+	{"core", "exit-b"}, {"exit-b", "gw-b1"}, {"exit-b", "gw-b2"}, {"exit-b", "leaf-b"}, {"leaf-b", "m-b"},
+}
+
+// labels below each gateway pair
+var pairLabels = []struct {
+	x          int
+	line1, two string
+}{
+	{330, "anycast locator fd00:dc1:a::/48", "transport: DCI network"},
+	{630, "anycast locator fd00:dc1:b::/48", "transport: underlay"},
 }
 
 // header is one encapsulation layer; class selects its colour
@@ -61,19 +72,20 @@ type animation struct {
 var animations = []animation{
 	{
 		file:  "docs/packet-flow.svg",
-		title: "Tenant VRFs stitched by open-dci gateways at the exits",
+		title: "Tenant VRFs stitched by redundant open-dci gateway pairs at the exits",
 		aria: "Animated packet flow: a tenant packet from m-a travels over VXLAN with VNI 3981 through partition A's fabric " +
-			"to the gateway gw-a, whose tenant VRF open-dci provisioned. gw-a encapsulates it in SRv6 and sends it in the DCI " +
-			"network (VNI 104100) back to the exit, as plain IPv6 through the core and partition B's underlay to gw-b, which " +
-			"decapsulates it (End.DT46) and forwards it with partition B's VNI 4011 via leaf-b to m-b.",
-		nodes: []string{"m-a", "leaf-a", "exit-a", "gw-a", "core", "gw-b", "exit-b", "leaf-b", "m-b"},
+			"to gw-a1, one of two redundant gateways that both provisioned the tenant VRF. gw-a1 encapsulates it in SRv6 to " +
+			"partition B's anycast SID and sends it in the DCI network (VNI 104100) back to the exit, as plain IPv6 through " +
+			"the core to exit-b, which may pick either gateway of pair B: here gw-b2 decapsulates it (End.DT46) and forwards " +
+			"it with partition B's VNI 4011 via leaf-b to m-b.",
+		nodes: []string{"m-a", "leaf-a", "exit-a", "gw-a1", "gw-a2", "core", "gw-b1", "gw-b2", "exit-b", "leaf-b", "m-b"},
 		hops: []hop{
 			{[]string{"m-a", "leaf-a"}, []header{ip}, "m-a → leaf-a:", "A tenant machine sends a plain packet to its leaf."},
-			{[]string{"leaf-a", "exit-a", "gw-a"}, []header{{"vx", "VXLAN  VNI 3981 (tenant 1, A)"}, ip}, "leaf-a → gw-a:", "EVPN type-5 through the fabric to gw-a, which open-dci made the VTEP of VNI 3981."},
-			{[]string{"gw-a", "exit-a"}, []header{{"dci", "VXLAN  VNI 104100 (DCI network)"}, {"sr", "SRv6  → fd00:dc1:b:1:: (End.DT46)"}, ip}, "gw-a → exit-a:", "SRv6 to gw-b's SID, carried to the exit in the DCI network."},
-			{[]string{"exit-a", "core", "exit-b"}, []header{{"sr", "SRv6  → fd00:dc1:b:1::"}, ip}, "exit-a → exit-b:", "Between partitions only IPv6: locators, no tenants, no VNIs."},
-			{[]string{"exit-b", "gw-b"}, []header{{"sr", "SRv6  → fd00:dc1:b:1::"}, ip}, "exit-b → gw-b:", "Partition B's IPv6 underlay delivers it to gw-b, the SID's owner."},
-			{[]string{"gw-b", "exit-b", "leaf-b"}, []header{{"vx", "VXLAN  VNI 4011 (tenant 1, B)"}, ip}, "gw-b → leaf-b:", "End.DT46 into the tenant VRF, type-5 with B's own VNI 4011."},
+			{[]string{"leaf-a", "exit-a", "gw-a1"}, []header{{"vx", "VXLAN  VNI 3981 (tenant 1, A)"}, ip}, "leaf-a → gw-a1:", "EVPN type-5 to either gateway of the pair (ECMP); both are VTEPs of VNI 3981."},
+			{[]string{"gw-a1", "exit-a"}, []header{{"dci", "VXLAN  VNI 104100 (DCI network)"}, {"sr", "SRv6  → fd00:dc1:b:fab:: (End.DT46)"}, ip}, "gw-a1 → exit-a:", "SRv6 to partition B's anycast SID, carried to the exit in the DCI network."},
+			{[]string{"exit-a", "core", "exit-b"}, []header{{"sr", "SRv6  → fd00:dc1:b:fab::"}, ip}, "exit-a → exit-b:", "Between partitions only IPv6: locators, no tenants, no VNIs."},
+			{[]string{"exit-b", "gw-b2"}, []header{{"sr", "SRv6  → fd00:dc1:b:fab::"}, ip}, "exit-b → gw-b2:", "Both gateways own the SID; if one fails, the other takes over without BGP changes."},
+			{[]string{"gw-b2", "exit-b", "leaf-b"}, []header{{"vx", "VXLAN  VNI 4011 (tenant 1, B)"}, ip}, "gw-b2 → leaf-b:", "End.DT46 into the tenant VRF, type-5 with B's own VNI 4011."},
 			{[]string{"leaf-b", "m-b"}, []header{ip}, "leaf-b → m-b:", "Delivered. Tenants never see SIDs or the transport."},
 		},
 	},
@@ -233,6 +245,9 @@ func render(a animation) (string, float64) {
 			w(`<text class="ns" x="%d" y="%d" text-anchor="%s">%s</text><text class="ns" x="%d" y="%d" text-anchor="%s">%s</text>`,
 				sx, n.y-2, anchor, n.side[0], sx, n.y+10, anchor, n.side[1])
 		}
+	}
+	for _, l := range pairLabels {
+		w(`<text class="ns" x="%d" y="279" text-anchor="middle">%s</text><text class="ns" x="%d" y="290" text-anchor="middle">%s</text>`, l.x, l.line1, l.x, l.two)
 	}
 	w(`<text class="ns" x="480" y="286" text-anchor="middle">spines omitted</text>`)
 

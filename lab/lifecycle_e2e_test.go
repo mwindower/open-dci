@@ -13,7 +13,7 @@ import (
 // the sidecar, running with the real config and sharing the state file, has
 // to clean it up.
 func TestRemovesProvisionedNetwork(t *testing.T) {
-	const node, vni = "gw-b", "4099"
+	const node, vni = "gw-b1", "4099"
 	if _, err := lab.Exec(node, "sh", "-c",
 		`cat /etc/open-dci/config.yaml > /tmp/extra.yaml && echo '  - {vrf: vrf`+vni+`, vni: `+vni+`, routeTarget: "65535:1099", prefixes: [10.99.99.0/24 le 32]}' >> /tmp/extra.yaml`); err != nil {
 		t.Fatal(err)
@@ -52,7 +52,7 @@ func TestRemovesProvisionedNetwork(t *testing.T) {
 // open-dci never takes over a VRF it did not create: a network whose VRF
 // already exists (here created by hand) is refused before anything changes.
 func TestRefusesForeignVRF(t *testing.T) {
-	const node, vni = "gw-b", "4098"
+	const node, vni = "gw-b1", "4098"
 	if _, err := lab.Exec(node, "ip", "link", "add", "vrf"+vni, "type", "vrf", "table", vni); err != nil {
 		t.Fatal(err)
 	}

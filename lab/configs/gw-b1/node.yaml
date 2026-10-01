@@ -1,4 +1,4 @@
-# dedicated DCI gateway at exit-b: one uplink into partition B's fabric, which
+# dedicated DCI gateway gw-b1 at exit-b (one of a redundant pair with gw-b2): one uplink into partition B's fabric, which
 # carries underlay IPv4, EVPN and the SRv6 transport (IPv6) alike.
 waitInterfaces: [uplink0]
 loopback: [10.0.1.16/32]

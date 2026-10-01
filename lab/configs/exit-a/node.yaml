@@ -1,8 +1,9 @@
 # exit: terminates the DCI network (vrf104100) and routes it into the
 # inter-partition core on swp2. DCI devices sized for SRv6 (9000 + 48 B).
-# The dedicated gateway gw-a hangs off swp3 like any fabric peer and reaches
-# the DCI network via EVPN.
-waitInterfaces: [swp1, swp2, swp3]
+# The redundant gateways gw-a1/gw-a2 hang off swp3/swp4 like any fabric peer
+# and reach the DCI network via EVPN; the shared locator arrives from both
+# (ECMP).
+waitInterfaces: [swp1, swp2, swp3, swp4]
 loopback: [10.0.0.14/32]
 vrfs:
   - {name: vrf104100, table: 1001}
@@ -13,3 +14,4 @@ interfaces:
   - {name: swp1, mtu: 9216}
   - {name: swp2, vrf: vrf104100, mtu: 9216}
   - {name: swp3, mtu: 9216}
+  - {name: swp4, mtu: 9216}

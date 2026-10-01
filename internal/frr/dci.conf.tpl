@@ -57,6 +57,9 @@ router bgp {{ .ASN }}
 {{- if not .TransportVRF }}
  address-family ipv6 unicast
   network {{ .Locator }}
+{{- if .Anycast }}
+  network {{ .Loopback }}/128
+{{- end }}
  exit-address-family
 {{- end }}
 exit
@@ -64,7 +67,7 @@ exit
 {{- range $n := .Networks }}
 router bgp {{ $.ASN }} vrf {{ $n.VRF }}
  bgp router-id {{ $.RouterID }}
- sid vpn per-vrf export auto
+ sid vpn per-vrf export {{ $n.SID }}
 {{- range $af := list "ipv4" "ipv6" }}
  address-family {{ $af }} unicast
   rd vpn export {{ $.RD $n.VRF }}
@@ -96,6 +99,9 @@ ipv6 route {{ .Locator }} blackhole
 !
 vrf {{ .TransportVRF }}
  ipv6 route {{ .Locator }} {{ .VethLL }} {{ .VethPeer }}
+{{- if .Anycast }}
+ ipv6 route {{ .Loopback }}/128 {{ .VethLL }} {{ .VethPeer }}
+{{- end }}
 exit-vrf
 {{- end }}
 !

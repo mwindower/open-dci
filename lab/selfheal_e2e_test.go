@@ -19,7 +19,7 @@ func opendci(node string, args ...string) error {
 }
 
 func TestGatewaysHealthy(t *testing.T) {
-	for _, gw := range []string{"gw-a", "gw-b"} {
+	for _, gw := range append(append([]string{}, pairA...), pairB...) {
 		t.Run(gw, func(t *testing.T) {
 			// "status" exits non-zero unless drift-free, kernel in place, peers
 			// Established and a SID allocated for every network
@@ -34,13 +34,13 @@ func TestGatewaysHealthy(t *testing.T) {
 func TestSelfHealAfterFRRReload(t *testing.T) {
 	// frr-reload.py may exit non-zero because of its own second pass ("Refusing
 	// to remove a non-existent route"); what matters is that it strips our lines
-	if _, err := lab.Exec("gw-a", "python3", "/usr/lib/frr/frr-reload.py", "--reload", "/etc/frr/frr.conf"); err != nil {
+	if _, err := lab.Exec("gw-a1", "python3", "/usr/lib/frr/frr-reload.py", "--reload", "/etc/frr/frr.conf"); err != nil {
 		t.Logf("frr-reload (ignored): %v", err)
 	}
-	if out, _ := lab.Vtysh("gw-a", "show running-config"); containsAll(out, "locator DCI") {
+	if out, _ := lab.Vtysh("gw-a1", "show running-config"); containsAll(out, "locator DCI") {
 		t.Log("note: open-dci re-applied before the check ran")
 	}
-	waitFor(t, heal, func() error { return opendci("gw-a", "status") })
+	waitFor(t, heal, func() error { return opendci("gw-a1", "status") })
 	waitFor(t, heal, func() error { return lab.Ping("m-a", mB.v4, 0) })
 	waitFor(t, heal, func() error { return lab.Ping("m-b", mA.v6, 0) })
 }
@@ -49,11 +49,11 @@ func TestSelfHealAfterFRRReload(t *testing.T) {
 // 9000; open-dci must raise them again, or full-size packets are black-holed.
 func TestSelfHealMTU(t *testing.T) {
 	for _, dev := range []string{"bridge", "vni104100", "vlan104100"} {
-		if _, err := lab.Exec("gw-a", "ip", "link", "set", dev, "mtu", "9000"); err != nil {
+		if _, err := lab.Exec("gw-a1", "ip", "link", "set", dev, "mtu", "9000"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	waitFor(t, heal, func() error { return opendci("gw-a", "status") })
+	waitFor(t, heal, func() error { return opendci("gw-a1", "status") })
 	waitFor(t, heal, func() error { return lab.Ping("m-a", mB.v6, 9000-48) })
 }
 
@@ -62,19 +62,19 @@ func TestSelfHealMTU(t *testing.T) {
 // extra peer is applied once by hand; the sidecar, running with the real
 // config and sharing the state file, has to clean it up.
 func TestRemovesStaleConfig(t *testing.T) {
-	const extra = "fd00:dc1:c::1"
-	if _, err := lab.Exec("gw-a", "sh", "-c",
-		`sed 's/^peers:$/peers:\n  - {address: "`+extra+`", asn: 4200000032}/' /etc/open-dci/config.yaml > /tmp/extra.yaml`); err != nil {
+	const extra = "fd00:dc1:ff::c1"
+	if _, err := lab.Exec("gw-a1", "sh", "-c",
+		`sed 's/^peers:.*$/peers:\n  - {address: "`+extra+`", asn: 4200000032}/' /etc/open-dci/config.yaml > /tmp/extra.yaml`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lab.Exec("gw-a", "/usr/local/bin/open-dci", "apply", "-c", "/tmp/extra.yaml"); err != nil {
+	if _, err := lab.Exec("gw-a1", "/usr/local/bin/open-dci", "apply", "-c", "/tmp/extra.yaml"); err != nil {
 		t.Fatal(err)
 	}
-	if out, _ := lab.Vtysh("gw-a", "show running-config"); !containsAll(out, "neighbor "+extra+" remote-as") {
+	if out, _ := lab.Vtysh("gw-a1", "show running-config"); !containsAll(out, "neighbor "+extra+" remote-as") {
 		t.Fatalf("extra peer was not applied:\n%s", out)
 	}
 	waitFor(t, heal, func() error {
-		out, err := lab.Vtysh("gw-a", "show running-config")
+		out, err := lab.Vtysh("gw-a1", "show running-config")
 		if err != nil {
 			return err
 		}
@@ -83,6 +83,6 @@ func TestRemovesStaleConfig(t *testing.T) {
 		}
 		return nil
 	})
-	waitFor(t, heal, func() error { return opendci("gw-a", "status") })
+	waitFor(t, heal, func() error { return opendci("gw-a1", "status") })
 	waitFor(t, heal, func() error { return lab.Ping("m-a", mB.v4, 0) })
 }

@@ -1,9 +1,10 @@
 //go:build e2e
 
-// End-to-end assertions for the lab: open-dci on dedicated gateways at the
-// exits. gw-a runs the SRv6 transport in a DCI network (an EVPN VRF of its base
-// config), gw-b in the default VRF (fabric underlay), so the tests also cover
-// mixed operation. Both gateways provision the VRFs of two tenants.
+// End-to-end assertions for the lab: open-dci on redundant pairs of dedicated
+// gateways at the exits. Pair A (gw-a1/gw-a2) runs the SRv6 transport in a DCI
+// network (an EVPN VRF of its base config), pair B (gw-b1/gw-b2) in the default
+// VRF (fabric underlay), so the tests also cover mixed operation. All gateways
+// provision the VRFs of two tenants.
 // Run against a deployed lab: make lab-check
 package lab
 
@@ -21,23 +22,32 @@ const converge = 120 * time.Second
 
 type gateway struct {
 	name, transportVRF string // transportVRF "" = default VRF
-	remoteLocator      string // the other gateway's locator
+	remoteLocator      string // the other partition's (shared) locator
 }
 
-// machine is a tenant machine and the VRF its gateway provisions for it.
+// machine is a tenant machine, its gateway pair and the VRF the gateways
+// provision for it; sid is the pinned End.DT46 SID (function = VNI).
 type machine struct {
-	name, gw, vrf, vni string
-	v4, v6             string // announced by the machine itself
+	name     string
+	gws      []string
+	vrf, vni string
+	sid      string
+	v4, v6   string // announced by the machine itself
 }
 
 var (
-	gwA = gateway{"gw-a", "vrf104100", "fd00:dc1:b::/48"}
-	gwB = gateway{"gw-b", "", "fd00:dc1:a::/48"}
+	pairA = []string{"gw-a1", "gw-a2"}
+	pairB = []string{"gw-b1", "gw-b2"}
 
-	mA  = machine{"m-a", "gw-a", "vrf3981", "3981", "10.0.16.10", "2001:db8:16::10"}  // tenant 1
-	mB  = machine{"m-b", "gw-b", "vrf4011", "4011", "10.0.32.10", "2001:db8:32::10"}  // tenant 1
-	mA2 = machine{"m-a2", "gw-a", "vrf3982", "3982", "10.0.17.10", "2001:db8:17::10"} // tenant 2
-	mB2 = machine{"m-b2", "gw-b", "vrf4012", "4012", "10.0.33.10", "2001:db8:33::10"} // tenant 2
+	gateways = []gateway{
+		{"gw-a1", "vrf104100", "fd00:dc1:b::/48"}, {"gw-a2", "vrf104100", "fd00:dc1:b::/48"},
+		{"gw-b1", "", "fd00:dc1:a::/48"}, {"gw-b2", "", "fd00:dc1:a::/48"},
+	}
+
+	mA  = machine{"m-a", pairA, "vrf3981", "3981", "fd00:dc1:a:f8d::", "10.0.16.10", "2001:db8:16::10"}  // tenant 1
+	mB  = machine{"m-b", pairB, "vrf4011", "4011", "fd00:dc1:b:fab::", "10.0.32.10", "2001:db8:32::10"}  // tenant 1
+	mA2 = machine{"m-a2", pairA, "vrf3982", "3982", "fd00:dc1:a:f8e::", "10.0.17.10", "2001:db8:17::10"} // tenant 2
+	mB2 = machine{"m-b2", pairB, "vrf4012", "4012", "fd00:dc1:b:fac::", "10.0.33.10", "2001:db8:33::10"} // tenant 2
 
 	machines = []machine{mA, mB, mA2, mB2}
 	// stitched pairs, both directions
@@ -45,37 +55,40 @@ var (
 )
 
 func TestControlPlane(t *testing.T) {
-	for _, n := range []string{"m-a", "m-a2", "leaf-a", "spine-a", "exit-a", "gw-a", "core", "gw-b", "exit-b", "spine-b", "leaf-b", "m-b", "m-b2"} {
+	for _, n := range []string{"m-a", "m-a2", "leaf-a", "spine-a", "exit-a", "gw-a1", "gw-a2", "core", "gw-b1", "gw-b2", "exit-b", "spine-b", "leaf-b", "m-b", "m-b2"} {
 		t.Run("bgp-established/"+n, func(t *testing.T) {
 			labtest.Eventually(t, converge, func() error { return lab.BGPEstablished(n) })
 		})
 	}
 
 	for _, m := range machines {
-		// the provisioned VRF, bridge and VXLAN device, tagged as open-dci's
-		t.Run("provisioned-devices/"+m.gw+"/"+m.vrf, func(t *testing.T) {
-			for _, dev := range []string{m.vrf, "dcibr" + m.vni, "dcivx" + m.vni} {
+		for _, gw := range m.gws {
+			// the provisioned VRF, bridge and VXLAN device, tagged as open-dci's
+			t.Run("provisioned-devices/"+gw+"/"+m.vrf, func(t *testing.T) {
+				for _, dev := range []string{m.vrf, "dcibr" + m.vni, "dcivx" + m.vni} {
+					labtest.Eventually(t, converge, labtest.Contains(func() (string, error) {
+						return lab.Exec(gw, "ip", "link", "show", dev)
+					}, "alias open-dci"))
+				}
+			})
+			t.Run("l3vni-up/"+gw+"/"+m.vni, func(t *testing.T) {
 				labtest.Eventually(t, converge, labtest.Contains(func() (string, error) {
-					return lab.Exec(m.gw, "ip", "link", "show", dev)
-				}, "alias open-dci"))
-			}
-		})
-		t.Run("l3vni-up/"+m.gw+"/"+m.vni, func(t *testing.T) {
-			labtest.Eventually(t, converge, labtest.Contains(func() (string, error) {
-				return lab.Vtysh(m.gw, "show evpn vni "+m.vni)
-			}, "State: Up"))
-		})
-		// table = VNI (the default for provisioned VRFs)
-		t.Run("end-dt46/"+m.gw+"/"+m.vrf, func(t *testing.T) {
-			labtest.Eventually(t, converge, labtest.Contains(func() (string, error) {
-				return lab.Exec(m.gw, "ip", "-6", "route", "show")
-			}, "seg6local action End.DT46 vrftable "+m.vni))
-		})
+					return lab.Vtysh(gw, "show evpn vni "+m.vni)
+				}, "State: Up"))
+			})
+			// the pinned SID (function = VNI) into table = VNI, the same on
+			// both gateways of the pair (anycast)
+			t.Run("end-dt46/"+gw+"/"+m.vrf, func(t *testing.T) {
+				labtest.Eventually(t, converge, labtest.Contains(func() (string, error) {
+					return lab.Exec(gw, "ip", "-6", "route", "show", m.sid)
+				}, "seg6local action End.DT46 vrftable "+m.vni))
+			})
+		}
 	}
 
-	// the remote locator arrives in the transport VRF (gw-a: via the DCI
-	// network) or in the default VRF (gw-b: via the IPv6 underlay)
-	for _, g := range []gateway{gwA, gwB} {
+	// the remote locator arrives in the transport VRF (pair A: via the DCI
+	// network) or in the default VRF (pair B: via the IPv6 underlay)
+	for _, g := range gateways {
 		t.Run("remote-locator-reachable/"+g.name, func(t *testing.T) {
 			labtest.Eventually(t, converge, labtest.Contains(func() (string, error) {
 				return lab.KernelRoute(g.name, g.transportVRF, g.remoteLocator)
@@ -85,18 +98,28 @@ func TestControlPlane(t *testing.T) {
 
 	for _, f := range flows {
 		src, dst := f[0], f[1]
-		// the leaf's type-5 route of the machine reaches the gateway via the
-		// exit and goes out as VPN route with SID
-		t.Run("evpn-to-vpn-with-sid/"+src.gw+"/"+src.v4, func(t *testing.T) {
-			labtest.Eventually(t, converge, labtest.Contains(func() (string, error) {
-				return lab.Vtysh(src.gw, "show bgp ipv4 vpn "+src.v4+"/32")
-			}, "Remote SID"))
-		})
-		t.Run("tenant-route-seg6-encap/"+src.gw+"/"+dst.v6, func(t *testing.T) {
-			labtest.Eventually(t, converge, labtest.Contains(func() (string, error) {
-				return lab.KernelRoute(src.gw, src.vrf, dst.v6)
-			}, "encap seg6"))
-		})
+		for _, gw := range src.gws {
+			// the leaf's type-5 route of the machine reaches the gateway via
+			// the exit and goes out as VPN route with SID
+			t.Run("evpn-to-vpn-with-sid/"+gw+"/"+src.v4, func(t *testing.T) {
+				labtest.Eventually(t, converge, labtest.Contains(func() (string, error) {
+					return lab.Vtysh(gw, "show bgp ipv4 vpn "+src.v4+"/32")
+				}, "Remote SID"))
+			})
+			// remote machines via SRv6 to the remote pair's anycast SID, never
+			// via the partner gateway's re-announcement in the fabric
+			t.Run("tenant-route-seg6-encap/"+gw+"/"+dst.v6, func(t *testing.T) {
+				labtest.Eventually(t, converge, labtest.Contains(func() (string, error) {
+					return lab.KernelRoute(gw, src.vrf, dst.v6)
+				}, "segs 1 [ "+dst.sid+" ]"))
+			})
+			// own machines via the fabric (EVPN), never back via SRv6: no loops
+			t.Run("local-route-via-fabric/"+gw+"/"+src.v4, func(t *testing.T) {
+				labtest.Eventually(t, converge, labtest.Contains(func() (string, error) {
+					return lab.KernelRoute(gw, src.vrf, src.v4)
+				}, "dev dcibr"+src.vni))
+			})
+		}
 		// the remote machine arrives at the local one as a plain BGP route from its leaf
 		t.Run("machine-learns-remote-machine/"+src.name, func(t *testing.T) {
 			labtest.Eventually(t, converge, labtest.Contains(func() (string, error) {

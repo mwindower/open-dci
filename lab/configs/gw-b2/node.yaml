@@ -1,0 +1,8 @@
+# dedicated DCI gateway gw-b2 at exit-b (one of a redundant pair with gw-b1): one uplink into partition B's fabric, which
+# carries underlay IPv4, EVPN and the SRv6 transport (IPv6) alike.
+waitInterfaces: [uplink0]
+loopback: [10.0.1.17/32]
+interfaces:
+  - {name: uplink0, mtu: 9216}
+sidecars:
+  - [/usr/local/bin/open-dci, run, -c, /etc/open-dci/config.yaml]

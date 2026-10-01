@@ -62,6 +62,7 @@ type renderData struct {
 	VethLL       string
 	VethPeerLL   string
 	Networks     []config.Network
+	Anycast      bool // the loopback is outside the (shared) locator
 	Filters      []filter
 	RTs          []string // all route targets, for the peers' inbound filter
 }
@@ -96,6 +97,7 @@ func Render(cfg *config.Config, id Identity) (string, error) {
 		ASN:          id.ASN,
 		RouterID:     id.RouterID,
 		Loopback:     cfg.Gateway.Loopback(),
+		Anycast:      cfg.Gateway.Anycast(),
 		Locator:      loc,
 		LocatorBlock: block,
 		LocatorName:  config.LocatorName,

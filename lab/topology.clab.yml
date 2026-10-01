@@ -1,22 +1,25 @@
-# open-dci lab: dedicated DCI gateways at the exits of two metal-stack-like
-# partitions, stitching two tenants across an IPv6-only core.
+# open-dci lab: redundant pairs of DCI gateways at the exits of two
+# metal-stack-like partitions, stitching two tenants across an IPv6-only core.
 #
 #  Partition A                                                         Partition B
 #   m-a ── leaf-a ── spine-a ── exit-a ──┐                ┌── exit-b ── spine-b ── leaf-b ── m-b
-#  m-a2 ──┘                       │       └──── core ─────┘      │                     └── m-b2
-#                                gw-a                           gw-b
+#  m-a2 ──┘                     │   │     └──── core ─────┘     │   │                  └── m-b2
+#                           gw-a1   gw-a2                    gw-b1   gw-b2
 #
 # - Machines peer BGP with their leaf inside the tenant VRF (metal-stack style):
 #   tenant 1 (m-a, m-b; VNIs 3981/4011), tenant 2 (m-a2, m-b2; VNIs 3982/4012).
 # - The gateways hang off the exits like any fabric peer. They start without
 #   tenant VRFs; the open-dci sidecar provisions them as EVPN L3VNIs and
 #   exports them as SRv6 L3VPN (End.DT46).
-# - Both transport modes: gw-a carries SRv6 in its base config's DCI network
-#   (vrf104100, VXLAN to exit-a, which routes it into the core); gw-b in the
+# - Redundancy: the two gateways of a partition share locator and ASN
+#   (anycast, pinned SIDs); each has its own loopback for the VPN sessions.
+#   Remote gateways, exits and leaves reach either one.
+# - Both transport modes: pair A carries SRv6 in its base config's DCI network
+#   (vrf104100, VXLAN to exit-a, which routes it into the core); pair B in the
 #   IPv6 underlay of partition B.
-# - MTU: machines 9000, uplinks 9216. gw-a's base config has its DCI devices at
-#   9000; open-dci raises them to 9166 (SRv6 adds 48 B). The exits' DCI devices
-#   are configured with 9166.
+# - MTU: machines 9000, uplinks 9216. The pair-A base config has its DCI
+#   devices at 9000; open-dci raises them to 9166 (SRv6 adds 48 B). The exits'
+#   DCI devices are configured with 9166.
 name: open-dci
 
 topology:
@@ -39,8 +42,10 @@ topology:
     m-b:     { binds: [configs/m-b/node.yaml:/etc/labnode/node.yaml:ro, configs/m-b/frr.conf:/etc/frr/frr.conf] }
     m-a2:    { binds: [configs/m-a2/node.yaml:/etc/labnode/node.yaml:ro, configs/m-a2/frr.conf:/etc/frr/frr.conf] }
     m-b2:    { binds: [configs/m-b2/node.yaml:/etc/labnode/node.yaml:ro, configs/m-b2/frr.conf:/etc/frr/frr.conf] }
-    gw-a:    { binds: [configs/gw-a/node.yaml:/etc/labnode/node.yaml:ro, configs/gw-a/frr.conf:/etc/frr/frr.conf, bin/open-dci:/usr/local/bin/open-dci:ro, configs/gw-a/open-dci.yaml:/etc/open-dci/config.yaml:ro] }
-    gw-b:    { binds: [configs/gw-b/node.yaml:/etc/labnode/node.yaml:ro, configs/gw-b/frr.conf:/etc/frr/frr.conf, bin/open-dci:/usr/local/bin/open-dci:ro, configs/gw-b/open-dci.yaml:/etc/open-dci/config.yaml:ro] }
+    gw-a1:    { binds: [configs/gw-a1/node.yaml:/etc/labnode/node.yaml:ro, configs/gw-a1/frr.conf:/etc/frr/frr.conf, bin/open-dci:/usr/local/bin/open-dci:ro, configs/gw-a1/open-dci.yaml:/etc/open-dci/config.yaml:ro] }
+    gw-a2:    { binds: [configs/gw-a2/node.yaml:/etc/labnode/node.yaml:ro, configs/gw-a2/frr.conf:/etc/frr/frr.conf, bin/open-dci:/usr/local/bin/open-dci:ro, configs/gw-a2/open-dci.yaml:/etc/open-dci/config.yaml:ro] }
+    gw-b1:    { binds: [configs/gw-b1/node.yaml:/etc/labnode/node.yaml:ro, configs/gw-b1/frr.conf:/etc/frr/frr.conf, bin/open-dci:/usr/local/bin/open-dci:ro, configs/gw-b1/open-dci.yaml:/etc/open-dci/config.yaml:ro] }
+    gw-b2:    { binds: [configs/gw-b2/node.yaml:/etc/labnode/node.yaml:ro, configs/gw-b2/frr.conf:/etc/frr/frr.conf, bin/open-dci:/usr/local/bin/open-dci:ro, configs/gw-b2/open-dci.yaml:/etc/open-dci/config.yaml:ro] }
 
   links:
     - endpoints: ["m-a:lan0", "leaf-a:swp1"]
@@ -53,5 +58,7 @@ topology:
     - endpoints: ["m-b:lan0", "leaf-b:swp1"]
     - endpoints: ["m-a2:lan0", "leaf-a:swp2"]
     - endpoints: ["m-b2:lan0", "leaf-b:swp2"]
-    - endpoints: ["gw-a:uplink0", "exit-a:swp3"]
-    - endpoints: ["gw-b:uplink0", "exit-b:swp3"]
+    - endpoints: ["gw-a1:uplink0", "exit-a:swp3"]
+    - endpoints: ["gw-a2:uplink0", "exit-a:swp4"]
+    - endpoints: ["gw-b1:uplink0", "exit-b:swp3"]
+    - endpoints: ["gw-b2:uplink0", "exit-b:swp4"]

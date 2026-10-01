@@ -12,8 +12,9 @@ import (
 var update = flag.Bool("update", false, "rewrite golden files")
 
 var (
-	gwA = Identity{ASN: 4200000016, RouterID: "10.0.0.16"} // transport in a DCI network
-	gwB = Identity{ASN: 4200000026, RouterID: "10.0.1.16"} // transport in the default VRF
+	gwA1 = Identity{ASN: 4200000016, RouterID: "10.0.0.16"} // transport in a DCI network
+	gwA2 = Identity{ASN: 4200000016, RouterID: "10.0.0.17"} // gw-a1's redundant partner
+	gwB1 = Identity{ASN: 4200000026, RouterID: "10.0.1.16"} // transport in the default VRF
 )
 
 func renderLab(t *testing.T, node string, id Identity) string {
@@ -30,7 +31,7 @@ func renderLab(t *testing.T, node string, id Identity) string {
 }
 
 func TestRenderGolden(t *testing.T) {
-	for node, id := range map[string]Identity{"gw-a": gwA, "gw-b": gwB} {
+	for node, id := range map[string]Identity{"gw-a1": gwA1, "gw-b1": gwB1} {
 		t.Run(node, func(t *testing.T) {
 			got := renderLab(t, node, id)
 			golden := "testdata/" + node + ".golden"
@@ -53,8 +54,8 @@ func TestRenderGolden(t *testing.T) {
 // Transport in the default VRF: no veth, no transport VRF instance, but the
 // locator announced by the default BGP instance.
 func TestRenderDefaultVRFTransport(t *testing.T) {
-	got := renderLab(t, "gw-b", gwB)
-	for _, s := range []string{"address-family ipv6 unicast\n  network fd00:dc1:b::/48", "ipv6 route fd00:dc1:b::/48 blackhole"} {
+	got := renderLab(t, "gw-b1", gwB1)
+	for _, s := range []string{"address-family ipv6 unicast\n  network fd00:dc1:b::/48\n  network fd00:dc1:ff::b1/128\n", "ipv6 route fd00:dc1:b::/48 blackhole"} {
 		if !strings.Contains(got, s) {
 			t.Errorf("missing %q", s)
 		}
@@ -69,7 +70,7 @@ func TestRenderDefaultVRFTransport(t *testing.T) {
 // Every rendered line must appear verbatim in FRR's running-config (captured
 // from the lab), otherwise drift detection would re-apply forever.
 func TestRenderMatchesRunningConfig(t *testing.T) {
-	for node, id := range map[string]Identity{"gw-a": gwA} {
+	for node, id := range map[string]Identity{"gw-a1": gwA1} {
 		running, err := os.ReadFile("testdata/" + node + ".running.conf")
 		if err != nil {
 			t.Fatal(err)
@@ -82,7 +83,7 @@ func TestRenderMatchesRunningConfig(t *testing.T) {
 }
 
 func TestRenderNeedsIdentity(t *testing.T) {
-	cfg, err := config.Load("../../lab/configs/gw-a/open-dci.yaml")
+	cfg, err := config.Load("../../lab/configs/gw-a1/open-dci.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +158,7 @@ exit
 }
 
 func TestDiscoverBase(t *testing.T) {
-	running, err := os.ReadFile("testdata/gw-a.running.conf")
+	running, err := os.ReadFile("testdata/gw-a1.running.conf")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +200,7 @@ networks:
 		t.Errorf("the vrf blocks must come first:\n%s", got)
 	}
 	for _, s := range []string{
-		"router bgp 4200000016 vrf vrf3982\n bgp router-id 10.0.0.16\n sid vpn per-vrf export auto\n",
+		"router bgp 4200000016 vrf vrf3982\n bgp router-id 10.0.0.16\n sid vpn per-vrf export 3982\n",
 		" address-family l2vpn evpn\n  advertise ipv4 unicast\n  advertise ipv6 unicast\n exit-address-family\nexit\n!\nrouter bgp 4200000016 vrf vrf3983\n bgp router-id 10.0.0.16\n sid vpn",
 	} {
 		if !strings.Contains(got, s) {
@@ -341,6 +342,28 @@ exit
 	for _, s := range []string{"no route-map DCI-t2-v4", "no route-map BASE", "no match ip address prefix-list DCI-t1-v4", "no route-map DCI-t1-v6 deny 10"} {
 		if strings.Contains(got, s) {
 			t.Errorf("removals must not contain %q:\n%s", s, got)
+		}
+	}
+}
+
+// The two gateways of a redundant pair share the locator and announce the
+// same pinned SIDs, but use their own loopback for sessions and encap.
+func TestRenderAnycastPair(t *testing.T) {
+	a1, a2 := renderLab(t, "gw-a1", gwA1), renderLab(t, "gw-a2", gwA2)
+	for _, s := range []string{
+		"prefix fd00:dc1:a::/48 block-len 32 node-len 16",
+		"sid vpn per-vrf export 3981\n", "sid vpn per-vrf export 3982\n",
+		"ipv6 route fd00:dc1:a::/48 fe80::1 dci1\n",
+	} {
+		if !strings.Contains(a1, s) || !strings.Contains(a2, s) {
+			t.Errorf("both gateways must render %q", s)
+		}
+	}
+	for gw, lo := range map[string]string{a1: "fd00:dc1:ff::a1", a2: "fd00:dc1:ff::a2"} {
+		for _, s := range []string{"source-address " + lo + "\n", "update-source " + lo + "\n", " ipv6 route " + lo + "/128 fe80::1 dci1\n"} {
+			if !strings.Contains(gw, s) {
+				t.Errorf("missing %q", s)
+			}
 		}
 	}
 }

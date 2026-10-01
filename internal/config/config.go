@@ -33,10 +33,15 @@ type Gateway struct {
 	// RouterID of the existing BGP instance, used for route distinguishers.
 	// Optional: discovered from FRR.
 	RouterID string `json:"routerID,omitempty"`
-	// Locator is this gateway's SRv6 locator, e.g. fd00:dc1:a::/48. The
-	// gateway's loopback (VPN session endpoint, SRv6 encap source) is the
-	// first address in it (<locator>::1): function 0 is never used for SIDs.
+	// Locator is this gateway's SRv6 locator, e.g. fd00:dc1:a::/48. Redundant
+	// gateways of a partition share it (anycast): with pinned SIDs
+	// (networks[].sid) they announce identical SIDs.
 	Locator string `json:"locator"`
+	// LoopbackAddress is the gateway's own address: VPN session endpoint and
+	// SRv6 encap source. Default: the first address in the locator
+	// (<locator>::1; function 0 is never used for SIDs). Redundant gateways
+	// sharing a locator need a unique one outside of it, inside the block.
+	LoopbackAddress string `json:"loopback,omitempty"`
 	// LocatorBlock contains the locators of all gateways, e.g. fd00:dc1::/32.
 	// Traffic to it is routed into the DCI network.
 	LocatorBlock string `json:"locatorBlock"`
@@ -100,11 +105,15 @@ type Network struct {
 	VNI uint32 `json:"vni"`
 	// Table is the kernel routing table of the VRF (default: the VNI).
 	Table uint32 `json:"table,omitempty"`
+	// SID is the function part of the network's End.DT46 SID
+	// (<locator>:<sid in hex>::), pinned so that it survives restarts and is
+	// identical on redundant gateways. Default: the VNI (if it fits 16 bits).
+	SID uint32 `json:"sid,omitempty"`
 }
 
 // Device names of a provisioned L3VNI: a plain (not VLAN-aware) bridge per VNI
 // acts as the SVI, so no VLAN IDs have to be allocated.
-func (n Network) BridgeName() string { return fmt.Sprintf("dcibr%d", n.VNI) }
+func (n Network) BridgeName() string { return fmt.Sprintf("dcibr%d", n.VNI) } // kernel.L3VNIBridgePrefix
 func (n Network) VxlanName() string  { return fmt.Sprintf("dcivx%d", n.VNI) }
 
 const (
@@ -115,6 +124,7 @@ const (
 	// DefaultMaxPrefixes is the default VPN prefix limit per peer and family.
 	DefaultMaxPrefixes = 10000
 	MaxVNI             = 1<<24 - 1
+	MaxSIDFunction     = 1<<16 - 1 // 16 function bits
 )
 
 // Tables the kernel reserves (unspec, default, main, local).
@@ -157,8 +167,12 @@ func (c *Config) Default() {
 		c.Transport.VethPeer = "dci1"
 	}
 	for i := range c.Networks {
-		if n := &c.Networks[i]; n.Table == 0 {
+		n := &c.Networks[i]
+		if n.Table == 0 {
 			n.Table = n.VNI
+		}
+		if n.SID == 0 && n.VNI <= MaxSIDFunction {
+			n.SID = n.VNI
 		}
 	}
 	for i := range c.Peers {
@@ -272,6 +286,17 @@ func (c *Config) Validate() error {
 			fail("gateway.locator: /%d leaves no room for 16 function bits", loc.Bits())
 		}
 	}
+	if c.Gateway.LoopbackAddress != "" {
+		a, err := netip.ParseAddr(c.Gateway.LoopbackAddress)
+		switch {
+		case err != nil || !a.Is6():
+			fail("gateway.loopback: must be an IPv6 address: %q", c.Gateway.LoopbackAddress)
+		case loc.IsValid() && loc.Contains(a):
+			fail("gateway.loopback: %s is inside the locator; leave it empty for <locator>::1, or pick a unique address outside the (possibly shared) locator", a)
+		case block.IsValid() && !block.Contains(a):
+			fail("gateway.loopback: %s is outside gateway.locatorBlock %s", a, block)
+		}
+	}
 	if c.Gateway.VTEP != "" {
 		if a, err := netip.ParseAddr(c.Gateway.VTEP); err != nil || !a.Is4() {
 			fail("gateway.vtep: must be an IPv4 address: %q", c.Gateway.VTEP)
@@ -311,6 +336,8 @@ func (c *Config) Validate() error {
 			fail("peers[%d].address: duplicate %s", i, a)
 		case loc.IsValid() && loc.Contains(a):
 			fail("peers[%d].address: %s is inside the own locator", i, a)
+		case c.Gateway.LoopbackAddress != "" && a.String() == c.Gateway.LoopbackAddress:
+			fail("peers[%d].address: %s is the own loopback", i, a)
 		case block.IsValid() && !block.Contains(a):
 			fail("peers[%d].address: %s is outside gateway.locatorBlock %s (remote loopbacks live in their locators)", i, a, block)
 		}
@@ -328,6 +355,7 @@ func (c *Config) Validate() error {
 	}
 	seenVRF := map[string]bool{}
 	seenVNI := map[uint32]bool{}
+	seenSID := map[uint32]bool{}
 	seenTable := map[uint32]bool{}
 	if c.Transport.InVRF() {
 		seenVRF[c.Transport.VRF] = true
@@ -361,6 +389,15 @@ func (c *Config) Validate() error {
 			fail("networks[%d].table: %d used twice", i, n.Table)
 		}
 		seenVNI[n.VNI], seenTable[n.Table] = true, true
+		switch {
+		case n.SID == 0:
+			fail("networks[%d].sid: required when the vni doesn't fit 16 bits", i)
+		case n.SID > MaxSIDFunction:
+			fail("networks[%d].sid: %d is larger than %d (16 function bits)", i, n.SID, MaxSIDFunction)
+		case seenSID[n.SID]:
+			fail("networks[%d].sid: %d used twice", i, n.SID)
+		}
+		seenSID[n.SID] = true
 		if len(n.Prefixes) == 0 {
 			fail("networks[%d].prefixes: at least one prefix is required (nothing is exchanged otherwise)", i)
 		}
@@ -382,10 +419,19 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// Loopback returns the gateway loopback, the first address in the locator.
+// Loopback returns the gateway loopback: the configured one, or the first
+// address in the locator.
 func (g Gateway) Loopback() netip.Addr {
+	if g.LoopbackAddress != "" {
+		return netip.MustParseAddr(g.LoopbackAddress)
+	}
 	return netip.MustParsePrefix(g.Locator).Masked().Addr().Next()
 }
+
+// Anycast reports whether the loopback lies outside the locator, i.e. the
+// locator may be shared with redundant gateways. The loopback then has to be
+// announced on its own.
+func (g Gateway) Anycast() bool { return g.LoopbackAddress != "" }
 
 // RDFor returns the network's route distinguisher (explicit or derived).
 func (c *Config) RDFor(n Network, routerID string) string {
