@@ -244,8 +244,8 @@ configuration, and must provide the following (details per mode:
 **Recommended: BFD**
 - On every session of gateways and exits: gateway ↔ exit, exit ↔ spine, exit ↔ core.
   Without it, a node that hangs with its links up costs a BGP hold time of packet loss
-  (lab: ~7–8 s, TCP stalls ~13 s), with it under a second
-  ([measurements](docs/performance.md)).
+  (lab: ~7–8 s, TCP stalls ~13 s), with it under a second at 300 ms × 3, ~0.3–0.5 s at
+  100 ms × 3 ([measurements](docs/performance.md)).
 
 ## Quick start
 

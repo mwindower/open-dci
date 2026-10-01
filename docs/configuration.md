@@ -198,8 +198,9 @@ traffic is lost for that long. Run BFD on every session of the gateways and exit
 ↔ exit (the gateway's base config, e.g. on its fabric peer-group), exit ↔ spine and exit ↔
 core. A node needs BFD towards *all* its neighbours. A neighbour without it keeps
 forwarding into a hung node until its hold timer expires. open-dci doesn't render BFD; the
-lab uses `bfd profile dci` (300 ms × 3). Measurements:
-[performance.md](performance.md).
+lab uses `bfd profile dci` (300 ms × 3). Shorter intervals (100–200 ms) cut the loss to
+0.3–0.7 s and raised no false alarm in the lab, but test them under peak load first
+([performance.md](performance.md#bfd-intervals)).
 
 **The edge of the SRv6 domain** (see [Operation](operation.md#the-srv6-domain-and-its-edge)):
 the exits must keep the locator block unreachable from anything but the gateways and the

@@ -124,6 +124,38 @@ to gw-b2.
 - **Nothing outside partition B reacted.** With an anycast locator and SIDs, the remote
   gateways' encapsulation routes stay the same during a failure.
 
+## BFD intervals
+
+How much faster can BFD detect a hung node, and does it then raise false alarms under
+load? Each interval was set live on all FRR nodes, then:
+1. 60 s of maximum iperf3 load (3 × 16 TCP streams between the partitions, unlimited
+   rate), with the BFD session-down counters of all gateways, exits, spines and the core
+   read before and after
+2. the hung gateway and hung exit scenarios
+
+| Interval × 3 | False session-downs under load | Hung gateway | Hung exit |
+|---|---|---|---|
+| 300 ms (the lab) | 0 | 1.0 s, TCP 1.2 s | 0.9–1.0 s, TCP 1.2 s |
+| 200 ms | 0 | 0.7 s, TCP 1.2 s | 0.5–0.6 s, TCP 0.2 s |
+| 100 ms | 0 | 0.46 s, TCP 0.4 s | 0.3 s, TCP 0.4 s |
+
+- Loss tracks the detection time (3 × interval) plus about 0.1–0.2 s for FRR to remove the
+  next hop.
+- In the lab, even 100 ms raised no false alarm under load. That says little about real
+  gateways:
+  - the lab forwards between containers on one host with many cores, not between NICs at
+    line rate;
+  - the load lasted 60 s;
+  - the host's CPU usage wasn't recorded.
+- Recommendation:
+  - Keep 300 ms × 3 as the default on Linux gateways, where `bfdd` runs in user space next
+    to the kernel's forwarding.
+  - Go to 100–200 ms only after testing under the expected peak load, and where the
+    switches run BFD in hardware.
+  - A false BFD alarm takes a healthy session down, which costs more than the half second
+    gained.
+- The lab stays at 300 ms, so that CI runners with few cores don't flap.
+
 ## Reproduce
 
 ```sh
