@@ -87,6 +87,7 @@ Routing tables of every node: [docs/lab-routing.md](../docs/lab-routing.md).
 | `TestGatewaysPeerWithTheirExit` | each gateway's only VPN sessions are the ones to its two exits; the exits relay every gateway's routes |
 | `TestGatewaysAreNotTransit` | the exits never reach each other through a gateway (only-self-out in the gateways' base config) |
 | `TestFabricHasNoTransportRoutes` | no leaf or spine has a route into the locator block, in any table (both transport modes) |
+| `TestCoreAnnouncesPerVRF` | the core announces exit-a1/a2's default VRF only the exit loopbacks, their DCI VRF only the locator block |
 | `TestExitLadder` | each exit's VPN sessions: its two gateways and both exits of each other partition, not its partner |
 | `TestExitFailover` | a whole exit (exit-a1, exit-b2) goes down: all flows continue via the other exit, then it rejoins |
 | `TestBothPathsSameSID` | remote gateways get every prefix from both gateways of a pair, with the same anycast SID |

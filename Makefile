@@ -27,7 +27,7 @@ lab-up: build labnode   ## deploy the lab; the gateways run open-dci as sidecar
 	$(CLAB) deploy -t $(TOPO)
 
 lab-check:        ## e2e tests against the running lab
-	go test -tags e2e -count=1 -v ./lab/
+	go test -tags e2e -count=1 -v -timeout 30m ./lab/
 
 lab-down:
 	$(CLAB) destroy -t $(TOPO) --cleanup

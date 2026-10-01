@@ -34,7 +34,7 @@ network and the kernel's local routes are omitted.
 | leaf-a `vrf3981` | ✓ | – | – |
 | leaf-a main | – | – | ✓ |
 | spine-a | – | – | ✓ |
-| exit-a1/a2 main | – | exit loopbacks (VPN relay); locators from the core, unused | ✓ |
+| exit-a1/a2 main | – | exit loopbacks only (VPN relay) | ✓ |
 | exit-a1/a2 `vrf104100` (DCI) | – | ✓ | – |
 | gw-a1 `vrf3981` (tenant, provisioned) | ✓ (remote ones via SRv6) | throw to main (encap only) | – |
 | gw-a1 main | – | own SIDs + everything else via veth | ✓ |
@@ -88,7 +88,7 @@ nowhere: it has no VRF for VNI 104100.
 | 10.0.32.10/32 | gw-a1 (10.0.0.16) and gw-a2 (10.0.0.17) | `59920:3981` **+ `65535:1001`** (DCI RT leak, Phase 2) |
 | 10.0.33.10/32 | gw-a1, gw-a2 | `59920:3982` + `65535:1002` |
 | fd00:dc1:a::/48, own loopbacks | gw-a1, gw-a2 | `59920:104100` |
-| fd00:dc1:b::/48, pair B's loopbacks, 2001:db8:c::1/128 | exit-a1 (10.0.0.14) and exit-a2 (10.0.0.18) | `59918:104100`, `59922:104100` |
+| locators and loopbacks of pairs B and C, 2001:db8:c::1/128 | exit-a1 (10.0.0.14) and exit-a2 (10.0.0.18) | `59918:104100`, `59922:104100` |
 
 Auto RTs with 4-byte ASNs use the low 16 bits of the ASN (4200000016 mod 65536 = 59920, the
 same for both gateways of the pair). They differ per router and still match, because FRR
@@ -104,10 +104,9 @@ unchanged, including the next hop, and imports none of them.
 `swp1` (spine-a), gw-a1's 10.0.0.16 via `swp3`, gw-a2's 10.0.0.17 via `swp4`. The gateways
 are dual-attached but never transit between the exits: their base config announces only
 their own prefixes (`only-self-out`, e2e test `TestGatewaysAreNotTransit`). From the
-default-VRF core link (`swp5`) it also learns the exit loopbacks `2001:db8:e::*` (the VPN
-relay sessions) and, as the lab's core announces everything, the locators and gateway
-loopbacks. Nothing in the main table forwards SRv6 for pair A, and the edge filter drops
-anything from the fabric into the block.
+default-VRF core link (`swp5`) it learns only the exit loopbacks `2001:db8:e::*` (the VPN
+relay sessions): the core filters per link (below), so the main table has no route into the
+locator block.
 
 **exit-a1 DCI VRF `vrf104100`:** EVPN towards the partition, plain IPv6 towards the core. The
 shared locator has both gateways as next hops (exit-a2 is the same):
@@ -124,7 +123,6 @@ fd00:dc1:ff::b2     via fe80::… dev swp2 proto bgp
 fd00:dc1:c::/48, fd00:dc1:ff::c1, fd00:dc1:ff::c2                 # pair C, alike
 2001:db8:c::1/128   via fe80::… dev swp2 proto bgp                # core loopback
 unreachable default metric 4278198272
-(plus the exit loopbacks 2001:db8:e::*, which the core passes into the DCI VRF; harmless)
 ```
 
 The exits' edge filter (`edgeFilter` in their `node.yaml`) keeps the block
@@ -243,7 +241,14 @@ fd00:dc1:ff::a1, ::a2, ::b1, ::b2, ::c1, ::c2                     # gateway loop
 ```
 
 The core carries one locator per partition, one loopback per gateway and per exit, and
-nothing else.
+nothing else. It announces each exit link only what the exit's VRF behind it needs
+(outbound route-maps in `configs/core/frr.conf`, e2e `TestCoreAnnouncesPerVRF`):
+
+| Core link | Exit VRF | Announced |
+|---|---|---|
+| `swp1`, `swp4` | exit-a1/a2 DCI VRF | locator block `fd00:dc1::/32` (locators, gateway loopbacks), core loopback |
+| `swp3`, `swp5` | exit-a1/a2 default VRF | exit loopbacks `2001:db8:e::/48` |
+| `swp2`, `swp6`, `swp7`, `swp8` | exit-b*/c* default VRF | both |
 
 ## Partition B: transport in the default VRF
 

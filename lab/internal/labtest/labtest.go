@@ -107,16 +107,26 @@ func (l Lab) KernelRoute(node, vrf, dst string) (string, error) {
 	return l.Exec(node, append(args, dst)...)
 }
 
+// slow is the duration from which Eventually logs a success.
+const slow = 15 * time.Second
+
 // Eventually retries fn until it succeeds or timeout expires, then fails t
-// with the last error.
+// with the last error. A slow success is logged with the last error, which
+// shows what converged late.
 func Eventually(t *testing.T, timeout time.Duration, fn func() error) {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
+	start := time.Now()
+	deadline := start.Add(timeout)
+	var last error
 	for {
 		err := fn()
 		if err == nil {
+			if d := time.Since(start); d > slow {
+				t.Logf("slow: %s until success; last error: %v", d.Round(time.Second), last)
+			}
 			return
 		}
+		last = err
 		if time.Now().After(deadline) {
 			t.Fatalf("not reached within %s: %v", timeout, err)
 		}

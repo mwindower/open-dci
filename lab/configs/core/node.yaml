@@ -1,4 +1,5 @@
-# inter-partition core: IPv6 only, knows nothing about tenants or VNIs
+# inter-partition core: IPv6 only, knows nothing about tenants or VNIs; what
+# it announces to each link is filtered in frr.conf
 #   swp1/swp4  exit-a1/exit-a2, their DCI VRF (locators)
 #   swp3/swp5  exit-a1/exit-a2, default VRF (exit loopbacks for the VPN sessions)
 #   swp2/swp6  exit-b1/exit-b2 (default VRF: locators and exit loopbacks)

@@ -187,6 +187,43 @@ func TestFabricHasNoTransportRoutes(t *testing.T) {
 	}
 }
 
+// The core announces each exit link only what its VRF needs (route-maps in
+// configs/core/frr.conf): exit-a1/a2's default VRF gets the exit loopbacks
+// for the VPN relay, never the locator block; their DCI VRF gets the block,
+// never the exit loopbacks.
+func TestCoreAnnouncesPerVRF(t *testing.T) {
+	for _, exit := range []string{"exit-a1", "exit-a2"} {
+		for _, c := range []struct {
+			vrf, want, never string
+		}{
+			{"", "2001:db8:e::b1", "fd00:dc1:"},
+			{"vrf104100", "fd00:dc1:b::/48", "2001:db8:e::"},
+		} {
+			t.Run(exit+"/"+c.vrf, func(t *testing.T) {
+				args := []string{"ip", "-6", "route", "show"}
+				if c.vrf != "" {
+					args = append(args, "vrf", c.vrf)
+				}
+				waitFor(t, converge, func() error {
+					out, err := lab.Exec(exit, args...)
+					if err != nil {
+						return err
+					}
+					if !strings.Contains(out, c.want) {
+						return fmt.Errorf("no route to %s:\n%s", c.want, out)
+					}
+					for _, l := range strings.Split(out, "\n") {
+						if strings.HasPrefix(l, c.never) && !strings.Contains(l, "dev lo ") {
+							return fmt.Errorf("unexpected route: %s", l)
+						}
+					}
+					return nil
+				})
+			})
+		}
+	}
+}
+
 // The exits relay the VPN routes in a closed ladder: each exit peers with its
 // two gateways and with both exits of the neighbouring partitions (with three
 // partitions: both other ones), never with the other exit of its own
