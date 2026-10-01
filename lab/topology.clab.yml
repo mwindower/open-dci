@@ -37,7 +37,7 @@ name: open-dci
 topology:
   defaults:
     kind: linux
-    image: quay.io/frrouting/frr:10.6.0
+    image: quay.io/frrouting/frr:10.4.1
     entrypoint: /usr/local/bin/labnode
     binds:
       - bin/labnode:/usr/local/bin/labnode:ro   # built by `make lab-up`

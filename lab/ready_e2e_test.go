@@ -80,3 +80,53 @@ func announced(t *testing.T, gw string) bool {
 	}
 	return st.Announced
 }
+
+// Planned maintenance: a drained gateway withdraws its locator and its
+// type-5 routes, so neither the exits nor the leaves send it anything; the
+// partner carries all flows, and the gateway can then be stopped. undrain
+// brings it back.
+func TestDrain(t *testing.T) {
+	const gw = "gw-b2"
+	viaExit := func() (string, error) { return lab.Exec("exit-b1", "ip", "-6", "route", "show", "fd00:dc1:b::/48") }
+	viaLeaf := func() (string, error) { return lab.Exec("leaf-b", "ip", "route", "show", "vrf", mB.vrf, mA.v4) }
+	usesGW := func(want bool) func() error {
+		return func() error {
+			e, err := viaExit()
+			if err != nil {
+				return err
+			}
+			l, err := viaLeaf()
+			if err != nil {
+				return err
+			}
+			if strings.Contains(e, "dev swp4") != want || strings.Contains(l, "10.0.1.17") != want {
+				return fmt.Errorf("%s in use: want %v\nexit-b1: %s\nleaf-b: %s", gw, want, e, l)
+			}
+			return nil
+		}
+	}
+	waitFor(t, converge, usesGW(true))
+	if err := opendci(gw, "drain"); err != nil {
+		t.Fatal(err)
+	}
+	defer opendci(gw, "undrain")
+	waitFor(t, converge, usesGW(false))
+	// still healthy: drained on purpose
+	if err := opendci(gw, "status"); err != nil {
+		t.Errorf("drained gateway not healthy: %v", err)
+	}
+	// the sidecar keeps it drained across reconciles
+	time.Sleep(12 * time.Second)
+	if err := usesGW(false)(); err != nil {
+		t.Fatalf("drain reverted: %v", err)
+	}
+	for _, f := range flows {
+		waitFor(t, converge, func() error { return lab.Ping(f[0].name, f[1].v4, 0) })
+	}
+
+	if err := opendci(gw, "undrain"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, converge, usesGW(true))
+	waitFor(t, converge, func() error { return opendci(gw, "status") })
+}

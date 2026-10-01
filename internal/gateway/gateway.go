@@ -32,7 +32,7 @@ type Gateway struct {
 	lastReadiness Readiness
 	// gate is the debounced readiness Run renders with; nil outside Run
 	gate       *Readiness
-	lastLogged bool
+	lastLogged string
 }
 
 // Result describes what a reconcile did.
@@ -46,6 +46,8 @@ type Result struct {
 	Applied       bool
 	// Readiness decides whether locator and loopback are announced
 	Readiness Readiness
+	// Drained: announces nothing (open-dci drain)
+	Drained bool
 }
 
 // Plan computes the desired FRR snippet and its difference to the running
@@ -64,6 +66,8 @@ func (g *Gateway) Plan() (desired string, res Result, err error) {
 		res.Readiness = *g.gate
 	}
 	id.Withhold = !res.Readiness.Ready
+	id.Drain = g.Drained()
+	res.Drained = id.Drain
 	res.Identity = id
 	desired, err = frr.Render(g.Config, id)
 	if err != nil {
@@ -171,7 +175,6 @@ func (g *Gateway) Run(ctx context.Context, interval time.Duration) {
 	initial := g.readiness()
 	g.gate = &initial
 	defer func() { g.gate = nil }()
-	logged := false
 	for {
 		res, err := g.Reconcile()
 		switch {
@@ -182,12 +185,17 @@ func (g *Gateway) Run(ctx context.Context, interval time.Duration) {
 		default:
 			g.Log.Debug("in sync")
 		}
-		if err == nil && (!logged || res.Readiness.Ready != g.lastLogged) {
-			logged, g.lastLogged = true, res.Readiness.Ready
-			if res.Readiness.Ready {
-				g.Log.Info("locator announced")
-			} else {
-				g.Log.Info("locator withheld", "reason", res.Readiness.Reason)
+		if err == nil {
+			state := "announced"
+			switch {
+			case res.Drained:
+				state = "drained"
+			case !res.Readiness.Ready:
+				state = "withheld"
+			}
+			if state != g.lastLogged {
+				g.lastLogged = state
+				g.Log.Info("locator "+state, "reason", res.Readiness.Reason)
 			}
 		}
 		changed := 0

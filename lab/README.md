@@ -36,7 +36,7 @@ Requirements:
 - Docker
 - containerlab (SUID-root or root; in CI: `make lab-up CLAB="sudo containerlab"`)
 - Go ≥ 1.26
-- the image `quay.io/frrouting/frr:10.6.0`
+- the image `quay.io/frrouting/frr:10.4.1`
 
 ## What it models
 
@@ -99,6 +99,8 @@ Routing tables of every node: [docs/lab-routing.md](../docs/lab-routing.md).
 | `TestGatewayDropsTenantToTransport` | a tenant forges SRv6 to another tenant's SID (via a misrouted fabric): dropped by the gateway |
 | `TestRemovesProvisionedNetwork` | a network dropped from the config: FRR VRF, BGP instance and kernel devices removed |
 | `TestRefusesForeignVRF` | a network whose VRF exists without open-dci's tag is refused, the VRF left untouched |
+| `TestLocatorWithheldUntilReady` | a gateway's links come back: the exit only sends to it once its tenant VRF holds the fabric's routes (both transport modes) |
+| `TestDrain` | `open-dci drain`: exit and leaf stop using the gateway, all flows continue via the partner, the sidecar keeps it drained; `undrain` brings it back |
 | `TestGatewaysHealthy` | `open-dci status` healthy on all six gateways |
 | `TestSelfHealAfterFRRReload` | `frr-reload.py` of the base config wipes all open-dci lines → back within one interval |
 | `TestSelfHealMTU` | DCI devices reset to 9000 → raised again, 9000 B packets pass |

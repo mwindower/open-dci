@@ -108,7 +108,9 @@ At runtime, `apply`/`run`/`diff`/`status` also check the system:
 ## Requirements on the environment
 
 **Both modes:**
-- FRR ≥ 10 (tested 10.6) with bgpd, zebra and staticd, and the integrated config (`vtysh`).
+- FRR 10.4 (tested 10.4.1) with bgpd, zebra and staticd, and the integrated config
+  (`vtysh`). 10.5.1, 10.6.0, 10.6.2 and 10.7.1 don't withdraw the VPN and type-5 routes
+  they leaked from a tenant VRF when the source goes away (e2e `TestWithdrawal`).
 - Linux with nf_tables (the gateway's ingress filter).
   Linux ≥ 5.14 (End.DT46).
 - The base FRR config has a default BGP instance with a router-id that peers EVPN with the
@@ -180,7 +182,7 @@ At runtime, `apply`/`run`/`diff`/`status` also check the system:
 - open-dci withholds the locator until an EVPN session has delivered End-of-RIB
   ([Operation](operation.md#announcing-the-locator)). FRR peers send it by default; with
   graceful restart disabled on the exits, the gateway waits 30 s instead.
-- FRR 10.6 nodes on the transport path (gateways, and exits, spines and core if they run
+- FRR nodes on the transport path (gateways, and exits, spines and core if they run
   FRR) need `no zebra nexthop kernel enable`. With kernel nexthop groups, zebra keeps a
   next hop whose link went down in the group it reuses for the route BGP re-sent without
   it. When the link comes back, zebra revives it before BGP has a path through it, so

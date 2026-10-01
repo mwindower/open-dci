@@ -7,7 +7,7 @@
 #     ghcr.io/mwindower/open-dci
 #
 # Keep the FRR base image's major version in line with the FRR it talks to.
-ARG FRR_IMAGE=quay.io/frrouting/frr:10.6.0
+ARG FRR_IMAGE=quay.io/frrouting/frr:10.4.1
 FROM ${FRR_IMAGE}
 COPY open-dci /usr/local/bin/open-dci
 ENTRYPOINT ["/usr/local/bin/open-dci"]

@@ -33,6 +33,8 @@ Usage:
   open-dci apply    -c FILE              reconcile kernel and FRR once
   open-dci run      -c FILE [-i 10s]     reconcile continuously
   open-dci status   -c FILE              show sessions, SIDs, prefixes and drift
+  open-dci drain    -c FILE              withdraw locator and routes (maintenance)
+  open-dci undrain  -c FILE              announce again
   open-dci version
 
 Common flags:
@@ -95,6 +97,16 @@ func main() {
 		gw.Run(ctx, *interval)
 	case "status":
 		err = status(os.Stdout, gw)
+	case "drain", "undrain":
+		if err = gw.SetDrained(cmd == "drain"); err == nil {
+			_, err = gw.Reconcile()
+		}
+		if err == nil {
+			fmt.Printf("%sed: %s\n", cmd, map[bool]string{
+				true:  "locator and type-5 routes withdrawn; the partner takes over within seconds. A running \"open-dci run\" keeps the state.",
+				false: "announcing again once the gateway is ready (see status)",
+			}[cmd == "drain"])
+		}
 	default:
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(2)

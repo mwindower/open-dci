@@ -35,6 +35,10 @@ the behaviour, see [Operation](operation.md#failure-semantics).
      ([Operation](operation.md#announcing-the-locator)), and the FRR nodes run without
      kernel nexthop groups (`no zebra nexthop kernel enable`, see below). This is the lab's
      configuration.
+- FRR: setups 1–3 ran on 10.6.0, setup 4 on 10.4.1, which the lab pins (10.5–10.7 don't
+  withdraw leaked routes, see [Configuration](configuration.md#requirements-on-the-environment)).
+  10.4.1 ignores BFD on the core's sessions to the exits, so the core uses a 3 s hold time
+  there (`timers 1 3`) as a fallback.
 - The failed exit is the one spine-b forwards leaf-b's VXLAN traffic through, so every
   direction of every flow crosses it.
 - Caveats:
@@ -50,27 +54,29 @@ Loss of the affected flows on failure (and on return), and the longest TCP stall
 
 | Failure | no BFD | BFD gateway ↔ exit, exit ↔ core | BFD on every session | + clean returns |
 |---|---|---|---|---|
-| gateway, link | 0.16 s (return ≤ 1.5 s), TCP 1.4 s | 0.16 s (return 1.8 s), TCP 3.0 s | 0.17 s (return 2.3 s), TCP 0.8 s | 0.16 s (return 0.2 s), TCP 0 s |
-| gateway, hung | **6.4 s**, TCP **12.6 s** | 0.8 s, TCP 1.2 s | 1.0 s, TCP 1.2 s | 1.0 s (return 0.2 s), TCP 1.2 s |
-| exit, link | 0 s (return 1.9–3.2 s), TCP 6.2 s | 0.12 s (return 1.3–2.3 s), TCP 3.0 s | 0.12 s (return 1.9–2.1 s), TCP 2.8 s | 0.06 s (return 0 s), TCP 0 s |
-| exit, hung | **7.9 s, all flows**, TCP **12.8 s** | **7.9 s, all flows**, TCP **12.6 s** | 0.85 s, all flows, TCP 1.2 s | 0.7–0.9 s, all flows, TCP 1.2 s |
+| gateway, link | 0.16 s (return ≤ 1.5 s), TCP 1.4 s | 0.16 s (return 1.8 s), TCP 3.0 s | 0.17 s (return 2.3 s), TCP 0.8 s | 0.26 s (return 0 s), TCP 0.4 s |
+| gateway, hung | **6.4 s**, TCP **12.6 s** | 0.8 s, TCP 1.2 s | 1.0 s, TCP 1.2 s | 1.0 s (return 0 s), TCP 1.4 s |
+| gateway, drained, then down | – | – | – | **0 s** (return 0 s), TCP 0 s |
+| exit, link | 0 s (return 1.9–3.2 s), TCP 6.2 s | 0.12 s (return 1.3–2.3 s), TCP 3.0 s | 0.12 s (return 1.9–2.1 s), TCP 2.8 s | 0.18 s (return 0 s), TCP 0 s |
+| exit, hung | **7.9 s, all flows**, TCP **12.8 s** | **7.9 s, all flows**, TCP **12.6 s** | 0.85 s, all flows, TCP 1.2 s | 0.9 s, all flows, TCP 1.4 s |
 
 - No TCP connection broke in any run (16 per scenario).
 - In the "link" rows, the TCP stalls come from the return, not the failure.
 
-Per flow, in the lab's configuration (setup 4). Loss is shown as "on failure / on return",
-in seconds. In this run the m-c ↔ m-b flows were the ones hashed to gw-b2.
+Per flow, in the lab's configuration (setup 4, FRR 10.4.1). Loss is shown as "on failure /
+on return", in seconds. In this run the m-a ↔ m-b and tenant 2 flows were the ones hashed
+to gw-b2.
 
-| Flow | gateway, link | gateway, hung | exit, link | exit, hung |
-|---|---|---|---|---|
-| m-a → m-b | 0 / 0 | 0 / 0 | 0.06 / 0 | 0.74 / 0 |
-| m-c → m-b | 0.16 / 0.20 | 0.98 / 0.20 | 0.06 / 0 | 0.94 / 0 |
-| m-b → m-a | 0 / 0 | 0 / 0 | 0.06 / 0 | 0.74 / 0 |
-| m-b → m-c | 0.16 / 0.20 | 0.98 / 0.20 | 0.06 / 0 | 0.74 / 0 |
-| m-a2 → m-b2 | 0 / 0 | 0 / 0 | 0.06 / 0 | 0.72 / 0 |
-| m-b2 → m-a2 | 0 / 0 | 0 / 0 | 0.06 / 0 | 0.72 / 0 |
-| TCP m-a → m-b, longest stall | 0 | 1.2 | 0 | 1.2 |
-| TCP m-c → m-b, longest stall | 0 | 1.2 | 0 | 1.2 |
+| Flow | gateway, link | gateway, hung | gateway, drained | exit, link | exit, hung |
+|---|---|---|---|---|---|
+| m-a → m-b | 0.26 / 0 | 0.96 / 0 | 0 / 0 | 0.18 / 0 | 0.90 / 0 |
+| m-c → m-b | 0 / 0 | 0 / 0 | 0 / 0 | 0.18 / 0 | 0.90 / 0 |
+| m-b → m-a | 0.26 / 0 | 0.98 / 0 | 0 / 0 | 0.18 / 0 | 0.88 / 0 |
+| m-b → m-c | 0 / 0 | 0 / 0 | 0 / 0 | 0.18 / 0 | 0.88 / 0 |
+| m-a2 → m-b2 | 0.26 / 0 | 0.96 / 0 | 0 / 0 | 0.18 / 0 | 0.86 / 0 |
+| m-b2 → m-a2 | 0.26 / 0 | 0.96 / 0 | 0 / 0 | 0.18 / 0 | 0.86 / 0 |
+| TCP m-a → m-b, longest stall | 0.4 | 1.4 | 0 | 0 | 1.4 |
+| TCP m-c → m-b, longest stall | 0 | 0.4 | 0 | 0 | 1.4 |
 
 ## Reading the results
 
@@ -97,14 +103,16 @@ in seconds. In this run the m-c ↔ m-b flows were the ones hashed to gw-b2.
   - **The returning gateway announced its anycast locator as soon as its sessions were
     up.** The exits sent it traffic it decapsulated into tenant VRFs that didn't hold the
     fabric's routes yet. open-dci now waits for the EVPN End-of-RIB.
-  - **FRR 10.6's zebra revived withdrawn next hops.** On link-down, zebra keeps reusing the
+  - **FRR's zebra revived withdrawn next hops** (10.4.1 and 10.6.0). On link-down, zebra keeps reusing the
     kernel nexthop group, with the dead next hop inside, for the route BGP re-sent
     without it. On link-up it reactivates that next hop before BGP has a path through it,
     so exits, spines and core sent traffic to a neighbour that wasn't ready yet.
     `no zebra nexthop kernel enable` avoids it.
 
-  Together they took the return from up to 3 s down to 0–0.2 s. A hung node returns
+  Together they took the return from up to 3 s down to 0 s. A hung node returns
   without loss either way: its sessions come back with its routing tables intact.
+- **Planned maintenance costs nothing.** `open-dci drain` before taking a gateway down
+  moves all traffic to its partner while both are up; no packet was lost.
 - **Nothing outside partition B reacted.** With an anycast locator and SIDs, the remote
   gateways' encapsulation routes stay the same during a failure.
 

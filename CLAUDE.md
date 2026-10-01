@@ -134,7 +134,14 @@ old binary until it is redeployed (or you `docker cp` for a quick look).
 - BFD only helps if *every* neighbour of a node runs it: with BFD on gateway↔exit and
   exit↔core but not spine↔exit, a hung exit still black-holes the fabric's traffic for the
   spine's hold time. `make lab-perf` fails the exit on spine-b's ECMP path for that reason.
-- FRR 10.6 with kernel nexthop groups revives a next hop whose link comes back up, even
+- FRR 10.5.1, 10.6.0, 10.6.2 and 10.7.1 don't withdraw routes leaked from a tenant VRF
+  (VRF → VPN and VRF → type-5) once their source is gone: removed prefixes stay routed in
+  all other partitions, and `no advertise ipv4 unicast` leaves the type-5 routes too. The
+  lab pins 10.4.1; `TestWithdrawal` catches it. Re-test before moving to a newer FRR.
+- FRR 10.4.1 (and 10.5.1) ignore BFD down on the core's sessions to the exits (bgpd logs
+  the state change, the session stays Established); spine and gateway sessions are fine.
+  The lab's core uses `timers 1 3` towards the exits as a fallback.
+- FRR (10.4.1 and 10.6.0) with kernel nexthop groups revives a next hop whose link comes back up, even
   though BGP withdrew the path: zebra reuses the group (`rib nhg matched, changed
   'false'`). The lab's gateways, exits, spines and core run `no zebra nexthop kernel
   enable`; without it, the locator gate is useless.

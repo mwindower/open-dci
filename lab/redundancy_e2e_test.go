@@ -58,8 +58,9 @@ func TestBothPathsSameSID(t *testing.T) {
 					if err != nil {
 						return err
 					}
-					// FRR shows the SID as locator + label (transposition)
-					if !strings.Contains(out, "Remote SID: "+c.loc+",") {
+					// FRR shows the SID as locator + label (transposition);
+					// 10.6 appends ", sid structure=...", 10.4 ends the line
+					if !strings.Contains(out, "Remote SID: "+c.loc+",") && !strings.Contains(out, "Remote SID: "+c.loc+"\n") {
 						return fmt.Errorf("no path via rd %s with SID in %s:\n%s", rd, c.loc, out)
 					}
 					return nil

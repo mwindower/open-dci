@@ -4,7 +4,8 @@
        a veth pair; empty: transport in the default VRF.
        Every network gets its FRR VRF with the L3VNI and a complete BGP
        instance that announces its routes as EVPN type-5.
-       .Withhold leaves out the announcement of locator and loopback. */ -}}
+       .Withhold leaves out the announcement of locator and loopback; .Drain
+       additionally the type-5 announcement of the tenant VRFs. */ -}}
 {{ range $n := .Networks -}}
 vrf {{ $n.VRF }}
  vni {{ $n.VNI }}
@@ -84,10 +85,12 @@ router bgp {{ $.ASN }} vrf {{ $n.VRF }}
   import vpn
  exit-address-family
 {{- end }}
+{{- if not $.Drain }}
  address-family l2vpn evpn
   advertise ipv4 unicast
   advertise ipv6 unicast
  exit-address-family
+{{- end }}
 exit
 !
 {{- end }}

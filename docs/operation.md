@@ -9,6 +9,8 @@ open-dci diff     -c config.yaml        # what is missing in the running FRR, an
 open-dci apply    -c config.yaml        # reconcile kernel + FRR once
 open-dci run      -c config.yaml -i 10s # reconcile continuously (service / sidecar)
 open-dci status   -c config.yaml        # exits non-zero if not healthy
+open-dci drain    -c config.yaml        # planned maintenance: the partner takes over
+open-dci undrain  -c config.yaml        # announce again
 open-dci version
 ```
 
@@ -201,6 +203,27 @@ router bgp 4200000026
 !
 ipv6 route fd00:dc1:b::/48 blackhole
 ```
+
+### Planned maintenance: drain
+
+`open-dci drain` makes the gateway announce nothing:
+- no locator and loopback (as while not ready, see below)
+- no type-5 routes from its tenant VRFs (`advertise ipv4/ipv6 unicast` in their
+  `l2vpn evpn` family)
+
+The exits and the leaves stop sending it traffic within seconds, and its anycast partner
+carries everything. The gateway can then be rebooted, upgraded or unplugged. Its VRFs,
+SIDs and sessions stay in place.
+
+- The state is a marker file next to the state file (`/var/lib/open-dci/drained`). A
+  running `open-dci run` keeps the gateway drained across reconciles and restarts.
+- `status` shows `locator DRAINED`; a drained gateway counts as healthy.
+- `open-dci undrain` removes the marker. The gateway announces again as soon as it is
+  ready.
+- Drain one gateway of a pair at a time; draining both disconnects the partition.
+
+Measured in the lab: drain, wait 3 s, take the links down, bring them back, undrain. No
+flow lost a packet ([measurements](performance.md)).
 
 ### Announcing the locator
 

@@ -410,3 +410,29 @@ func TestRenderWithhold(t *testing.T) {
 		})
 	}
 }
+
+// A drained gateway also stops announcing its tenant VRFs' routes into the
+// fabric; undraining brings back exactly these lines.
+func TestRenderDrain(t *testing.T) {
+	announced := renderLab(t, "gw-b1", gwB1)
+	id := gwB1
+	id.Drain = true
+	drained := renderLab(t, "gw-b1", id)
+	for _, s := range []string{"advertise ipv4 unicast", "advertise ipv6 unicast", "network fd00:dc1:b::/48"} {
+		if strings.Contains(drained, s) {
+			t.Errorf("drained config still contains %q", s)
+		}
+	}
+	if !strings.Contains(drained, "sid vpn per-vrf export") || !strings.Contains(drained, "import vpn") {
+		t.Error("draining must keep the VRFs and their VPN import")
+	}
+	got := Removals(Parse(announced), Parse(drained))
+	for _, s := range []string{"router bgp 4200000026 vrf vrf4011\n address-family l2vpn evpn\n  no advertise ipv4 unicast\n", "no network fd00:dc1:b::/48"} {
+		if !strings.Contains(got, s) {
+			t.Errorf("removals lack %q:\n%s", s, got)
+		}
+	}
+	if strings.Contains(got, "no address-family") || strings.Contains(got, "no router bgp") {
+		t.Errorf("removals must not remove block headers:\n%s", got)
+	}
+}

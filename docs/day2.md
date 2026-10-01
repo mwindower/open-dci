@@ -62,6 +62,12 @@ this could be automated (see the [roadmap](development.md#roadmap)).
 
 Only that partition's gateway changes: add or remove the `networks` entry.
 
+### Maintenance on a gateway
+
+`open-dci drain` on the gateway, wait a few seconds, then reboot or upgrade it, and run
+`open-dci undrain` once it's back (see [Operation](operation.md#planned-maintenance-drain)).
+One gateway of a pair at a time.
+
 ### Removing a gateway
 
 With exit peering, nothing changes on other gateways; with `address` peers, remove it from

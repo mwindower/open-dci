@@ -27,6 +27,7 @@ import (
 // "link": all links of the node go down (the neighbours see it at once).
 // "hung": the node silently drops everything, links stay up (the neighbours
 // notice when the BGP hold timer expires).
+// "drained": planned maintenance, open-dci drain before the links go down.
 
 const (
 	perfInterval = 20 * time.Millisecond
@@ -35,6 +36,11 @@ const (
 	perfRestore  = 27 * time.Second
 	perfStreams  = 8
 )
+
+// odci runs an open-dci command on a gateway (inside sh -c)
+func odci(cmd string) string {
+	return "/usr/local/bin/open-dci " + cmd + " -c /etc/open-dci/config.yaml"
+}
 
 const hang = "nft add table inet perf-hang && " +
 	"nft add chain inet perf-hang pre '{ type filter hook prerouting priority -500; policy drop; }' && " +
@@ -58,6 +64,10 @@ func TestPerfFailover(t *testing.T) {
 	}{
 		{"gateway-link", "gw-b2", "ip link set uplink0 down; ip link set uplink1 down", "ip link set uplink0 up; ip link set uplink1 up"},
 		{"gateway-hung", "gw-b2", hang, "nft delete table inet perf-hang"},
+		// planned maintenance: drain, then stop; after the return, undrain once ready
+		{"gateway-drained", "gw-b2", odci("drain") + " && sleep 3 && ip link set uplink0 down && ip link set uplink1 down",
+			"ip link set uplink0 up; ip link set uplink1 up; for i in $(seq 60); do OPEN_DCI_OUTPUT=json " + odci("status") +
+				" | grep -q '\"Announced\": true' && break; sleep 0.5; done; " + odci("undrain")},
 		{"exit-link", exit, fmt.Sprintf(exitLinks, "down"), fmt.Sprintf(exitLinks, "up")},
 		{"exit-hung", exit, hang, "nft delete table inet perf-hang"},
 	} {

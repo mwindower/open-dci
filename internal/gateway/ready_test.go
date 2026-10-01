@@ -51,3 +51,19 @@ func TestTallyRoutes(t *testing.T) {
 		t.Fatalf("local %d remote %d noBest %d, want 1 1 1", local, remote, noBest)
 	}
 }
+
+func TestDrainMarker(t *testing.T) {
+	g := &Gateway{StateFile: t.TempDir() + "/applied.conf"}
+	if g.Drained() {
+		t.Fatal("drained without marker")
+	}
+	if err := g.SetDrained(true); err != nil || !g.Drained() {
+		t.Fatalf("drain: %v", err)
+	}
+	if err := g.SetDrained(false); err != nil || g.Drained() {
+		t.Fatalf("undrain: %v", err)
+	}
+	if err := g.SetDrained(false); err != nil {
+		t.Fatalf("undrain twice: %v", err)
+	}
+}

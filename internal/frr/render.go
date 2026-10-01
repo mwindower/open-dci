@@ -32,6 +32,10 @@ type Identity struct {
 	// VRFs hold the fabric's routes attracts packets that are decapsulated
 	// into an empty VRF and dropped.
 	Withhold bool
+	// Drain also stops announcing the tenant VRFs' routes into the fabric
+	// (type-5): the fabric and the exits send nothing to a drained gateway,
+	// its partner carries everything (planned maintenance).
+	Drain bool
 }
 
 // Names of the route-maps and lists open-dci renders. They all start with
@@ -69,6 +73,7 @@ type renderData struct {
 	VethPeerLL   string
 	Networks     []config.Network
 	Withhold     bool
+	Drain        bool
 	Anycast      bool // the loopback is outside the (shared) locator
 	AddressPeers bool // some peers are direct sessions to remote gateways
 	// InterfacePeers: some peers are the single-hop session to the exit. FRR
@@ -123,7 +128,8 @@ func Render(cfg *config.Config, id Identity) (string, error) {
 		VethLL:         VethLL,
 		VethPeerLL:     VethPeerLL,
 		Networks:       cfg.Networks,
-		Withhold:       id.Withhold,
+		Withhold:       id.Withhold || id.Drain,
+		Drain:          id.Drain,
 	}
 	seenRT := map[string]bool{}
 	for _, n := range cfg.Networks {

@@ -164,11 +164,14 @@ func TestMaxPrefixes(t *testing.T) {
 		var nb map[string]struct {
 			State  string `json:"bgpState"`
 			Reason string `json:"lastResetDueTo"`
+			// FRR 10.4 reports the reset as "BGP Notification send" and
+			// flags the limit separately
+			Exceeded bool `json:"prefixesConfigExceedMax"`
 		}
 		if err := lab.VtyshJSON("gw-a1", "show bgp neighbors "+peer, &nb); err != nil {
 			return err
 		}
-		if n := nb[peer]; n.State == "Established" || !strings.Contains(strings.ToLower(n.Reason), "prefix") {
+		if n := nb[peer]; n.State == "Established" || !n.Exceeded && !strings.Contains(strings.ToLower(n.Reason), "prefix") {
 			b, _ := json.Marshal(n)
 			return fmt.Errorf("session not torn down by the prefix limit: %s", b)
 		}
@@ -190,4 +193,50 @@ func TestMaxPrefixes(t *testing.T) {
 	}
 	waitFor(t, converge, func() error { return opendci("gw-a1", "status") })
 	waitFor(t, converge, func() error { return lab.Ping("m-a", mB.v4, 0) })
+}
+
+// A prefix that disappears in one partition disappears everywhere: from the
+// gateways' VPN tables and from the other partitions' fabrics. FRR 10.6.0 kept
+// the VPN and type-5 routes it had leaked from a tenant VRF after their source
+// was withdrawn, so a removed prefix stayed routed (into a black hole) in every
+// other partition; the lab runs 10.4.1.
+func TestWithdrawal(t *testing.T) {
+	const p = "10.0.16.77"
+	if _, err := lab.Exec("m-a", "ip", "addr", "add", p+"/32", "dev", "lo"); err != nil {
+		t.Fatal(err)
+	}
+	removed := false
+	defer func() {
+		if !removed {
+			lab.Exec("m-a", "ip", "addr", "del", p+"/32", "dev", "lo")
+		}
+	}()
+	where := []struct{ node, table string }{
+		{"gw-a1", "ipv4 vpn"}, {"gw-a2", "ipv4 vpn"}, {"gw-b1", "ipv4 vpn"}, {"gw-c2", "ipv4 vpn"},
+		{"gw-b1", "vrf vrf4011 ipv4 unicast"}, {"leaf-b", "vrf vrf4011 ipv4 unicast"},
+		{"leaf-c", "vrf vrf5011 ipv4 unicast"},
+	}
+	for _, w := range where {
+		waitFor(t, converge, present(w.node, w.table, p+"/32"))
+	}
+	waitFor(t, converge, func() error { return lab.Ping("m-b", p, 0) })
+
+	if _, err := lab.Exec("m-a", "ip", "addr", "del", p+"/32", "dev", "lo"); err != nil {
+		t.Fatal(err)
+	}
+	removed = true
+	for _, w := range where {
+		waitFor(t, converge, absent(w.node, w.table, p+"/32"))
+	}
+	// and no type-5 route for it is left in partition B's fabric
+	waitFor(t, converge, func() error {
+		out, err := lab.Vtysh("leaf-b", "show bgp l2vpn evpn route type prefix")
+		if err != nil {
+			return err
+		}
+		if strings.Contains(out, "["+p+"]") {
+			return fmt.Errorf("leaf-b still has a type-5 route for %s", p)
+		}
+		return nil
+	})
 }

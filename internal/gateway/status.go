@@ -20,9 +20,11 @@ type Status struct {
 	// says why (the gateway waits for the fabric's EVPN routes)
 	Announced      bool
 	WithheldReason string `json:",omitempty"`
-	Kernel         KernelStatus
-	Peers          []PeerStatus
-	Networks       []NetworkStatus
+	// Drained: withdrawn on purpose (open-dci drain), counts as healthy
+	Drained  bool
+	Kernel   KernelStatus
+	Peers    []PeerStatus
+	Networks []NetworkStatus
 }
 
 type KernelStatus struct {
@@ -74,6 +76,7 @@ func (g *Gateway) Status() (*Status, error) {
 		MissingLines:   len(plan.Missing),
 		Announced:      plan.Readiness.Ready,
 		WithheldReason: plan.Readiness.Reason,
+		Drained:        plan.Drained,
 		Kernel:         g.kernelStatus(),
 	}
 
@@ -208,7 +211,7 @@ func (g *Gateway) kernelStatus() KernelStatus {
 // Healthy reports whether everything open-dci is responsible for is in place.
 func (s *Status) Healthy() bool {
 	k := s.Kernel
-	if s.MissingLines > 0 || !s.Announced || k.StrictMode != "1" || len(k.Filter) != k.FilterRequired {
+	if s.MissingLines > 0 || !s.Announced && !s.Drained || k.StrictMode != "1" || len(k.Filter) != k.FilterRequired {
 		return false
 	}
 	if k.TransportVRF != "" && (!k.VethUp || k.DCIPathMTU < k.RequiredMTU || !k.LocalRuleLast) {

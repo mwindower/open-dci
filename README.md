@@ -190,7 +190,10 @@ configuration, and must provide the following (details per mode:
 
 **Gateway host**
 - Linux ≥ 5.14 (End.DT46) with VRF, VXLAN and nf_tables.
-- FRR ≥ 10 (tested 10.6) with bgpd, zebra and staticd, configured through `vtysh`.
+- FRR 10.4 (tested 10.4.1) with bgpd, zebra and staticd, configured through `vtysh`.
+  **Not FRR 10.5–10.7** (tested 10.5.1, 10.6.0, 10.6.2, 10.7.1): they keep the VPN and type-5 routes leaked from a tenant VRF after
+  their source is withdrawn, so a removed prefix stays routed, into a black hole, in every
+  other partition.
 
 **Gateway base FRR config**
 - A default BGP instance with a router-id. It peers with each exit the gateway is attached
@@ -234,7 +237,7 @@ configuration, and must provide the following (details per mode:
   network).
 
 **FRR on the transport path** (gateways; exits, spines and core if they run FRR)
-- `no zebra nexthop kernel enable`. FRR 10.6 otherwise revives a withdrawn next hop when
+- `no zebra nexthop kernel enable`. FRR (10.4, 10.6) otherwise revives a withdrawn next hop when
   its link comes back, and sends traffic to a gateway or exit that isn't ready yet
   ([why](docs/configuration.md#requirements-on-the-environment)).
 
