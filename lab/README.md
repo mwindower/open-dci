@@ -80,6 +80,7 @@ Routing tables of every node: [docs/lab-routing.md](../docs/lab-routing.md).
 | `TestFailover` | one gateway per pair loses its uplink: all flows continue via the partner, then it rejoins |
 | `TestGatewaysPeerWithTheirExit` | each gateway's only VPN sessions are the ones to its two exits; the exits relay every gateway's routes |
 | `TestGatewaysAreNotTransit` | the exits never reach each other through a gateway (only-self-out in the gateways' base config) |
+| `TestFabricHasNoTransportRoutes` | no leaf or spine has a route into the locator block, in any table (both transport modes) |
 | `TestExitFailover` | a whole exit (exit-a1, exit-b2) goes down: all flows continue via the other exit, then it rejoins |
 | `TestBothPathsSameSID` | remote gateways get every prefix from both gateways of a pair, with the same anycast SID |
 | `TestEdgeDropsForgedSRv6FromFabric` | an underlay device forges SRv6 with a source spoofed inside the block: dropped at the exit |

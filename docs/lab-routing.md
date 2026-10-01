@@ -255,8 +255,10 @@ fd00:dc1:ff::b2     via fe80::… dev swp4 proto bgp
 fd00:dc1:a::/48     via fe80::… dev swp2 proto bgp              # pair A, via the core
 ```
 
-The leaves and spines of partition B don't carry the locators (no IPv6 underlay towards
-them). If they did, the exit's edge filter would still keep them out of the block.
+The leaves and spines of partition B don't carry the locators: the exits announce IPv6 only
+to their gateways and the core, never into the fabric (e2e `TestFabricHasNoTransportRoutes`).
+If a fabric device sent something into the block anyway, the exit's edge filter would drop
+it.
 
 exit-a1/a2's DCI VRF and the core simply see `fd00:dc1:b::/48` coming from exit-b1/b2. Both modes
 interoperate without either side knowing the other's mode.

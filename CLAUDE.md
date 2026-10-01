@@ -27,7 +27,9 @@ Scope decisions, which should not be revisited without the user:
 - **Two transport modes**:
   - `transport.vrf` set: a DCI network (EVPN VRF) joined to the default VRF by a veth pair.
     Route leaking does not work (see `docs/phase0b-findings.md`).
-  - unset: the default VRF; the locator is announced by the default BGP instance.
+  - unset: the default VRF; the locator is announced by the default BGP instance. Safe only
+    by configuration (exits announce locators only to gateways and core, edge filter);
+    the DCI network isolates by construction and is the recommended mode.
 
   The lab runs pair A (gw-a1/gw-a2) in the first mode and pair B in the second.
 - **No full mesh:** gateways run VPN only on their base session to the exit

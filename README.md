@@ -34,10 +34,10 @@ Between partitions only IPv6 is needed: exits and core see one locator prefix pe
 and nothing of tenants or VNIs. The SRv6 transport runs in one of two modes, which can be
 mixed freely:
 
-| Mode | SRv6 transport | Fits |
-|---|---|---|
-| DCI network (`transport.vrf`) | in an EVPN VRF of the base config, over VXLAN through the fabric | gateways that reach the core only through the fabric |
-| Default VRF | in the IPv6 underlay | gateways whose uplink carries IPv6 towards the core |
+| Mode | SRv6 transport | Isolation from the fabric | Fits |
+|---|---|---|---|
+| DCI network (`transport.vrf`), **recommended** | in an EVPN VRF of the base config, over VXLAN through the fabric | by construction: the VRF only exists on gateways and exits | any setup, especially fabrics with untrusted devices in the underlay (e.g. tenant firewalls) |
+| Default VRF | in the IPv6 underlay | by configuration: the exits must announce locators only to gateways and core, and filter the edge | gateways with their own routed uplink; no VXLAN overhead (−50 B) and no veth |
 
 ## What can be stitched
 

@@ -169,6 +169,16 @@ the exits must keep the locator block unreachable from anything but the gateways
 core, and drop packets from the core into the block with a source outside it.
 
 **Default-VRF mode:**
-- IPv6 unicast must be activated towards the underlay peers.
-- Outbound filters must let the locator pass (it is originated locally).
+
+The transport shares the partition's underlay with every fabric device. It is only as safe
+as the following configuration on the exits and gateways; if the fabric's underlay holds
+untrusted devices (e.g. tenant firewalls), prefer DCI-network mode, which isolates the
+transport by construction.
+- IPv6 unicast is activated only between the gateways, their exits and the core.
+- The exits announce the locators and gateway loopbacks only to the core (and their
+  gateways), **never into the fabric**: no leaf, spine or tenant firewall may have a route
+  into the locator block. Activating IPv6 for a whole fabric peer-group would leak them.
+- The exits' edge filter drops anything from the fabric side addressed into the block.
+- Outbound filters on the gateway must let the locator and loopback pass (they are
+  originated locally).
 - Every link on the path must carry ≥ tenant MTU + 48 B.

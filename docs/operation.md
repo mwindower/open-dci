@@ -219,8 +219,11 @@ ICMPv6 errors to the encap source). The source rules can't
 stop a spoofed source *inside* the block: that is what the exits' rules are for. In
 default-VRF mode, the partition's underlay is part of the transport. Any device on it that
 may be untrusted (e.g. a tenant's firewall peering with the leaves) must not reach the
-block, which the exit's fabric-side rule and the absence of locator routes on the leaves
-ensure.
+block. Two things ensure that: the exits announce the locators only to gateways and core,
+so no fabric device has a route into the block (e2e `TestFabricHasNoTransportRoutes`), and
+the exit's fabric-side rule drops what is sent there anyway. In DCI-network mode the
+transport VRF doesn't exist on fabric devices at all, which is why it is the recommended
+mode.
 
 The e2e tests `TestEdgeDropsForgedSRv6FromFabric`, `TestGatewayDropsSRv6FromOutsideBlock`
 and `TestGatewayDropsTenantToTransport` forge such packets and check that the respective

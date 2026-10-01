@@ -165,3 +165,23 @@ func TestGatewaysAreNotTransit(t *testing.T) {
 		})
 	}
 }
+
+// The transport stays out of the fabric: no leaf or spine has a route into the
+// locator block, in any table. In default-VRF mode (partition B) this depends
+// on the exits announcing locators only to gateways and core; in DCI-network
+// mode (partition A) the transport VRF doesn't exist on them at all.
+func TestFabricHasNoTransportRoutes(t *testing.T) {
+	for _, n := range []string{"leaf-a", "spine-a", "leaf-b", "spine-b"} {
+		t.Run(n, func(t *testing.T) {
+			out, err := lab.Exec(n, "ip", "-6", "route", "show", "table", "all")
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, l := range strings.Split(out, "\n") {
+				if strings.HasPrefix(l, "fd00:dc1:") {
+					t.Errorf("%s has a route into the locator block: %s", n, l)
+				}
+			}
+		})
+	}
+}
