@@ -30,7 +30,9 @@ this could be automated (see the [roadmap](development.md#roadmap)).
   - list its tenant VRFs with their VNIs in G's partition and the RTs of the networks they
     join
 - **On the new partition's exits:** relay VPN routes to and from the gateways and join the
-  other exits' mesh or ring (see [Configuration](configuration.md#requirements-on-the-environment)).
+  exits' topology (see [Configuration](configuration.md#requirements-on-the-environment)): in
+  a ladder, insert the partition between two neighbours, which touches only their exits; with
+  route servers, nothing else changes.
   Existing gateways don't change; with a full mesh of `address` peers instead, every
   existing gateway would have to add G1 and G2.
 - **Exits:** extend the SRv6 domain's edge filtering (see
@@ -125,9 +127,9 @@ These options build on each other and are not implemented yet:
 
    Adding a partition becomes a single change in one file.
 2. **No full mesh** (implemented): gateways peer only with their exit (`peers[].interface`),
-   and the exits relay the VPN routes. Among many exits, one or two VPNv4/v6 route
-   reflectors (accepting every exit with `bgp listen range`) could replace a mesh or ring
-   of exit sessions, so a new partition's exits need no change on the others.
+   and the exits relay the VPN routes, in the lab in a ladder. Among many exits, two route
+   servers (accepting every exit with `bgp listen range`) could replace the ladder, so a
+   new partition's exits need no change on the others.
 3. **Config from metal-api** (Phase 4). The inventory, or each gateway's config, is
    generated from metal-api: labelled private networks (project, partition, VRF ID) become
    stitched networks, and their VRF IDs the gateways' `vni`s.

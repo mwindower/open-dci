@@ -185,3 +185,44 @@ func TestFabricHasNoTransportRoutes(t *testing.T) {
 		})
 	}
 }
+
+// The exits relay the VPN routes in a ladder: each exit peers with its two
+// gateways and with both exits of the neighbouring partition, never with the
+// other exit of its own partition.
+func TestExitLadder(t *testing.T) {
+	for _, c := range []struct {
+		exit    string
+		want    []string
+		partner string
+	}{
+		{"exit-a1", []string{"swp3", "swp4", "2001:db8:e::b1", "2001:db8:e::b2"}, "2001:db8:e::a2"},
+		{"exit-a2", []string{"swp3", "swp4", "2001:db8:e::b1", "2001:db8:e::b2"}, "2001:db8:e::a1"},
+		{"exit-b1", []string{"swp3", "swp4", "2001:db8:e::a1", "2001:db8:e::a2"}, "2001:db8:e::b2"},
+		{"exit-b2", []string{"swp3", "swp4", "2001:db8:e::a1", "2001:db8:e::a2"}, "2001:db8:e::b1"},
+	} {
+		t.Run(c.exit, func(t *testing.T) {
+			waitFor(t, converge, func() error {
+				var sum struct {
+					Peers map[string]struct {
+						State string `json:"state"`
+					} `json:"peers"`
+				}
+				if err := lab.VtyshJSON(c.exit, "show bgp ipv4 vpn summary", &sum); err != nil {
+					return err
+				}
+				if len(sum.Peers) != len(c.want) {
+					return fmt.Errorf("want VPN sessions %v, got %+v", c.want, sum.Peers)
+				}
+				for _, p := range c.want {
+					if sum.Peers[p].State != "Established" {
+						return fmt.Errorf("session %s is %q", p, sum.Peers[p].State)
+					}
+				}
+				if _, ok := sum.Peers[c.partner]; ok {
+					return fmt.Errorf("%s peers with its partner exit %s", c.exit, c.partner)
+				}
+				return nil
+			})
+		})
+	}
+}

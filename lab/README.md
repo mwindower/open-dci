@@ -47,8 +47,9 @@ Requirements:
   both exits (ECMP); a whole exit can fail. The spines connect to both exits, the core to
   all four.
 - **No full mesh:** gateways run VPNv4/v6 only on their sessions to their two exits
-  (`peers: [{interface: uplink0}, {interface: uplink1}]`); the four exits relay the VPN
-  routes in a full mesh between their loopbacks (`2001:db8:e::a1` …). exit-a1/a2 reach the
+  (`peers: [{interface: uplink0}, {interface: uplink1}]`); the exits relay the VPN routes
+  in a ladder between their loopbacks (`2001:db8:e::a1` …): each exit peers with both exits
+  of the other partition, not with its own partner. exit-a1/a2 reach the
   core in the default VRF via an extra link each (`swp5`).
 - **Both transport modes side by side:**
   - Pair A's base config has the DCI network (`vrf104100`, at MTU 9000). SRv6 runs in VXLAN
@@ -81,6 +82,7 @@ Routing tables of every node: [docs/lab-routing.md](../docs/lab-routing.md).
 | `TestGatewaysPeerWithTheirExit` | each gateway's only VPN sessions are the ones to its two exits; the exits relay every gateway's routes |
 | `TestGatewaysAreNotTransit` | the exits never reach each other through a gateway (only-self-out in the gateways' base config) |
 | `TestFabricHasNoTransportRoutes` | no leaf or spine has a route into the locator block, in any table (both transport modes) |
+| `TestExitLadder` | each exit's VPN sessions: its two gateways and both exits of the other partition, not its partner |
 | `TestExitFailover` | a whole exit (exit-a1, exit-b2) goes down: all flows continue via the other exit, then it rejoins |
 | `TestBothPathsSameSID` | remote gateways get every prefix from both gateways of a pair, with the same anycast SID |
 | `TestEdgeDropsForgedSRv6FromFabric` | an underlay device forges SRv6 with a source spoofed inside the block: dropped at the exit |

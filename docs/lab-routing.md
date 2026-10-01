@@ -191,11 +191,14 @@ lands in `vrf3981`, and is exported as VPNv4 with RD `10.0.0.16:1001` and SID
 ## VPN relay between the exits
 
 Gateways don't peer with each other. Each one runs VPNv4/v6 only on its existing sessions to
-its two exits (`peers[].interface: uplink0`, `uplink1`). The four exits relay the VPN routes
+its two exits (`peers[].interface: uplink0`, `uplink1`). The exits relay the VPN routes
 between the partitions without importing them:
 
-- Between the exits: a full mesh of eBGP multihop sessions between their loopbacks
-  `2001:db8:e::a1`, `::a2`, `::b1`, `::b2`, VPN address families only. The VPN families
+- Between the exits: a ladder of eBGP multihop sessions between their loopbacks
+  `2001:db8:e::a1`, `::a2`, `::b1`, `::b2`, VPN address families only. Each exit peers with
+  both exits of the neighbouring partition (with two partitions: the other one), but not
+  with its own partner: exit-a1 ↔ exit-b1, exit-b2 and exit-a2 ↔ exit-b1, exit-b2
+  (e2e `TestExitLadder`). With more partitions, they would form a ring of such pairs. The VPN families
   only exist in FRR's default instance, and exit-a1/a2's core links (`swp2`) are in the DCI
   VRF, so each of them has a second, default-VRF link to the core (`swp5`) that carries the
   exit loopbacks.

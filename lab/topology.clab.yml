@@ -24,8 +24,10 @@
 #   devices at 9000; open-dci raises them to 9166 (SRv6 adds 48 B). The exits'
 #   DCI devices are configured with 9166.
 # - VPN routes: each gateway only peers with its exits (the existing fabric
-#   sessions); the four exits relay them in a full mesh between their
-#   loopbacks. exit-a1/a2 reach the core in the default VRF via swp5.
+#   sessions); the exits relay them in a ladder between their loopbacks:
+#   each exit peers with both exits of the neighbouring partition (here: the
+#   other one), not with its own partner. exit-a1/a2 reach the core in the
+#   default VRF via swp5.
 name: open-dci
 
 topology:

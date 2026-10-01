@@ -67,7 +67,7 @@ is on the [roadmap](docs/development.md#roadmap)).
 |---|---|---|
 | Stitched networks (tenant VRFs) per gateway | 65535 by design; practically far less, untested | 16 function bits per locator give one End.DT46 SID per network (`networks[].sid`). Each network costs a VRF, a bridge and a VXLAN device, an FRR VRF with its own BGP instance, prefix-lists and route-maps. |
 | Partitions (gateway pairs) | 65536 with the default `/32` block and 16 node bits | One locator (`/48`) per pair, shared by both gateways. |
-| BGP sessions per gateway | 1 per exit it is attached to (the lab: 2) | Gateways only peer with their exits; the exits relay the VPN routes between the partitions (mesh, ring or route reflectors among the exits). A full mesh between gateways (`peers[].address`) is still possible. |
+| BGP sessions per gateway | 1 per exit it is attached to (the lab: 2) | Gateways only peer with their exits; the exits relay the VPN routes between the partitions (a ladder in the lab; mesh or route servers, see [Configuration](docs/configuration.md#requirements-on-the-environment)). A full mesh between gateways (`peers[].address`) is still possible. |
 | VNIs | 24 bit | VXLAN. VNIs are local to a partition, so they don't add up. |
 | VPN prefixes per peer | `maxPrefixes`, default 10000 per address family | Safety net; exceeding it tears the session down. |
 | Throughput | CPU-bound, not measured | Encap and decap are done by the Linux kernel in software (no XDP, no offload); see [scaling bandwidth](#scaling-bandwidth). |
