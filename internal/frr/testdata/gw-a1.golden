@@ -28,11 +28,17 @@ router bgp 4200000016
   neighbor uplink0 activate
   neighbor uplink0 route-map DCI-PEER-IN in
   neighbor uplink0 maximum-prefix 10000
+  neighbor uplink1 activate
+  neighbor uplink1 route-map DCI-PEER-IN in
+  neighbor uplink1 maximum-prefix 10000
  exit-address-family
  address-family ipv6 vpn
   neighbor uplink0 activate
   neighbor uplink0 route-map DCI-PEER-IN in
   neighbor uplink0 maximum-prefix 10000
+  neighbor uplink1 activate
+  neighbor uplink1 route-map DCI-PEER-IN in
+  neighbor uplink1 maximum-prefix 10000
  exit-address-family
 exit
 !

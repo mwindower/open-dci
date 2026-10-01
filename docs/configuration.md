@@ -15,8 +15,9 @@ gateway:
   locatorBlock: fd00:dc1::/32     # all gateways' locators and loopbacks
 transport:
   vrf: vrf104100                  # DCI network of the base config; omit it for the default VRF
-peers:                            # the session to the exit; the exits relay the
-  - interface: uplink0            # VPN routes between the partitions
+peers:                            # the sessions to both exits; the exits relay
+  - interface: uplink0            # the VPN routes between the partitions
+  - interface: uplink1
 networks:
   - vrf: vrf3981                  # created by open-dci
     vni: 3981                     # the tenant's VNI in this partition
@@ -139,6 +140,14 @@ At runtime, `apply`/`run`/`diff`/`status` also check the system:
   attracts traffic for the locator.
 
 **Peering with the exit (`peers[].interface`):**
+- One `interface` peer per exit the gateway is attached to. With two exits per partition
+  (the lab), each gateway has two, gets every route twice, and keeps working when one exit
+  fails. `maxPrefixes` applies per session.
+- A gateway attached to two exits must not become a transit router between them: its base
+  config announces only its own prefixes in IPv4/IPv6 unicast (e.g. an `only-self-out`
+  route-map: AS path empty). open-dci's locator and loopback are originated locally and
+  pass; VPN and EVPN must stay unfiltered (the re-announced tenant routes carry longer
+  paths).
 - open-dci adds `bgp disable-ebgp-connected-route-check` to the gateway's default instance:
   FRR tracks the remote SID as next hop of imported SRv6 VPN routes, and requires it to be
   directly connected for single-hop eBGP sessions, which a SID never is.
@@ -151,7 +160,7 @@ At runtime, `apply`/`run`/`diff`/`status` also check the system:
   - need a default-VRF path to each other for these sessions: in FRR, the VPN address
     families only exist in the default BGP instance. In DCI-network partitions, where the
     exit's core link sits in the DCI VRF, that means an extra link or path (the lab's
-    exit-a ↔ core `swp5`).
+    exit-a1/exit-a2 ↔ core `swp5`).
 - Routes pass the exits with RD, RT and SID unchanged; the BGP next hop becomes the exit,
   which doesn't matter, since SRv6 forwards by the SID.
 

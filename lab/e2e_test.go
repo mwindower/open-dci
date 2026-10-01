@@ -55,7 +55,7 @@ var (
 )
 
 func TestControlPlane(t *testing.T) {
-	for _, n := range []string{"m-a", "m-a2", "leaf-a", "spine-a", "exit-a", "gw-a1", "gw-a2", "core", "gw-b1", "gw-b2", "exit-b", "spine-b", "leaf-b", "m-b", "m-b2"} {
+	for _, n := range []string{"m-a", "m-a2", "leaf-a", "spine-a", "exit-a1", "exit-a2", "gw-a1", "gw-a2", "core", "gw-b1", "gw-b2", "exit-b1", "exit-b2", "spine-b", "leaf-b", "m-b", "m-b2"} {
 		t.Run("bgp-established/"+n, func(t *testing.T) {
 			labtest.Eventually(t, converge, func() error { return lab.BGPEstablished(n) })
 		})
@@ -129,7 +129,7 @@ func TestControlPlane(t *testing.T) {
 	}
 
 	// tenant prefixes never leave the tenant VRFs: exits and core only see locators
-	for _, n := range []string{"exit-a", "core", "exit-b"} {
+	for _, n := range []string{"exit-a1", "exit-a2", "core", "exit-b1", "exit-b2"} {
 		t.Run("no-tenant-state/"+n, func(t *testing.T) {
 			out, err := lab.Vtysh(n, "show ip route vrf all")
 			if err != nil {

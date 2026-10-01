@@ -118,12 +118,12 @@ func captureICMP(t *testing.T, node, from string) func() string {
 
 // An untrusted device on partition B's underlay (spine-b stands in for e.g. a
 // tenant firewall) forges SRv6 to tenant 1's SID with a source spoofed inside
-// the block. The gateway couldn't tell it from a remote gateway's; exit-b
+// the block. The gateway couldn't tell it from a remote gateway's; exit-b1
 // drops it at the edge.
 func TestEdgeDropsForgedSRv6FromFabric(t *testing.T) {
-	ensureTool(t, "exit-b", "nft", "nftables")
-	before := exitDrops(t, "exit-b", `iifname "swp1*" ip6 daddr `+block)
-	via := linkLocal(t, "exit-b", "swp1")
+	ensureTool(t, "exit-b1", "nft", "nftables")
+	before := exitDrops(t, "exit-b1", `iifname "swp1*" ip6 daddr `+block)
+	via := linkLocal(t, "exit-b1", "swp1")
 	// the outer packet is routed by its destination (the SID): spine-b needs
 	// a route towards it, like any device that can reach the locators
 	if _, err := lab.Exec("spine-b", "sh", "-c", fmt.Sprintf(
@@ -138,28 +138,28 @@ func TestEdgeDropsForgedSRv6FromFabric(t *testing.T) {
 	if s := seen(); strings.Contains(s, "ICMP") {
 		t.Fatalf("forged packet reached m-b:\n%s", s)
 	}
-	if after := exitDrops(t, "exit-b", `iifname "swp1*" ip6 daddr `+block); after < before+3 {
-		t.Fatalf("exit-b edge filter counted %d, want +3", after-before)
+	if after := exitDrops(t, "exit-b1", `iifname "swp1*" ip6 daddr `+block); after < before+3 {
+		t.Fatalf("exit-b1 edge filter counted %d, want +3", after-before)
 	}
 }
 
-// Inside the domain, but with a source outside the block (here: exit-b
+// Inside the domain, but with a source outside the block (here: exit-b1
 // itself, whose own packets bypass its edge filter): the gateway drops SRv6
 // to its locator.
 func TestGatewayDropsSRv6FromOutsideBlock(t *testing.T) {
 	const gw = "gw-b1"
 	before := gatewayDrops(t, gw, "locator-from-outside")
 	via := linkLocal(t, gw, "uplink0")
-	// pin the SID to gw-b1 (exit-b normally spreads it over the pair)
-	if _, err := lab.Exec("exit-b", "sh", "-c", fmt.Sprintf(
+	// pin the SID to gw-b1 (exit-b1 normally spreads it over the pair)
+	if _, err := lab.Exec("exit-b1", "sh", "-c", fmt.Sprintf(
 		"ip sr tunsrc set 2001:db8:bad::1 && ip -6 route replace %s/128 via %s dev swp3 && ip route replace %s/32 encap seg6 mode encap segs %s via inet6 %s dev swp3",
 		mB.sid, via, mB.v4, mB.sid, via)); err != nil {
 		t.Fatal(err)
 	}
-	defer lab.Exec("exit-b", "sh", "-c", "ip route del "+mB.v4+"/32; ip -6 route del "+mB.sid+"/128; ip sr tunsrc set ::")
+	defer lab.Exec("exit-b1", "sh", "-c", "ip route del "+mB.v4+"/32; ip -6 route del "+mB.sid+"/128; ip sr tunsrc set ::")
 
 	seen := captureICMP(t, "m-b", "10.0.1.14")
-	lab.Exec("exit-b", "ping", "-c", "3", "-W", "1", mB.v4)
+	lab.Exec("exit-b1", "ping", "-c", "3", "-W", "1", mB.v4)
 	if s := seen(); strings.Contains(s, "ICMP") {
 		t.Fatalf("forged packet reached m-b:\n%s", s)
 	}

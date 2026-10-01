@@ -31,7 +31,8 @@ Scope decisions, which should not be revisited without the user:
 
   The lab runs pair A (gw-a1/gw-a2) in the first mode and pair B in the second.
 - **No full mesh:** gateways run VPN only on their base session to the exit
-  (`peers[].interface`); the exits relay VPN routes among themselves (lab: exit-a ↔ exit-b).
+  (`peers[].interface`, one per exit); the exits relay VPN routes among themselves (lab:
+  full mesh of four exits).
   `peers[].address` (direct multihop to remote gateways) still exists.
 - **Redundancy by anycast:** the gateways of a partition share locator, pinned SIDs
   (`networks[].sid`, default the VNI) and ASN; each has its own `gateway.loopback`.
@@ -48,12 +49,14 @@ Scope decisions, which should not be revisited without the user:
   (`go test ./internal/frr -update` rewrites them; review the diff!).
   `testdata/gw-a1.running.conf` is a real FRR running-config: every rendered line must
   appear in it verbatim, otherwise drift detection re-applies forever.
-- `lab/`: the containerlab lab (15 nodes, `clab-open-dci-<node>`).
+- `lab/`: the containerlab lab (17 nodes, `clab-open-dci-<node>`).
   - The gateway pairs gw-a1/gw-a2 and gw-b1/gw-b2 hang off the exits, start with a base
     config without tenant VRFs (`configs/gw-*/{node.yaml,frr.conf}`) and run `open-dci run`
     as a sidecar with `configs/gw-*/open-dci.yaml`. They provision two tenants (m-a/m-b,
     m-a2/m-b2). Pair A's base config has the DCI network (vrf104100); pair B uses partition
     B's IPv6 underlay. The exits' `node.yaml` has an `edgeFilter` (labnode, nftables).
+  - Two exits per partition (exit-a1/a2, exit-b1/b2); every gateway is attached to both
+    (`uplink0`/`uplink1`), and the four exits relay the VPN routes in a full mesh.
   - `lab/cmd/labnode` is the container entrypoint (node.yaml → netlink → sidecars → FRR).
   - e2e tests: `lab/*_test.go`, build tag `e2e`.
 - `docs/`: findings of phases 0/0b (historical design reasoning), the lab's routing

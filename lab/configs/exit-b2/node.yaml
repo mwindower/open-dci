@@ -1,9 +1,9 @@
-# exit of partition B: no DCI network; the SRv6 transport runs in the underlay,
-# so the core link (swp2) is in the default VRF. The redundant gateways
-# gw-b1/gw-b2 hang off swp3/swp4 like any fabric peer; the shared locator
-# arrives from both (ECMP).
+# exit exit-b2 of partition B (one of two): no DCI network; the SRv6 transport runs
+# in the underlay, so the core link (swp2) is in the default VRF. Both gateways
+# hang off swp3/swp4 (their uplink1) like any fabric peer; the shared locator
+# arrives from both (ECMP). The gateways' other uplink goes to exit-b1.
 waitInterfaces: [swp1, swp2, swp3, swp4]
-loopback: [10.0.1.14/32, "2001:db8:e::b/128"]
+loopback: [10.0.1.18/32, "2001:db8:e::b2/128"]
 interfaces:
   - {name: swp1, mtu: 9216}
   - {name: swp2, mtu: 9216}

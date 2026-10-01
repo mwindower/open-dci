@@ -1,13 +1,13 @@
-# exit: terminates the DCI network (vrf104100) and routes it into the
-# inter-partition core on swp2. DCI devices sized for SRv6 (9000 + 48 B).
-# The redundant gateways gw-a1/gw-a2 hang off swp3/swp4 like any fabric peer
-# and reach the DCI network via EVPN; the shared locator arrives from both
-# (ECMP).
-# swp5: a default-VRF link to the core for the VPN session to the other exits
+# exit exit-a1 of partition A (one of two): terminates the DCI network (vrf104100)
+# and routes it into the inter-partition core on swp2. DCI devices sized for
+# SRv6 (9000 + 48 B). Both gateways hang off swp3/swp4 (their uplink0), like any
+# fabric peer, and reach the DCI network via EVPN; the shared locator arrives
+# from both (ECMP). The gateways' other uplink goes to exit-a2.
+# swp5: a default-VRF link to the core for the VPN sessions to the other exits
 # (VPN address families only exist in FRR's default instance; swp2 is in the
 # DCI VRF).
 waitInterfaces: [swp1, swp2, swp3, swp4, swp5]
-loopback: [10.0.0.14/32, "2001:db8:e::a/128"]
+loopback: [10.0.0.14/32, "2001:db8:e::a1/128"]
 vrfs:
   - {name: vrf104100, table: 1001}
 bridge: {name: bridge, mtu: 9166}

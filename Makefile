@@ -34,8 +34,8 @@ lab-down:
 
 lab-redeploy: lab-down lab-up lab-check
 
-# SRv6 in VXLAN between gw-a and exit-a (IPv6 routing header = next header 43)
-CAPTURE_NODE ?= exit-a
+# SRv6 in VXLAN between gw-a1 and exit-a1 (IPv6 routing header = next header 43)
+CAPTURE_NODE ?= exit-a1
 CAPTURE_IF   ?= swp3
 PING_FROM    ?= m-a
 PING_TO      ?= 10.0.32.10

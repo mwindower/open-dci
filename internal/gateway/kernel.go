@@ -17,6 +17,10 @@ var sysctls = []struct{ key, value string }{
 	{"net.ipv6.conf.all.forwarding", "1"},
 	{"net.ipv6.conf.all.seg6_enabled", "1"},
 	{"net.ipv6.conf.default.seg6_enabled", "1"},
+	// outer flow label from the inner flow: without it, all SRv6 traffic
+	// between two gateways (same loopback, same SID, flow label 0 for IPv4
+	// tenants) takes a single path through every ECMP group on the way
+	{"net.ipv6.seg6_flowlabel", "1"},
 	// required for End.DT4/DT46; only exists once a VRF exists (checked before)
 	{"net.vrf.strict_mode", "1"},
 }

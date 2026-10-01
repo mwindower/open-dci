@@ -69,8 +69,9 @@ func TestBothPathsSameSID(t *testing.T) {
 	}
 }
 
-// No full mesh: each gateway's only VPN session is the one to its exit; the
-// exits relay the routes between the partitions, with SID and RD intact.
+// No full mesh: each gateway's only VPN sessions are the ones to its two
+// exits; the exits relay the routes between the partitions, with SID and RD
+// intact.
 func TestGatewaysPeerWithTheirExit(t *testing.T) {
 	for _, g := range gateways {
 		t.Run(g.name, func(t *testing.T) {
@@ -82,21 +83,82 @@ func TestGatewaysPeerWithTheirExit(t *testing.T) {
 			if err := lab.VtyshJSON(g.name, "show bgp ipv4 vpn summary", &sum); err != nil {
 				t.Fatal(err)
 			}
-			if len(sum.Peers) != 1 || sum.Peers["uplink0"].State != "Established" {
-				t.Fatalf("want exactly one VPN session (uplink0, Established), got %+v", sum.Peers)
+			if len(sum.Peers) != 2 || sum.Peers["uplink0"].State != "Established" || sum.Peers["uplink1"].State != "Established" {
+				t.Fatalf("want exactly the two exit sessions (uplink0/1, Established), got %+v", sum.Peers)
 			}
 		})
 	}
 	// the exits hold the routes of every gateway (relay), but import none
 	for _, c := range []struct{ exit, rd, prefix string }{
-		{"exit-a", "10.0.1.16:1001", mB.v4 + "/32"}, {"exit-a", "10.0.0.17:1002", mA2.v4 + "/32"},
-		{"exit-b", "10.0.0.16:1001", mA.v4 + "/32"}, {"exit-b", "10.0.1.17:1002", mB2.v4 + "/32"},
+		{"exit-a1", "10.0.1.16:1001", mB.v4 + "/32"}, {"exit-a2", "10.0.0.17:1002", mA2.v4 + "/32"},
+		{"exit-b1", "10.0.0.16:1001", mA.v4 + "/32"}, {"exit-b2", "10.0.1.17:1002", mB2.v4 + "/32"},
 	} {
 		t.Run(c.exit+"/"+c.rd, func(t *testing.T) {
 			waitFor(t, converge, func() error {
 				out, err := lab.Vtysh(c.exit, "show bgp ipv4 vpn rd "+c.rd+" "+c.prefix)
 				if err != nil || !strings.Contains(out, "Remote SID") {
 					return fmt.Errorf("%s doesn't relay %s %s: %v\n%s", c.exit, c.rd, c.prefix, err, out)
+				}
+				return nil
+			})
+		})
+	}
+}
+
+// Each gateway is attached to both exits of its partition. When a whole exit
+// fails, the fabric, the transport and the VPN routes continue via the other.
+func TestExitFailover(t *testing.T) {
+	for _, c := range []struct {
+		exit string
+		ifs  []string
+	}{
+		{"exit-a1", []string{"swp1", "swp2", "swp3", "swp4", "swp5"}},
+		{"exit-b2", []string{"swp1", "swp2", "swp3", "swp4"}},
+	} {
+		t.Run(c.exit, func(t *testing.T) {
+			set := func(state string) {
+				for _, i := range c.ifs {
+					lab.Exec(c.exit, "ip", "link", "set", i, state)
+				}
+			}
+			set("down")
+			restored := false
+			restore := func() {
+				if !restored {
+					set("up")
+					restored = true
+				}
+			}
+			defer restore()
+
+			for _, f := range flows {
+				waitFor(t, converge, func() error { return lab.Ping(f[0].name, f[1].v4, 0) })
+				waitFor(t, converge, func() error { return lab.Ping(f[0].name, f[1].v6, 0) })
+			}
+			restore()
+			for _, gw := range append(append([]string{}, pairA...), pairB...) {
+				waitFor(t, converge, func() error { return opendci(gw, "status") })
+			}
+		})
+	}
+}
+
+// Dual-attached gateways must not become transit routers between their two
+// exits (only-self-out in their base config): the exits reach each other via
+// the spine or the core, never through a gateway port (swp3/swp4).
+func TestGatewaysAreNotTransit(t *testing.T) {
+	for _, c := range []struct{ exit, dst string }{
+		{"exit-a1", "10.0.0.18"}, {"exit-a2", "10.0.0.14"}, // underlay loopbacks
+		{"exit-b1", "2001:db8:e::b2"}, {"exit-b2", "2001:db8:e::b1"}, // IPv6 loopbacks
+	} {
+		t.Run(c.exit+"/"+c.dst, func(t *testing.T) {
+			waitFor(t, converge, func() error {
+				out, err := lab.KernelRoute(c.exit, "", c.dst)
+				if err != nil || !strings.Contains(out, c.dst) {
+					return fmt.Errorf("no route: %v\n%s", err, out)
+				}
+				if strings.Contains(out, "swp3") || strings.Contains(out, "swp4") {
+					return fmt.Errorf("%s reaches %s through a gateway:\n%s", c.exit, c.dst, out)
 				}
 				return nil
 			})

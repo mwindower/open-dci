@@ -37,6 +37,7 @@ filter    dropped: tenant-to-transport 0, locator-from-outside 0, loopback-from-
 
 PEER     AS          STATE        UP        VPNv4 RCVD/SENT  VPNv6 RCVD/SENT
 uplink0  4200000014  Established  00:00:29  4/6              4/6
+uplink1  4200000018  Established  00:00:29  4/6              4/6
 
 VRF      RT          RD              SID                          L3VNI    LOCAL v4/v6  REMOTE v4/v6
 vrf3981  65535:1001  10.0.0.16:1001  fd00:dc1:a:f8d:: (End.DT46)  3981 Up  1/1          1/1
@@ -45,7 +46,8 @@ vrf3982  65535:1002  10.0.0.16:1002  fd00:dc1:a:f8e:: (End.DT46)  3982 Up  1/1  
 
 - `filter` shows the ingress filter's rules with their drop counters (see below).
 - `L3VNI` shows each network's VNI with zebra's state of it.
-- The only peer is the session to the exit (`peers[].interface`); `AS` comes from FRR.
+- The only peers are the sessions to the two exits (`peers[].interface`); `AS` comes from
+  FRR.
   `RCVD` counts the remote gateways' routes (2 tenants × 2 gateways of pair B). `SENT`
   includes the relayed routes a gateway passes back to its exit. The exit keeps them as
   longer, never-best paths, and the other exits and the partner gateway would drop them
@@ -65,7 +67,10 @@ vrf3982  65535:1002  10.0.0.16:1002  fd00:dc1:a:f8e:: (End.DT46)  3982 Up  1/1  
 
 ### Kernel (idempotent)
 
-- sysctls: forwarding, `seg6_enabled`, and `net.vrf.strict_mode=1` (required for End.DT46)
+- sysctls: forwarding, `seg6_enabled`, `net.vrf.strict_mode=1` (required for End.DT46), and
+  `net.ipv6.seg6_flowlabel=1` (the outer flow label is derived from the inner flow, so ECMP
+  along the transport spreads the flows instead of putting all traffic between two gateways
+  on one path)
 - the loopback (`gateway.loopback`, default `<locator>::1`) on `lo`
 - the ingress filter, an nftables table `ip6 open-dci` (see
   [the SRv6 domain and its edge](#the-srv6-domain-and-its-edge))
@@ -223,10 +228,10 @@ rule counts them and the victim sees nothing.
 
 ## What the network sees
 
-A tenant packet on the wire from gw-a1 to exit-a (DCI network mode, `make lab-capture`):
+A tenant packet on the wire from gw-a1 to exit-a1 (DCI network mode, `make lab-capture`):
 
 ```
-IP 10.0.0.16 > 10.0.0.14.4789: VXLAN vni 104100                   ← gw-a1 → exit-a, DCI network
+IP 10.0.0.16 > 10.0.0.14.4789: VXLAN vni 104100                   ← gw-a1 → exit-a1, DCI network
   IP6 fd00:dc1:ff::a1 > fd00:dc1:b:fab::: RT6 (type=4, segleft=0)  ← SRv6 to pair B's anycast SID
     IP 10.0.16.10 > 10.0.32.10: ICMP echo request                  ← tenant packet
 ```

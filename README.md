@@ -27,7 +27,7 @@ and puts them back whenever the base system reloads its config.
 > L2VNIs across partitions.
 
 <p align="center">
-  <img src="docs/packet-flow.svg" width="960" alt="Animated packet flow: a tenant packet from m-a travels over VXLAN with VNI 3981 through partition A's fabric to gw-a1, one of two redundant gateways that both provisioned the tenant VRF. gw-a1 encapsulates it in SRv6 to partition B's anycast SID and sends it in the DCI network (VNI 104100) back to the exit, as plain IPv6 through the core to exit-b, which may pick either gateway of pair B: here gw-b2 decapsulates it (End.DT46) and forwards it with partition B's VNI 4011 via leaf-b to m-b.">
+  <img src="docs/packet-flow.svg" width="960" alt="Animated packet flow: each partition has two exits and a redundant gateway pair attached to both. A tenant packet from m-a travels over VXLAN with VNI 3981 through leaf-a and exit-a1 to gw-a1, which provisioned the tenant VRF. gw-a1 encapsulates it in SRv6 to partition B's anycast SID and sends it in the DCI network (VNI 104100) via the other exit, exit-a2, into the core. exit-b1 delivers it to gw-b2, which decapsulates it (End.DT46) and forwards it with partition B's VNI 4011 via exit-b2 and leaf-b to m-b.">
 </p>
 
 Between partitions only IPv6 is needed: exits and core see one locator prefix per gateway,
@@ -54,6 +54,7 @@ mixed freely:
 | Overlapping prefixes *within* one stitched network | no: the partitions share one routing domain | – |
 | Explicit (non-auto) RTs on the leaves | not yet: the gateway's L3VNIs use auto RTs | – |
 | Redundant gateways per partition (anycast locator, failover without BGP changes) | yes | yes |
+| Gateways attached to two exits each (ECMP; a whole exit can fail) | yes | yes |
 | L2: stretched subnets, MAC/IP routes | no | – |
 
 ## Scale and limits
@@ -66,12 +67,49 @@ is on the [roadmap](docs/development.md#roadmap)).
 |---|---|---|
 | Stitched networks (tenant VRFs) per gateway | 65535 by design; practically far less, untested | 16 function bits per locator give one End.DT46 SID per network (`networks[].sid`). Each network costs a VRF, a bridge and a VXLAN device, an FRR VRF with its own BGP instance, prefix-lists and route-maps. |
 | Partitions (gateway pairs) | 65536 with the default `/32` block and 16 node bits | One locator (`/48`) per pair, shared by both gateways. |
-| BGP sessions per gateway | 1 (the exit) | Gateways only peer with their exit; the exits relay the VPN routes between the partitions (mesh or ring among the exits). A full mesh between gateways (`peers[].address`) is still possible. |
+| BGP sessions per gateway | 1 per exit it is attached to (the lab: 2) | Gateways only peer with their exits; the exits relay the VPN routes between the partitions (mesh, ring or route reflectors among the exits). A full mesh between gateways (`peers[].address`) is still possible. |
 | VNIs | 24 bit | VXLAN. VNIs are local to a partition, so they don't add up. |
 | VPN prefixes per peer | `maxPrefixes`, default 10000 per address family | Safety net; exceeding it tears the session down. |
-| Throughput | CPU-bound, not measured | Encap and decap are done by the Linux kernel in software (no XDP, no offload); scale out with more gateways or pairs. |
+| Throughput | CPU-bound, not measured | Encap and decap are done by the Linux kernel in software (no XDP, no offload); see [scaling bandwidth](#scaling-bandwidth). |
 | Overhead per packet | +48 B (IPv6 + SRH), +50 B more in a DCI network | Every hop must fit tenant MTU + overhead; open-dci validates and raises the DCI devices. |
 | Reconcile | every 10 s (`run -i`) | Each run reads the whole FRR running-config; its cost grows with the number of networks. |
+
+### Scaling bandwidth
+
+Every packet between two partitions crosses one gateway in each partition. On a gateway it
+arrives as VXLAN from the fabric and leaves as SRv6 (or the reverse), so its uplinks carry
+its share **twice**: N Gbit/s of stitched traffic through a gateway need about 2N Gbit/s of
+uplink capacity. Exits and core carry it once per direction, plus 48 B per packet (SRv6) and
+50 B more inside a DCI network.
+
+Ways to add bandwidth, from the cheapest:
+
+1. **Bigger gateways.** Faster NICs and more cores: multi-queue NICs spread the flows over
+   the cores (RSS), using the VXLAN source port and the SRv6 flow label as entropy.
+2. **Both gateways of a pair are active.** With the anycast locator, the leaves spread
+   tenant traffic over both gateways' VTEPs, and the exits spread SRv6 traffic to the
+   locator over both gateways (ECMP). A pair carries about twice one gateway, and the
+   survivor all of it after a failure.
+3. **Dual attachment.** Each gateway uses both uplinks, to two different exits, for the
+   fabric, the transport and the VPN routes (ECMP in both directions). That doubles its
+   uplink capacity and survives the loss of a link or a whole exit (the lab does this).
+4. **More gateways per locator.** Nothing in open-dci limits an anycast group to two:
+   N gateways with the same `locator`, `networks` and ASN give N-way ECMP. The limit is the
+   ECMP width of leaves and exits (`maximum-paths`). Tested with 2.
+5. **Shard the tenants.** Several independent gateway groups per partition, each with its
+   own locator, each stitching a subset of the networks. Capacity and blast radius are then
+   per group; the groups don't need to know each other, the exits relay all of them.
+
+What all of these need is **flow entropy**: ECMP hashes per flow, and all traffic between
+two gateways has the same outer addresses (loopback → SID). open-dci therefore sets
+`net.ipv6.seg6_flowlabel=1`, so the outer IPv6 flow label is derived from the inner flow.
+Exits and core must include the IPv6 flow label in their ECMP hash (Linux does; check the
+switches' hash settings). Without it, everything between two gateways takes one path. A
+single flow is never split: it is limited by one path and one core.
+
+None of this is measured yet. The scale test on the
+[roadmap](docs/development.md#roadmap) should measure packets per second per core, per
+gateway and per pair.
 
 ### Why not on the switches?
 
@@ -92,8 +130,9 @@ deliberately puts it on dedicated Linux gateways:
   per-tenant DCI state on them couples every tenant change to the fabric. Dedicated gateways
   add to an untouched fabric, can be updated, restarted or replaced pair by pair, and fail
   over without the fabric noticing.
-- **Scale-out.** When one pair isn't enough, add another pair (tenants spread across pairs)
-  or bigger servers, instead of upgrading switches.
+- **Scale-out.** When one pair isn't enough, add gateways to the anycast group, another
+  group (tenants spread across groups) or bigger servers, instead of upgrading switches
+  (see [scaling bandwidth](#scaling-bandwidth)).
 
 The price is an extra hop through a server and software forwarding, which is why its
 throughput needs measuring before production use.
@@ -127,7 +166,7 @@ The gateway's base FRR config peers EVPN with the fabric and has `advertise-all-
 [Configuration](docs/configuration.md)). Each network is a tenant VRF that open-dci
 provisions with the tenant's VNI in that partition. Each partition runs a redundant pair of
 gateways that share the locator (anycast) and pinned SIDs (the VNI by default), each with
-its own loopback for the VPN sessions. Two of the lab's four gateways
+its own loopback, and each attached to both exits of the partition (`uplink0`, `uplink1`). Two of the lab's four gateways
 (`/etc/open-dci/config.yaml`, from `lab/configs/gw-*/open-dci.yaml`; gw-a2 and gw-b2 differ
 only in `loopback`):
 
@@ -146,9 +185,9 @@ gateway:
   locatorBlock: fd00:dc1::/32   # all gateways
 transport:
   vrf: vrf104100                # DCI network
-peers:                          # only the exit: the exits
+peers:                          # only the two exits; they
   - interface: uplink0          # relay the VPN routes
-
+  - interface: uplink1
 networks:
   - vrf: vrf3981
     vni: 3981                   # tenant 1 in A, SID f8d
@@ -178,9 +217,9 @@ gateway:
   locatorBlock: fd00:dc1::/32   # same everywhere
 # no transport: default VRF (underlay)
 
-peers:                          # only the exit: the exits
+peers:                          # only the two exits; they
   - interface: uplink0          # relay the VPN routes
-
+  - interface: uplink1
 networks:
   - vrf: vrf4011
     vni: 4011                   # tenant 1 in B, SID fab

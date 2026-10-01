@@ -1,6 +1,7 @@
 # spine: pure EVPN route transit, no VNIs
-waitInterfaces: [swp1, swp2]
+waitInterfaces: [swp1, swp2, swp3]
 loopback: [10.0.1.13/32]
 interfaces:
   - {name: swp1, mtu: 9216}
   - {name: swp2, mtu: 9216}
+  - {name: swp3, mtu: 9216}
