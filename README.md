@@ -1,5 +1,9 @@
 # open-dci
 
+<p align="center">
+  <img src="docs/mascot.svg" width="236" alt="open-dci's mascot: a yellow weaver bird weaving a blue and a green thread, one per tenant, through the knots of partitions A, B and C.">
+</p>
+
 [![ci](https://github.com/mwindower/open-dci/actions/workflows/ci.yaml/badge.svg)](https://github.com/mwindower/open-dci/actions/workflows/ci.yaml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
@@ -16,11 +20,39 @@
 It never rewrites `frr.conf`. It adds its lines via `vtysh` to the gateway's base config
 and puts them back whenever the base system reloads its config.
 
+## Why open-dci
+
+Like the weaver bird, which weaves many threads into one nest, open-dci weaves each
+tenant's networks from independent fabrics into one.
+
+- **One network per tenant, across all your sites.** Every partition keeps its own EVPN
+  fabric, VNIs, route targets and ASNs. open-dci joins a tenant's networks into one routed
+  network, IPv4 and IPv6, and keeps tenants apart from each other.
+- **No fabric surgery.** The gateways join the fabric like any VTEP. Leaves and spines stay
+  as they are, and the network between the sites only needs plain IPv6.
+- **Stock Linux and FRR.** No custom data plane, no special hardware: SRv6 in the Linux
+  kernel, BGP in FRR, on any server.
+- **Fails gracefully, maintains losslessly.** Anycast gateway pairs, dual-attached to two
+  exits, with BFD: losing a gateway or an exit costs well under a second. `open-dci drain`
+  takes a gateway out without losing a single packet, and a gateway that can't forward
+  withdraws itself ([measured](docs/performance.md)).
+- **Safe by default.** Prefix allowlists per network, route-target filters and prefix
+  limits per peer, and an SRv6 domain closed at its edge.
+- **Hands-off.** One YAML file per gateway. open-dci reconciles continuously, survives
+  config reloads of the base system and reports its health in `status`.
+
+**Use cases**
+- A tenant's private networks in several [metal-stack](https://metal-stack.io) partitions
+  or datacenters, routed as one.
+- Availability zones with independent fabrics and failure domains, connected per tenant.
+- Fabrics with different VNI, route-target or ASN plans joined without renumbering, e.g.
+  after a merger or during a migration.
+- Many isolated tenants over one shared IPv6 core.
+
 > [!WARNING]
 > **Alpha.** open-dci is at an alpha stage: configuration and behaviour may still change
 > incompatibly, and it is not ready for production. It is tested end to end in a
-> [containerlab lab](lab/README.md) that runs in CI; redundancy and RT hygiene are next on
-> the [roadmap](docs/development.md#roadmap).
+> [containerlab lab](lab/README.md) that runs in CI.
 >
 > **L3 stitching only.** Tenant IP prefixes are routed between partitions (EVPN type-5 ↔
 > VPNv4/v6). **L2 is not supported**: no stretched subnets, no MAC/IP (type-2) routes, no
@@ -45,105 +77,7 @@ mixed freely:
 | DCI network (`transport.vrf`), **recommended** | in an EVPN VRF of the base config, over VXLAN through the fabric | by construction: the VRF only exists on gateways and exits | any setup, especially fabrics with untrusted devices in the underlay (e.g. tenant firewalls) |
 | Default VRF | in the IPv6 underlay | by configuration: the exits must announce locators only to gateways and core, and filter the edge | gateways with their own routed uplink; no VXLAN overhead (−50 B) and no veth |
 
-## What can be stitched
-
-| Scenario | Supported | In the lab |
-|---|---|---|
-| Different VNIs per partition (3981 ↔ 4011) | yes: VNIs are local, the route target is the identity | yes |
-| The same VNI in both partitions | yes, same as above | no |
-| Different ASNs per partition and per router, auto RTs on the EVPN side | yes | yes |
-| Several tenants per gateway, isolated from each other | yes, one VRF each | yes (2) |
-| Overlapping prefixes of *different* tenants | yes, by design (separate VRFs) | no |
-| One network across more than two partitions | yes: the exits relay the VPN routes, gateways keep their two sessions | yes (three) |
-| IPv4 and IPv6 | yes (End.DT46) | yes |
-| Mixed transport modes (DCI network ↔ default VRF) | yes | yes |
-| Overlapping prefixes *within* one stitched network | no: the partitions share one routing domain | – |
-| Explicit (non-auto) RTs on the leaves | not yet: the gateway's L3VNIs use auto RTs | – |
-| Redundant gateways per partition (anycast locator, failover without BGP changes) | yes | yes |
-| Gateways attached to two exits each (ECMP; a whole exit can fail) | yes | yes |
-| L2: stretched subnets, MAC/IP routes | no | – |
-
-## Scale and limits
-
-Hard limits come from the design; everything else is bounded by the gateway's CPU, memory
-and FRR, and has **not been measured yet** (the lab runs 2 tenants on 2 pairs; a scale test
-is on the [roadmap](docs/development.md#roadmap)).
-
-| What | Limit | Where it comes from |
-|---|---|---|
-| Stitched networks (tenant VRFs) per gateway | 65535 by design; practically far less, untested | 16 function bits per locator give one End.DT46 SID per network (`networks[].sid`). Each network costs a VRF, a bridge and a VXLAN device, an FRR VRF with its own BGP instance, prefix-lists and route-maps. |
-| Partitions (gateway pairs) | 65536 with the default `/32` block and 16 node bits | One locator (`/48`) per pair, shared by both gateways. |
-| BGP sessions per gateway | 1 per exit it is attached to (the lab: 2) | Gateways only peer with their exits; the exits relay the VPN routes between the partitions (a ladder in the lab; mesh or route servers, see [Configuration](docs/configuration.md#requirements-on-the-environment)). A full mesh between gateways (`peers[].address`) is still possible. |
-| VNIs | 24 bit | VXLAN. VNIs are local to a partition, so they don't add up. |
-| VPN prefixes per peer | `maxPrefixes`, default 10000 per address family | Safety net; exceeding it tears the session down. |
-| Throughput | CPU-bound, not measured | Encap and decap are done by the Linux kernel in software (no XDP, no offload); see [scaling bandwidth](#scaling-bandwidth). |
-| Overhead per packet | +48 B (IPv6 + SRH), +50 B more in a DCI network | Every hop must fit tenant MTU + overhead; open-dci validates and raises the DCI devices. |
-| Reconcile | every 10 s (`run -i`) | Each run reads the whole FRR running-config; its cost grows with the number of networks. |
-
-### Scaling bandwidth
-
-Every packet between two partitions crosses one gateway in each partition. On a gateway it
-arrives as VXLAN from the fabric and leaves as SRv6 (or the reverse), so its uplinks carry
-its share **twice**: N Gbit/s of stitched traffic through a gateway need about 2N Gbit/s of
-uplink capacity. Exits and core carry it once per direction, plus 48 B per packet (SRv6) and
-50 B more inside a DCI network.
-
-Ways to add bandwidth, from the cheapest:
-
-1. **Bigger gateways.** Faster NICs and more cores: multi-queue NICs spread the flows over
-   the cores (RSS), using the VXLAN source port and the SRv6 flow label as entropy.
-2. **Both gateways of a pair are active.** With the anycast locator, the leaves spread
-   tenant traffic over both gateways' VTEPs, and the exits spread SRv6 traffic to the
-   locator over both gateways (ECMP). A pair carries about twice one gateway, and the
-   survivor all of it after a failure.
-3. **Dual attachment.** Each gateway uses both uplinks, to two different exits, for the
-   fabric, the transport and the VPN routes (ECMP in both directions). That doubles its
-   uplink capacity and survives the loss of a link or a whole exit (the lab does this).
-4. **More gateways per locator.** Nothing in open-dci limits an anycast group to two:
-   N gateways with the same `locator`, `networks` and ASN give N-way ECMP. The limit is the
-   ECMP width of leaves and exits (`maximum-paths`). Tested with 2.
-5. **Shard the tenants.** Several independent gateway groups per partition, each with its
-   own locator, each stitching a subset of the networks. Capacity and blast radius are then
-   per group; the groups don't need to know each other, the exits relay all of them.
-
-What all of these need is **flow entropy**: ECMP hashes per flow, and all traffic between
-two gateways has the same outer addresses (loopback → SID). open-dci therefore sets
-`net.ipv6.seg6_flowlabel=1`, so the outer IPv6 flow label is derived from the inner flow.
-Exits and core must include the IPv6 flow label in their ECMP hash (Linux does; check the
-switches' hash settings). Without it, everything between two gateways takes one path. A
-single flow is never split: it is limited by one path and one core.
-
-None of this is measured yet. The scale test on the
-[roadmap](docs/development.md#roadmap) should measure packets per second per core, per
-gateway and per pair.
-
-### Why not on the switches?
-
-The stitching could run on the exits or leaves themselves (SONiC uses FRR, too). open-dci
-deliberately puts it on dedicated Linux gateways:
-
-- **Data-plane support.** End.DT46 decap plus SRv6 encap with VPN SIDs, in the same box as
-  EVPN/VXLAN, needs ASIC support. Many datacenter switch ASICs don't support SRv6 VPN at all
-  or only in recent generations, and SONiC's SRv6 support covers only some platforms. The
-  Linux kernel supports it on any server.
-- **Hardware tables.** On a switch, every tenant VRF, L3VNI, VXLAN tunnel and SRv6 encap
-  entry competes for fixed tables (VRF IDs, next hops, tunnel and TCAM entries, shared LPM
-  space). Depending on the ASIC, VRFs are typically limited to hundreds or a few thousand.
-  Stitching N tenants across partitions adds N VRFs plus their remote routes to every
-  switch that does it. A server's limits are memory and CPU, and are easy to grow.
-- **Blast radius and ownership.** The exits carry the whole partition's fabric and
-  internet traffic and are managed by the fabric's own tooling (e.g. metal-core). Putting
-  per-tenant DCI state on them couples every tenant change to the fabric. Dedicated gateways
-  add to an untouched fabric, can be updated, restarted or replaced pair by pair, and fail
-  over without the fabric noticing.
-- **Scale-out.** When one pair isn't enough, add gateways to the anycast group, another
-  group (tenants spread across groups) or bigger servers, instead of upgrading switches
-  (see [scaling bandwidth](#scaling-bandwidth)).
-
-The price is an extra hop through a server and software forwarding, which is why its
-throughput needs measuring before production use.
-
-## Why this design
+## Design Decisions
 
 - **L3 only, SRv6 L3VPN between domains.** Stretching EVPN would couple the partitions'
   VNIs, RTs, ASNs and failure domains. Exchanging only type-5 prefixes as VPNv4/v6 keeps
@@ -175,6 +109,30 @@ throughput needs measuring before production use.
 - **Redundancy by anycast.** Both gateways of a partition own the same locator and SIDs.
   Remote gateways don't need to know which one is alive: the transport delivers to
   whichever is reachable, so a failure needs no BGP reconvergence of the VPN routes.
+- **Why not on the switches?**
+  The stitching could run on the exits or leaves themselves (SONiC uses FRR, too). open-dci
+  deliberately puts it on dedicated Linux gateways:
+
+  - **Data-plane support.** End.DT46 decap plus SRv6 encap with VPN SIDs, in the same box as
+    EVPN/VXLAN, needs ASIC support. Many datacenter switch ASICs don't support SRv6 VPN at all
+    or only in recent generations, and SONiC's SRv6 support covers only some platforms. The
+    Linux kernel supports it on any server.
+  - **Hardware tables.** On a switch, every tenant VRF, L3VNI, VXLAN tunnel and SRv6 encap
+    entry competes for fixed tables (VRF IDs, next hops, tunnel and TCAM entries, shared LPM
+    space). Depending on the ASIC, VRFs are typically limited to hundreds or a few thousand.
+    Stitching N tenants across partitions adds N VRFs plus their remote routes to every
+    switch that does it. A server's limits are memory and CPU, and are easy to grow.
+  - **Blast radius and ownership.** The exits carry the whole partition's fabric and
+    internet traffic and are managed by the fabric's own tooling (e.g. metal-core). Putting
+    per-tenant DCI state on them couples every tenant change to the fabric. Dedicated gateways
+    add to an untouched fabric, can be updated, restarted or replaced pair by pair, and fail
+    over without the fabric noticing.
+  - **Scale-out.** When one pair isn't enough, add gateways to the anycast group, another
+    group (tenants spread across groups) or bigger servers, instead of upgrading switches
+    (see [scaling bandwidth](docs/capabilities.md#scaling-bandwidth)).
+
+  The price is an extra hop through a server and software forwarding, which is why its
+  throughput needs measuring before production use.
 - **Add to the base config, own only what it provisions.** The operator's base config
   (underlay, EVPN, optionally the DCI network) stays theirs. open-dci discovers ASN,
   router-id and devices from kernel and FRR, creates only the tenant VRFs it stitches
@@ -182,7 +140,7 @@ throughput needs measuring before production use.
 - **Independent of metal-stack.** metal-stack is the first target, not a dependency: the
   code assumes no device names or metal-stack APIs, so any FRR-based EVPN fabric works.
 
-## What the environment must provide
+## Requirements on the environment
 
 open-dci only configures the gateways. Everything around them is the operator's base
 configuration, and must provide the following (details per mode:
@@ -366,6 +324,7 @@ open-dci status   -c /etc/open-dci/config.yaml
 | [Installation](docs/installation.md) | binary + systemd, container, metal-stack notes |
 | [Configuration](docs/configuration.md) | all fields, validation, requirements per mode |
 | [Operation](docs/operation.md) | commands, `status`, what exactly is changed in kernel and FRR, failure semantics |
+| [Capabilities and limits](docs/capabilities.md) | what can be stitched, scale limits, scaling bandwidth |
 | [Adding partitions and networks](docs/day2.md) | what changes where, route targets, keeping locations in sync |
 | [Lab](lab/README.md) | the containerlab lab and its e2e tests |
 | [Failure measurements](docs/performance.md) | packet loss and TCP stalls when a gateway or an exit fails |

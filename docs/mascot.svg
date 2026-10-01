@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="14 72 236 144" width="236" height="144" role="img" aria-label="open-dci's mascot: a yellow weaver bird standing on partition B's knot, weaving a blue and a green thread, one per tenant, through the knots of partitions A, B and C.">
+<style>
+  .knot { fill: #f6f8fa; stroke: #59636e; stroke-width: 2; }
+  .kl { font: 600 13px ui-sans-serif, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fill: #59636e; }
+  .t1 { stroke: #0969da; } .t2 { stroke: #1a7f37; }
+  .thread { fill: none; stroke-width: 4; stroke-linecap: round; }
+  .line { stroke: #4d3200; stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
+  @media (prefers-color-scheme: dark) {
+    .knot { fill: #161b22; stroke: #9198a1; }
+    .kl { fill: #9198a1; }
+    .t1 { stroke: #4493f8; } .t2 { stroke: #3fb950; }
+  }
+</style>
+<!-- the threads: one per tenant, woven through the partitions' knots -->
+<path class="thread t2" d="M38 168 C 62 214, 104 216, 130 186 C 156 156, 198 150, 222 168"/>
+<path class="thread t1" d="M38 168 C 64 128, 104 150, 130 186 C 152 214, 196 214, 222 168"/>
+<!-- the green thread's end, held in the beak -->
+<path class="thread t2" d="M222 168 C 236 140, 214 108, 184 101"/>
+<!-- partitions -->
+<circle class="knot" cx="38" cy="168" r="17"/><text class="kl" x="38" y="173" text-anchor="middle">A</text>
+<circle class="knot" cx="222" cy="168" r="17"/><text class="kl" x="222" y="173" text-anchor="middle">C</text>
+<!-- the weaver bird, standing on B -->
+<g>
+  <!-- tail -->
+  <path class="line" d="M92 128 L64 116 L70 132 L60 140 L94 140 Z" fill="#c98a00"/>
+  <!-- legs -->
+  <path class="line" d="M118 150 L114 168 M110 168 L120 168 M138 150 L140 168 M134 168 L146 168" fill="none"/>
+  <!-- body and belly -->
+  <ellipse class="line" cx="124" cy="128" rx="36" ry="27" fill="#f2b705"/>
+  <path d="M110 150 C 126 160, 152 150, 156 132 C 146 146, 126 150, 110 150 Z" fill="#ffd84d"/>
+  <!-- wing -->
+  <path class="line" d="M98 120 C 112 104, 140 108, 146 124 C 134 140, 108 142, 98 120 Z" fill="#d99a00"/>
+  <path class="line" d="M108 124 C 118 118, 130 120, 136 126 M112 132 C 120 128, 128 129, 133 133" fill="none"/>
+  <!-- head with the weaver's black mask -->
+  <circle class="line" cx="152" cy="98" r="19" fill="#f2b705"/>
+  <path d="M152 88 C 162 84, 172 90, 172 100 C 170 110, 160 116, 150 112 C 146 104, 146 94, 152 88 Z" fill="#1f2328"/>
+  <circle cx="160" cy="97" r="4.2" fill="#ffffff"/><circle cx="161" cy="97" r="2.1" fill="#1f2328"/>
+  <!-- beak -->
+  <path class="line" d="M170 94 L188 101 L170 106 Z" fill="#8c959f"/>
+</g>
+<!-- B in front of the feet -->
+<circle class="knot" cx="130" cy="186" r="17"/><text class="kl" x="130" y="191" text-anchor="middle">B</text>
+</svg>
