@@ -367,3 +367,46 @@ func TestRenderAnycastPair(t *testing.T) {
 		}
 	}
 }
+
+// A gateway that isn't ready withholds its locator and loopback: in the
+// default VRF the network statements, in a DCI network the redistribution
+// into the transport VRF. Going from announced to withheld removes exactly
+// these lines and never the base config's block headers.
+func TestRenderWithhold(t *testing.T) {
+	for _, c := range []struct {
+		node    string
+		id      Identity
+		gone    []string
+		removal string
+	}{
+		{"gw-b1", gwB1, []string{"network fd00:dc1:b::/48", "network fd00:dc1:ff::b1/128"},
+			"router bgp 4200000026\n address-family ipv6 unicast\n  no network fd00:dc1:b::/48\n"},
+		{"gw-a1", gwA1, []string{"redistribute static"},
+			"router bgp 4200000016 vrf vrf104100\n address-family ipv6 unicast\n  no redistribute static\n"},
+	} {
+		t.Run(c.node, func(t *testing.T) {
+			announced := renderLab(t, c.node, c.id)
+			id := c.id
+			id.Withhold = true
+			withheld := renderLab(t, c.node, id)
+			for _, s := range c.gone {
+				if !strings.Contains(announced, s) || strings.Contains(withheld, s) {
+					t.Errorf("%q must be rendered only when announcing", s)
+				}
+			}
+			// everything else stays: SIDs, VRFs, the blackhole route
+			for _, s := range []string{"sid vpn per-vrf export", "blackhole", "locator DCI"} {
+				if !strings.Contains(withheld, s) {
+					t.Errorf("withheld config lacks %q", s)
+				}
+			}
+			got := Removals(Parse(announced), Parse(withheld))
+			if !strings.Contains(got, c.removal) {
+				t.Errorf("removals lack %q:\n%s", c.removal, got)
+			}
+			if strings.Contains(got, "no router bgp") || strings.Contains(got, "no address-family") {
+				t.Errorf("removals must not remove block headers:\n%s", got)
+			}
+		})
+	}
+}

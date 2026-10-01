@@ -28,6 +28,11 @@ type Gateway struct {
 	StateFile string
 	// SkipKernel leaves the kernel alone (render/diff on a non-gateway host).
 	SkipKernel bool
+
+	lastReadiness Readiness
+	// gate is the debounced readiness Run renders with; nil outside Run
+	gate       *Readiness
+	lastLogged bool
 }
 
 // Result describes what a reconcile did.
@@ -39,6 +44,8 @@ type Result struct {
 	// applied before Removed
 	RemovedL3VNIs string
 	Applied       bool
+	// Readiness decides whether locator and loopback are announced
+	Readiness Readiness
 }
 
 // Plan computes the desired FRR snippet and its difference to the running
@@ -52,6 +59,11 @@ func (g *Gateway) Plan() (desired string, res Result, err error) {
 	if err != nil {
 		return "", res, err
 	}
+	res.Readiness = g.readiness()
+	if g.gate != nil {
+		res.Readiness = *g.gate
+	}
+	id.Withhold = !res.Readiness.Ready
 	res.Identity = id
 	desired, err = frr.Render(g.Config, id)
 	if err != nil {
@@ -145,9 +157,21 @@ func (g *Gateway) Reconcile() (Result, error) {
 
 // Run reconciles until ctx is done. Errors are logged and retried, which also
 // covers FRR not being up yet and the base system reloading its config.
+// Between reconciles it checks readiness every readyPoll. A change that holds
+// for readyDebounce polls triggers a reconcile at once: the locator is
+// withdrawn when the EVPN sessions go down and announced again once they have
+// converged. The debounce keeps a transient reading (e.g. while frr-reload
+// rewrites the config) from reconciling in the middle of someone else's
+// change.
 func (g *Gateway) Run(ctx context.Context, interval time.Duration) {
 	t := time.NewTicker(interval)
 	defer t.Stop()
+	poll := time.NewTicker(readyPoll)
+	defer poll.Stop()
+	initial := g.readiness()
+	g.gate = &initial
+	defer func() { g.gate = nil }()
+	logged := false
 	for {
 		res, err := g.Reconcile()
 		switch {
@@ -158,10 +182,33 @@ func (g *Gateway) Run(ctx context.Context, interval time.Duration) {
 		default:
 			g.Log.Debug("in sync")
 		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
+		if err == nil && (!logged || res.Readiness.Ready != g.lastLogged) {
+			logged, g.lastLogged = true, res.Readiness.Ready
+			if res.Readiness.Ready {
+				g.Log.Info("locator announced")
+			} else {
+				g.Log.Info("locator withheld", "reason", res.Readiness.Reason)
+			}
+		}
+		changed := 0
+	wait:
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				break wait
+			case <-poll.C:
+				r := g.readiness()
+				if r.Ready == g.gate.Ready {
+					changed = 0
+					continue
+				}
+				if changed++; changed >= readyDebounce {
+					g.gate = &r
+					break wait
+				}
+			}
 		}
 	}
 }

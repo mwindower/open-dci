@@ -47,6 +47,11 @@ func printStatus(w io.Writer, st *gateway.Status) {
 	k := st.Kernel
 	fmt.Fprintf(w, "gateway   %s  AS %d  router-id %s  locator %s\n", st.Loopback, st.ASN, st.RouterID, st.Locator)
 	fmt.Fprintf(w, "frr       %s\n", drift)
+	if st.Announced {
+		fmt.Fprintf(w, "locator   announced\n")
+	} else {
+		fmt.Fprintf(w, "locator   WITHHELD: %s\n", st.WithheldReason)
+	}
 	if k.TransportVRF != "" {
 		fmt.Fprintf(w, "transport vrf %s  veth up: %s  path MTU: %d (need %d)  local rule last: %s  vrf strict_mode: %s\n",
 			k.TransportVRF, yes(k.VethUp), k.DCIPathMTU, k.RequiredMTU, yes(k.LocalRuleLast), k.StrictMode)
@@ -80,6 +85,9 @@ func printStatus(w io.Writer, st *gateway.Status) {
 			sid += " (" + n.Behavior + ")"
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d %s\t%d/%d\t%d/%d\n", n.VRF, n.RouteTarget, n.RD, sid, n.VNI, n.L3VNIState, n.LocalV4, n.LocalV6, n.RemoteV4, n.RemoteV6)
+		if n.NoBestPath > 0 {
+			fmt.Fprintf(tw, "  %s: %d prefix(es) WITHOUT BEST PATH (not installed)\n", n.VRF, n.NoBestPath)
+		}
 	}
 	tw.Flush()
 }

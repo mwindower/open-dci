@@ -32,6 +32,7 @@ interval.
 ```
 gateway   fd00:dc1:ff::a1  AS 4200000016  router-id 10.0.0.16  locator fd00:dc1:a::/48
 frr       in sync
+locator   announced
 transport vrf vrf104100  veth up: yes  path MTU: 9166 (need 9166)  local rule last: yes  vrf strict_mode: 1
 filter    dropped: tenant-to-transport 0, locator-from-outside 0, loopback-from-outside 0
 
@@ -44,6 +45,8 @@ vrf3981  65535:1001  10.0.0.16:1001  fd00:dc1:a:f8d:: (End.DT46)  3981 Up  1/1  
 vrf3982  65535:1002  10.0.0.16:1002  fd00:dc1:a:f8e:: (End.DT46)  3982 Up  1/1          1/1
 ```
 
+- `locator` is `announced`, or `WITHHELD` with the reason (see
+  [Announcing the locator](#announcing-the-locator)).
 - `filter` shows the ingress filter's rules with their drop counters (see below).
 - `L3VNI` shows each network's VNI with zebra's state of it.
 - The only peers are the sessions to the two exits (`peers[].interface`); `AS` comes from
@@ -57,10 +60,13 @@ vrf3982  65535:1002  10.0.0.16:1002  fd00:dc1:a:f8e:: (End.DT46)  3982 Up  1/1  
 - `OPEN_DCI_OUTPUT=json open-dci status` prints the same as JSON.
 - The exit code is non-zero unless all of these hold:
   - there is no drift
+  - the locator is announced
   - the kernel parts are in place
   - every peer is Established
   - every network has a SID
   - every network's L3VNI is `Up`
+  - no prefix in a tenant VRF has valid paths but no best path (FRR installs nothing for
+    it; seen rarely after `frr-reload.py`, fixed by a BGP session reset)
   - the ingress filter is installed
 
 ## What `apply` / `run` change
@@ -195,6 +201,31 @@ router bgp 4200000026
 !
 ipv6 route fd00:dc1:b::/48 blackhole
 ```
+
+### Announcing the locator
+
+A gateway announces its locator and loopback only when it can deliver what they attract.
+After its EVPN sessions come up, the tenant VRFs are empty until the fabric's type-5 routes
+have arrived. A locator announced earlier makes the exits send the gateway packets that
+are decapsulated into an empty VRF and dropped. Its anycast partner carries the traffic
+in the meantime.
+
+- **Ready:** at least one established EVPN session has delivered its initial table, marked
+  by End-of-RIB. FRR sends End-of-RIB by default (graceful-restart helper mode); a session
+  without it counts as ready after 30 s.
+- **Withheld:** until then, and whenever no EVPN session is established, open-dci leaves
+  out the announcement:
+  - DCI-network mode: `redistribute static` in the transport VRF's BGP instance
+  - default-VRF mode: the `network` statements
+
+  The SIDs, the VRFs and everything else stay configured.
+- `run` checks readiness every 500 ms and acts once a change has held for 1.5 s. A link
+  flap thus withdraws the locator before the sessions are back (unnumbered sessions wait
+  for router advertisements, ~3 s). If FRR can't be queried, or answers without any
+  neighbors (e.g. while the base system reloads it), the last state stays.
+
+In the lab, this cut the loss when a gateway's links return from 1.5–2.3 s to under
+0.1 s without load ([measurements](performance.md)).
 
 ## The SRv6 domain and its edge
 

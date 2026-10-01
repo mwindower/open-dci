@@ -3,7 +3,8 @@
        .TransportVRF set: SRv6 transport in an EVPN VRF (DCI network) joined via
        a veth pair; empty: transport in the default VRF.
        Every network gets its FRR VRF with the L3VNI and a complete BGP
-       instance that announces its routes as EVPN type-5. */ -}}
+       instance that announces its routes as EVPN type-5.
+       .Withhold leaves out the announcement of locator and loopback. */ -}}
 {{ range $n := .Networks -}}
 vrf {{ $n.VRF }}
  vni {{ $n.VNI }}
@@ -59,7 +60,7 @@ router bgp {{ .ASN }}
   neighbor {{ .Neighbor }} maximum-prefix {{ .MaxPrefixes }}
 {{- end }}
  exit-address-family
-{{- if not .TransportVRF }}
+{{- if and (not .TransportVRF) (not .Withhold) }}
  address-family ipv6 unicast
   network {{ .Locator }}
 {{- if .Anycast }}
@@ -91,12 +92,14 @@ exit
 !
 {{- end }}
 {{- if .TransportVRF }}
+{{- if not .Withhold }}
 router bgp {{ .ASN }} vrf {{ .TransportVRF }}
  address-family ipv6 unicast
   redistribute static
  exit-address-family
 exit
 !
+{{- end }}
 ipv6 route {{ .LocatorBlock }} {{ .VethPeerLL }} {{ .Veth }}
 {{- end }}
 ipv6 route {{ .Locator }} blackhole

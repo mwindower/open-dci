@@ -27,6 +27,11 @@ const (
 type Identity struct {
 	ASN      uint32
 	RouterID string
+	// Withhold leaves out the announcement of locator and loopback while the
+	// gateway can't deliver traffic yet: a locator announced before the tenant
+	// VRFs hold the fabric's routes attracts packets that are decapsulated
+	// into an empty VRF and dropped.
+	Withhold bool
 }
 
 // Names of the route-maps and lists open-dci renders. They all start with
@@ -63,6 +68,7 @@ type renderData struct {
 	VethLL       string
 	VethPeerLL   string
 	Networks     []config.Network
+	Withhold     bool
 	Anycast      bool // the loopback is outside the (shared) locator
 	AddressPeers bool // some peers are direct sessions to remote gateways
 	// InterfacePeers: some peers are the single-hop session to the exit. FRR
@@ -117,6 +123,7 @@ func Render(cfg *config.Config, id Identity) (string, error) {
 		VethLL:         VethLL,
 		VethPeerLL:     VethPeerLL,
 		Networks:       cfg.Networks,
+		Withhold:       id.Withhold,
 	}
 	seenRT := map[string]bool{}
 	for _, n := range cfg.Networks {

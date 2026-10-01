@@ -176,6 +176,18 @@ At runtime, `apply`/`run`/`diff`/`status` also check the system:
 - Routes pass the exits with RD, RT and SID unchanged; the BGP next hop becomes the exit,
   which doesn't matter, since SRv6 forwards by the SID.
 
+**Returning nodes:**
+- open-dci withholds the locator until an EVPN session has delivered End-of-RIB
+  ([Operation](operation.md#announcing-the-locator)). FRR peers send it by default; with
+  graceful restart disabled on the exits, the gateway waits 30 s instead.
+- FRR 10.6 nodes on the transport path (gateways, and exits, spines and core if they run
+  FRR) need `no zebra nexthop kernel enable`. With kernel nexthop groups, zebra keeps a
+  next hop whose link went down in the group it reuses for the route BGP re-sent without
+  it. When the link comes back, zebra revives it before BGP has a path through it, so
+  traffic goes to a neighbour that isn't ready yet. This defeats the locator gate above.
+- Don't enable `bgp suppress-fib-pending` on the exits: FRR then never announced the
+  anycast locator, learned as type-5 with two next hops, into the core.
+
 **Failure detection (recommended: BFD):** without BFD, a gateway or exit that stops
 forwarding while its links stay up is only noticed when the BGP hold timer expires, and
 traffic is lost for that long. Run BFD on every session of the gateways and exits: gateway

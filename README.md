@@ -233,6 +233,11 @@ configuration, and must provide the following (details per mode:
 - MTU ≥ tenant MTU + 48 B (SRv6), plus 50 B where the transport runs in VXLAN (DCI
   network).
 
+**FRR on the transport path** (gateways; exits, spines and core if they run FRR)
+- `no zebra nexthop kernel enable`. FRR 10.6 otherwise revives a withdrawn next hop when
+  its link comes back, and sends traffic to a gateway or exit that isn't ready yet
+  ([why](docs/configuration.md#requirements-on-the-environment)).
+
 **Recommended: BFD**
 - On every session of gateways and exits: gateway ↔ exit, exit ↔ spine, exit ↔ core.
   Without it, a node that hangs with its links up costs a BGP hold time of packet loss

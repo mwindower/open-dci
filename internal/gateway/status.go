@@ -16,9 +16,13 @@ type Status struct {
 	Loopback     string
 	Locator      string
 	MissingLines int // FRR drift: desired lines not in the running config
-	Kernel       KernelStatus
-	Peers        []PeerStatus
-	Networks     []NetworkStatus
+	// Announced: locator and loopback are announced; if not, WithheldReason
+	// says why (the gateway waits for the fabric's EVPN routes)
+	Announced      bool
+	WithheldReason string `json:",omitempty"`
+	Kernel         KernelStatus
+	Peers          []PeerStatus
+	Networks       []NetworkStatus
 }
 
 type KernelStatus struct {
@@ -50,6 +54,10 @@ type NetworkStatus struct {
 	L3VNIState string
 	// local = learned in this partition (exported), remote = imported via VPN
 	LocalV4, LocalV6, RemoteV4, RemoteV6 int
+	// NoBestPath counts prefixes with valid paths but none selected: FRR
+	// installs nothing for them (seen after an frr-reload re-created the
+	// VRF's BGP instance), a silent black hole
+	NoBestPath int
 }
 
 // Status collects the gateway's operational state from FRR and the kernel.
@@ -59,12 +67,14 @@ func (g *Gateway) Status() (*Status, error) {
 		return nil, err
 	}
 	st := &Status{
-		ASN:          plan.Identity.ASN,
-		RouterID:     plan.Identity.RouterID,
-		Loopback:     g.Config.Gateway.Loopback().String(),
-		Locator:      g.Config.Gateway.Locator,
-		MissingLines: len(plan.Missing),
-		Kernel:       g.kernelStatus(),
+		ASN:            plan.Identity.ASN,
+		RouterID:       plan.Identity.RouterID,
+		Loopback:       g.Config.Gateway.Loopback().String(),
+		Locator:        g.Config.Gateway.Locator,
+		MissingLines:   len(plan.Missing),
+		Announced:      plan.Readiness.Ready,
+		WithheldReason: plan.Readiness.Reason,
+		Kernel:         g.kernelStatus(),
 	}
 
 	for _, p := range g.Config.Peers {
@@ -107,8 +117,10 @@ func (g *Gateway) Status() (*Status, error) {
 			}
 		}
 		ns.VNI, ns.L3VNIState = n.VNI, g.l3vniState(n.VNI, st.RouterID)
-		ns.LocalV4, ns.RemoteV4 = g.countRoutes(n.VRF, "ipv4")
-		ns.LocalV6, ns.RemoteV6 = g.countRoutes(n.VRF, "ipv6")
+		var stuck4, stuck6 int
+		ns.LocalV4, ns.RemoteV4, stuck4 = g.countRoutes(n.VRF, "ipv4")
+		ns.LocalV6, ns.RemoteV6, stuck6 = g.countRoutes(n.VRF, "ipv6")
+		ns.NoBestPath = stuck4 + stuck6
 		st.Networks = append(st.Networks, ns)
 	}
 	return st, nil
@@ -131,31 +143,46 @@ func (g *Gateway) l3vniState(vni uint32, routerID string) string {
 	return s.State
 }
 
-// countRoutes counts best paths in a VRF: routes imported from the VPN carry
-// the VRF their next hop is resolved in (nhVrfName), local ones do not.
-func (g *Gateway) countRoutes(vrf, afi string) (local, remote int) {
+// vrfPath is a path of a VRF's BGP table, as far as status needs it.
+type vrfPath struct {
+	Valid     bool   `json:"valid"`
+	Best      bool   `json:"bestpath"`
+	NHVrfName string `json:"nhVrfName"`
+}
+
+// countRoutes counts best paths in a VRF (see tallyRoutes).
+func (g *Gateway) countRoutes(vrf, afi string) (local, remote, noBest int) {
 	var t struct {
-		Routes map[string][]struct {
-			Best      bool   `json:"bestpath"`
-			NHVrfName string `json:"nhVrfName"`
-		} `json:"routes"`
+		Routes map[string][]vrfPath `json:"routes"`
 	}
 	if err := g.FRR.ShowJSON(fmt.Sprintf("show bgp vrf %s %s unicast", vrf, afi), &t); err != nil {
-		return 0, 0
+		return 0, 0, 0
 	}
-	for _, paths := range t.Routes {
+	return tallyRoutes(t.Routes)
+}
+
+// tallyRoutes counts best paths: routes imported from the VPN carry the VRF
+// their next hop is resolved in (nhVrfName), local ones do not. noBest counts
+// prefixes that have valid paths but no best path.
+func tallyRoutes(routes map[string][]vrfPath) (local, remote, noBest int) {
+	for _, paths := range routes {
+		valid, best := false, false
 		for _, p := range paths {
-			if !p.Best {
-				continue
-			}
-			if p.NHVrfName != "" {
+			valid = valid || p.Valid
+			best = best || p.Best
+			switch {
+			case !p.Best:
+			case p.NHVrfName != "":
 				remote++
-			} else {
+			default:
 				local++
 			}
 		}
+		if valid && !best {
+			noBest++
+		}
 	}
-	return local, remote
+	return local, remote, noBest
 }
 
 func (g *Gateway) kernelStatus() KernelStatus {
@@ -181,7 +208,7 @@ func (g *Gateway) kernelStatus() KernelStatus {
 // Healthy reports whether everything open-dci is responsible for is in place.
 func (s *Status) Healthy() bool {
 	k := s.Kernel
-	if s.MissingLines > 0 || k.StrictMode != "1" || len(k.Filter) != k.FilterRequired {
+	if s.MissingLines > 0 || !s.Announced || k.StrictMode != "1" || len(k.Filter) != k.FilterRequired {
 		return false
 	}
 	if k.TransportVRF != "" && (!k.VethUp || k.DCIPathMTU < k.RequiredMTU || !k.LocalRuleLast) {
@@ -193,7 +220,7 @@ func (s *Status) Healthy() bool {
 		}
 	}
 	for _, n := range s.Networks {
-		if n.SID == "" || n.L3VNIState != "Up" {
+		if n.SID == "" || n.L3VNIState != "Up" || n.NoBestPath > 0 {
 			return false
 		}
 	}

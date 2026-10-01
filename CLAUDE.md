@@ -134,6 +134,18 @@ old binary until it is redeployed (or you `docker cp` for a quick look).
 - BFD only helps if *every* neighbour of a node runs it: with BFD on gateway↔exit and
   exit↔core but not spine↔exit, a hung exit still black-holes the fabric's traffic for the
   spine's hold time. `make lab-perf` fails the exit on spine-b's ECMP path for that reason.
+- FRR 10.6 with kernel nexthop groups revives a next hop whose link comes back up, even
+  though BGP withdrew the path: zebra reuses the group (`rib nhg matched, changed
+  'false'`). The lab's gateways, exits, spines and core run `no zebra nexthop kernel
+  enable`; without it, the locator gate is useless.
+- `bgp suppress-fib-pending` on the exits: FRR never announced the EVPN-imported anycast
+  locator (two next hops) to the core. Not used anywhere.
+- A gateway withholds its locator until its EVPN sessions have sent End-of-RIB
+  (`internal/gateway/ready.go`); `status` is unhealthy meanwhile. The readiness poll is
+  debounced and ignores failed or empty answers: reconciling while `frr-reload.py`
+  rewrites the config left the re-created tenant VRFs' EVPN-imported routes without a
+  best path (`no best path`, version 0), black-holing traffic while `status` was
+  healthy; only a session reset recovered it.
 - `frr-reload.py` may exit 1 from its own second pass ("Refusing to remove a non-existent
   route") even though it worked.
 - vtysh reports config errors on stdout (`% ...`), not always via the exit code;
