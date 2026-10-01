@@ -27,22 +27,27 @@ interval.
 
 ## Status
 
-`status` on the lab's gw-a:
+`status` on the lab's gw-a1:
 
 ```
-gateway   fd00:dc1:a::1  AS 4200000016  router-id 10.0.0.16  locator fd00:dc1:a::/48
+gateway   fd00:dc1:ff::a1  AS 4200000016  router-id 10.0.0.16  locator fd00:dc1:a::/48
 frr       in sync
 transport vrf vrf104100  veth up: yes  path MTU: 9166 (need 9166)  local rule last: yes  vrf strict_mode: 1
+filter    dropped: tenant-to-transport 0, locator-from-outside 0, loopback-from-outside 0
 
-PEER           AS          STATE        UP        VPNv4 RCVD/SENT  VPNv6 RCVD/SENT
-fd00:dc1:b::1  4200000026  Established  00:00:04  2/4              2/4
+PEER             AS          STATE        UP        VPNv4 RCVD/SENT  VPNv6 RCVD/SENT
+fd00:dc1:ff::b1  4200000026  Established  00:01:40  2/6              2/6
+fd00:dc1:ff::b2  4200000026  Established  00:01:39  2/6              2/6
 
-VRF      RT          RD              SID                        L3VNI    LOCAL v4/v6  REMOTE v4/v6
-vrf3981  65535:1001  10.0.0.16:1001  fd00:dc1:a:1:: (End.DT46)  3981 Up  1/1          1/1
-vrf3982  65535:1002  10.0.0.16:1002  fd00:dc1:a:2:: (End.DT46)  3982 Up  1/1          1/1
+VRF      RT          RD              SID                          L3VNI    LOCAL v4/v6  REMOTE v4/v6
+vrf3981  65535:1001  10.0.0.16:1001  fd00:dc1:a:f8d:: (End.DT46)  3981 Up  1/1          1/1
+vrf3982  65535:1002  10.0.0.16:1002  fd00:dc1:a:f8e:: (End.DT46)  3982 Up  1/1          1/1
 ```
 
-`L3VNI` shows each network's VNI with zebra's state of it.
+- `filter` shows the ingress filter's rules with their drop counters (see below).
+- `L3VNI` shows each network's VNI with zebra's state of it.
+- `SENT` includes the routes a gateway passes on between the two gateways of the remote
+  pair; they drop them (their own ASN is in the path), so `RCVD` stays at the real count.
 
 - A gateway in default-VRF mode shows `transport default VRF` instead.
 - `OPEN_DCI_OUTPUT=json open-dci status` prints the same as JSON.
@@ -52,13 +57,16 @@ vrf3982  65535:1002  10.0.0.16:1002  fd00:dc1:a:2:: (End.DT46)  3982 Up  1/1    
   - every peer is Established
   - every network has a SID
   - every network's L3VNI is `Up`
+  - the ingress filter is installed
 
 ## What `apply` / `run` change
 
 ### Kernel (idempotent)
 
 - sysctls: forwarding, `seg6_enabled`, and `net.vrf.strict_mode=1` (required for End.DT46)
-- the loopback `<locator>::1` on `lo`
+- the loopback (`gateway.loopback`, default `<locator>::1`) on `lo`
+- the ingress filter, an nftables table `ip6 open-dci` (see
+  [the SRv6 domain and its edge](#the-srv6-domain-and-its-edge))
 
 In DCI network mode additionally:
 - a veth pair `dci0` (default VRF, `fe80::1`) ↔ `dci1` (DCI VRF, `fe80::2`)
@@ -77,6 +85,12 @@ For every network, open-dci creates and maintains:
   no VLAN IDs are needed.
 - a VXLAN device `dcivx<vni>` (source: `gateway.vtep` or the router-id, port 4789, no
   learning) as the bridge's port, MTU `tenantMTU`
+- in the VRF's table: `unreachable default` (IPv4 and IPv6, metric 4278198272), so that a
+  lookup finding nothing never falls through to the main table, where the other tenants'
+  SIDs live; and `throw <locatorBlock>`. The kernel routes the outer packet of the SRv6
+  encapsulation in the tenant VRF's table, so the block, and only the block, has to
+  continue in main. Tenants themselves never get there: the ingress filter drops their
+  packets to the block.
 
 Each device gets the interface alias `open-dci`. That is how open-dci recognizes its own
 devices: it only changes or deletes devices with this alias, and it refuses to provision a
@@ -99,8 +113,8 @@ accepts:
    headers of the base config are never removed. The tenant VRFs, and open-dci's own
    route-maps (all named `DCI-...`), are removed as a whole (see above).
 
-The lines for the lab's gw-a in DCI network mode (full version:
-[`internal/frr/testdata/gw-a.golden`](../internal/frr/testdata/gw-a.golden)):
+The lines for the lab's gw-a1 in DCI network mode (full version:
+[`internal/frr/testdata/gw-a1.golden`](../internal/frr/testdata/gw-a1.golden)):
 
 ```
 vrf vrf3981                               (one per network)
@@ -110,29 +124,29 @@ exit-vrf
 segment-routing
  srv6
   encapsulation
-   source-address fd00:dc1:a::1
+   source-address fd00:dc1:ff::a1          ! gateway.loopback
   exit
   locators
    locator DCI
     prefix fd00:dc1:a::/48 block-len 32 node-len 16
    ...
 router bgp 4200000016
- neighbor fd00:dc1:b::1 remote-as 4200000026
- neighbor fd00:dc1:b::1 ebgp-multihop 16
- neighbor fd00:dc1:b::1 update-source fd00:dc1:a::1
- neighbor fd00:dc1:b::1 capability extended-nexthop
+ neighbor fd00:dc1:ff::b1 remote-as 4200000026        (and fd00:dc1:ff::b2)
+ neighbor fd00:dc1:ff::b1 ebgp-multihop 16
+ neighbor fd00:dc1:ff::b1 update-source fd00:dc1:ff::a1
+ neighbor fd00:dc1:ff::b1 capability extended-nexthop
  segment-routing srv6
   locator DCI
  address-family ipv4 unicast
-  no neighbor fd00:dc1:b::1 activate
+  no neighbor fd00:dc1:ff::b1 activate
  address-family ipv4 vpn                  (and ipv6 vpn)
-  neighbor fd00:dc1:b::1 activate
-  neighbor fd00:dc1:b::1 route-map DCI-PEER-IN in       ! only configured RTs
-  neighbor fd00:dc1:b::1 maximum-prefix 10000
+  neighbor fd00:dc1:ff::b1 activate
+  neighbor fd00:dc1:ff::b1 route-map DCI-PEER-IN in       ! only configured RTs
+  neighbor fd00:dc1:ff::b1 maximum-prefix 10000
 !
 router bgp 4200000016 vrf vrf3981          (one per network)
  bgp router-id 10.0.0.16
- sid vpn per-vrf export auto
+ sid vpn per-vrf export 3981             ! networks[].sid (default: the VNI) → fd00:dc1:a:f8d::
  address-family ipv4 unicast              (and ipv6 unicast)
   rd vpn export 10.0.0.16:1001
   rt vpn both 65535:1001
@@ -151,7 +165,8 @@ router bgp 4200000016 vrf vrf104100
 ipv6 route fd00:dc1::/32 fe80::2 dci0          ! remote locators → DCI VRF
 ipv6 route fd00:dc1:a::/48 blackhole
 vrf vrf104100
- ipv6 route fd00:dc1:a::/48 fe80::1 dci1       ! own locator → default VRF (SIDs, loopback)
+ ipv6 route fd00:dc1:a::/48 fe80::1 dci1       ! own locator → default VRF (SIDs)
+ ipv6 route fd00:dc1:ff::a1/128 fe80::1 dci1   ! own loopback, if outside the locator
 !
 ip prefix-list DCI-vrf3981-v4 seq 5 permit 10.0.16.0/24 le 32      ! networks[].prefixes
 ip prefix-list DCI-vrf3981-v4 seq 10 permit 10.0.32.0/24 le 32
@@ -164,24 +179,55 @@ route-map DCI-PEER-IN permit 10
  match extcommunity DCI-RT
 ```
 
-In default-VRF mode ([`gw-b.golden`](../internal/frr/testdata/gw-b.golden)), the DCI VRF
+In default-VRF mode ([`gw-b1.golden`](../internal/frr/testdata/gw-b1.golden)), the DCI VRF
 part and the veth routes are replaced by the locator announcement:
 
 ```
 router bgp 4200000026
  address-family ipv6 unicast
   network fd00:dc1:b::/48
+  network fd00:dc1:ff::b1/128              ! own loopback, if outside the locator
 !
 ipv6 route fd00:dc1:b::/48 blackhole
 ```
 
+## The SRv6 domain and its edge
+
+End.DT46 decapsulates every packet addressed to a SID into the SID's VRF, whatever its
+source. Whoever can send packets to a SID can inject traffic into that tenant. The SRv6
+domain (gateways, their transport, exits, core) is therefore closed at its edge
+(RFC 8754, section 5.1):
+
+| Where | What is dropped | Who implements it |
+|---|---|---|
+| Gateway, from its tenants | packets arriving on a tenant bridge (`dcibr*`) addressed into the locator block | open-dci (`tenant-to-transport`) |
+| Gateway, towards its SIDs | packets to its locator from a source outside the block | open-dci (`locator-from-outside`) |
+| Gateway, towards its loopback | packets to its own loopback from outside the block (anycast mode) | open-dci (`loopback-from-outside`) |
+| Exit, fabric side | anything entering the block from the fabric, and any source inside the block | the exit's ACLs (lab: `edgeFilter` in `node.yaml`) |
+| Exit, core side | packets into the block with a source outside it | the exit's ACLs |
+
+The gateway rules match packets as they arrive (nftables prerouting), before routing and
+before SRv6 processing; the gateway's own encapsulated packets are never affected. Exempt
+from the source rules are the gateway's own packets (via `lo`) and link-local sources,
+which only the attached link can send: the own DCI VRF via the veth, or the exit (e.g.
+ICMPv6 errors to the encap source). The source rules can't
+stop a spoofed source *inside* the block: that is what the exits' rules are for. In
+default-VRF mode, the partition's underlay is part of the transport. Any device on it that
+may be untrusted (e.g. a tenant's firewall peering with the leaves) must not reach the
+block, which the exit's fabric-side rule and the absence of locator routes on the leaves
+ensure.
+
+The e2e tests `TestEdgeDropsForgedSRv6FromFabric`, `TestGatewayDropsSRv6FromOutsideBlock`
+and `TestGatewayDropsTenantToTransport` forge such packets and check that the respective
+rule counts them and the victim sees nothing.
+
 ## What the network sees
 
-A tenant packet on the wire from gw-a to exit-a (DCI network mode, `make lab-capture`):
+A tenant packet on the wire from gw-a1 to exit-a (DCI network mode, `make lab-capture`):
 
 ```
-IP 10.0.0.16 > 10.0.0.14.4789: VXLAN vni 104100                   ← gw-a → exit-a, DCI network
-  IP6 fd00:dc1:a::1 > fd00:dc1:b:1::: RT6 (type=4, segleft=0)      ← SRv6 to gw-b's End.DT46 SID
+IP 10.0.0.16 > 10.0.0.14.4789: VXLAN vni 104100                   ← gw-a1 → exit-a, DCI network
+  IP6 fd00:dc1:ff::a1 > fd00:dc1:b:fab::: RT6 (type=4, segleft=0)  ← SRv6 to pair B's anycast SID
     IP 10.0.16.10 > 10.0.32.10: ICMP echo request                  ← tenant packet
 ```
 

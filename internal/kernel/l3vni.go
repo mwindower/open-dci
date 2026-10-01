@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
@@ -72,7 +73,10 @@ func EnsureL3VNI(v L3VNI) error {
 		return err
 	}
 	// the bridge's MTU follows its ports only as long as it was never set
-	return SetMTU(br, v.MTU)
+	if err := SetMTU(br, v.MTU); err != nil {
+		return err
+	}
+	return EnsureUnreachableDefault(v.Table)
 }
 
 // ensureOwned creates l (tagged with OwnerAlias) unless it exists. An
@@ -143,4 +147,36 @@ func L3VNIUp(v L3VNI) bool {
 		}
 	}
 	return true
+}
+
+// UnreachableMetric is the metric of the catch-all unreachable routes in VRF
+// tables (the value ifupdown2 uses): anything else in the table wins.
+const UnreachableMetric = 4278198272
+
+// EnsureUnreachableDefault adds "unreachable default" (IPv4 and IPv6) with
+// UnreachableMetric to a VRF's table. Without it, a lookup that finds nothing
+// in the VRF falls through to the main table, where e.g. the End.DT46 SIDs of
+// other tenants live.
+func EnsureUnreachableDefault(table uint32) error {
+	for _, dst := range []string{"0.0.0.0/0", "::/0"} {
+		_, n, _ := net.ParseCIDR(dst)
+		r := &netlink.Route{Table: int(table), Dst: n, Type: unix.RTN_UNREACHABLE, Priority: UnreachableMetric}
+		if err := netlink.RouteReplace(r); err != nil {
+			return fmt.Errorf("table %d: unreachable %s: %w", table, dst, err)
+		}
+	}
+	return nil
+}
+
+// EnsureThrow adds "throw <prefix>" to a VRF's table: lookups for it end in
+// the table and continue with the next policy rule (the main table). The
+// gateway's SRv6 encapsulation needs this: the kernel routes the outer packet
+// (to a remote SID) in the tenant VRF's table.
+func EnsureThrow(table uint32, p netip.Prefix) error {
+	_, n, _ := net.ParseCIDR(p.String())
+	r := &netlink.Route{Table: int(table), Dst: n, Type: unix.RTN_THROW}
+	if err := netlink.RouteReplace(r); err != nil {
+		return fmt.Errorf("table %d: throw %s: %w", table, p, err)
+	}
+	return nil
 }

@@ -192,6 +192,30 @@ func TestTenantIsolation(t *testing.T) {
 	}
 }
 
+// A lookup that finds nothing in a tenant VRF must not fall through to the
+// main table (unreachable default). Only the locator block does, since SRv6
+// encapsulation routes the outer packet in the tenant VRF's table; tenants
+// themselves are kept out of the block by the gateway's ingress filter
+// (TestGatewayDropsTenantToTransport).
+func TestNoFallThrough(t *testing.T) {
+	for _, c := range []struct{ node, vrf, dst string }{
+		{"gw-a1", mA.vrf, "10.99.9.9"}, {"gw-a2", mA2.vrf, "2001:db8:99::1"},
+		{"gw-b1", mB.vrf, "2001:db8:99::1"}, {"gw-b2", mB2.vrf, "10.99.9.9"},
+		{"leaf-a", mA.vrf, "10.99.9.9"}, {"leaf-b", mB2.vrf, "2001:db8:99::1"},
+	} {
+		t.Run(c.node+"/"+c.vrf+"/"+c.dst, func(t *testing.T) {
+			args := []string{"ip", "route", "get", c.dst, "vrf", c.vrf}
+			if strings.Contains(c.dst, ":") {
+				args = []string{"ip", "-6", "route", "get", c.dst, "vrf", c.vrf}
+			}
+			out, err := lab.Exec(c.node, args...)
+			if err == nil || strings.Contains(out, "seg6local") || strings.Contains(out, "eth0") {
+				t.Fatalf("lookup of %s in %s resolves: %v\n%s", c.dst, c.vrf, err, out)
+			}
+		})
+	}
+}
+
 func waitFor(t *testing.T, d time.Duration, fn func() error) {
 	t.Helper()
 	labtest.Eventually(t, d, fn)

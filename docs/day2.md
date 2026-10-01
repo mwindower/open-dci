@@ -19,21 +19,25 @@ this could be automated (see the [roadmap](development.md#roadmap)).
 
 ## Checklists
 
-### A new partition (a new gateway G)
+### A new partition (a new gateway pair G1/G2)
 
-- **On G:**
-  - pick a free locator inside the block
+- **On G1 and G2:**
+  - pick a free locator inside the block, the same for both (anycast), and a unique
+    `loopback` per gateway inside the block but outside the locator
+  - give both the same BGP ASN in their base config (loop prevention)
   - choose the transport mode
-  - list all other gateways as `peers`
+  - list all other gateways' loopbacks as `peers`
   - list its tenant VRFs with their VNIs in G's partition and the RTs of the networks they
     join
-- **On every existing gateway:** add G to `peers`. This is the only change that touches all
-  locations.
+- **On every existing gateway:** add G1 and G2 to `peers`. This is the only change that
+  touches all locations.
+- **Exits:** extend the SRv6 domain's edge filtering (see
+  [Operation](operation.md#the-srv6-domain-and-its-edge)) to the new partition's exits.
 - **Transport:**
-  - DCI network mode: the DCI network must exist in G's partition, and its exits must route
-    it to the other partitions.
-  - Default-VRF mode: the underlay and the core must carry G's locator prefix.
-  - In both modes, the other gateways' `locatorBlock` routes already cover G. The MTU rules in
+  - DCI network mode: the DCI network must exist in the new partition, and its exits must
+    route it to the other partitions.
+  - Default-VRF mode: the underlay and the core must carry the locator and both loopbacks.
+  - In both modes, the other gateways' `locatorBlock` routes already cover the pair. The MTU rules in
     [Configuration](configuration.md#requirements-on-the-environment) apply to the new paths.
 - **Partition fabric (leaves):** nothing. EVPN auto RTs work across VNIs and ASNs.
 

@@ -37,6 +37,10 @@ func Apply(s *Spec, log *slog.Logger) error {
 		if err := kernel.EnsureLink(&netlink.Vrf{LinkAttrs: netlink.LinkAttrs{Name: v.Name}, Table: v.Table}, 0); err != nil {
 			return fmt.Errorf("vrf %s: %w", v.Name, err)
 		}
+		// as ifupdown2 does: no fall-through from the VRF to the main table
+		if err := kernel.EnsureUnreachableDefault(v.Table); err != nil {
+			return fmt.Errorf("vrf %s: %w", v.Name, err)
+		}
 		log.Info("vrf", "name", v.Name, "table", v.Table)
 	}
 	if err := applyBridge(s, log); err != nil {

@@ -39,7 +39,9 @@ func preflightKernel(cfg *config.Config) error {
 
 // ensureKernel applies the kernel part of the gateway. It is idempotent.
 //
-//   - provisioned L3VNIs: VRF, bridge and VXLAN device per network
+//   - provisioned L3VNIs: VRF, bridge and VXLAN device per network; in their
+//     tables "unreachable default" (no fall-through to main) and "throw
+//     <locatorBlock>" (the outer lookup of SRv6 encapsulation needs main)
 //   - the ingress filter at the gateway's edge of the SRv6 domain (FilterRules)
 //   - sysctls: forwarding, seg6_enabled, net.vrf.strict_mode
 //   - the gateway loopback (<locator>::1) on lo
@@ -57,8 +59,12 @@ func ensureKernel(cfg *config.Config, id frr.Identity) error {
 	if err := preflightKernel(cfg); err != nil {
 		return err
 	}
+	block := netip.MustParsePrefix(cfg.Gateway.LocatorBlock)
 	for _, v := range l3vnis(cfg, id) {
 		if err := kernel.EnsureL3VNI(v); err != nil {
+			return fmt.Errorf("vrf %s: %w", v.VRF, err)
+		}
+		if err := kernel.EnsureThrow(v.Table, block); err != nil {
 			return fmt.Errorf("vrf %s: %w", v.VRF, err)
 		}
 	}

@@ -5,16 +5,19 @@ rejected. `open-dci validate -c FILE` checks a file without touching the system.
 
 ## Example
 
-The lab's gw-a (`lab/configs/gw-a/open-dci.yaml`), with the transport in a DCI network:
+The lab's gw-a1 (`lab/configs/gw-a1/open-dci.yaml`), one of partition A's redundant pair,
+with the transport in a DCI network:
 
 ```yaml
 gateway:
-  locator: fd00:dc1:a::/48        # this gateway; its loopback is fd00:dc1:a::1
-  locatorBlock: fd00:dc1::/32     # all gateways' locators
+  locator: fd00:dc1:a::/48        # shared with gw-a2 (anycast); SIDs fd00:dc1:a:<sid>::
+  loopback: fd00:dc1:ff::a1       # own address: VPN sessions, encap source
+  locatorBlock: fd00:dc1::/32     # all gateways' locators and loopbacks
 transport:
   vrf: vrf104100                  # DCI network of the base config; omit it for the default VRF
-peers:
-  - {address: "fd00:dc1:b::1", asn: 4200000026}   # remote gateway loopbacks
+peers:                            # the remote pair's loopbacks
+  - {address: "fd00:dc1:ff::b1", asn: 4200000026}
+  - {address: "fd00:dc1:ff::b2", asn: 4200000026}
 networks:
   - vrf: vrf3981                  # created by open-dci
     vni: 3981                     # the tenant's VNI in this partition
@@ -30,7 +33,7 @@ networks:
     prefixes: [10.0.17.0/24 le 32, 10.0.33.0/24 le 32, 2001:db8:17::/48 le 128, 2001:db8:33::/48 le 128]
 ```
 
-For the default VRF as transport, leave out the `transport` section (see the lab's gw-b).
+For the default VRF as transport, leave out the `transport` section (see the lab's gw-b1).
 
 ## Reference
 
@@ -38,7 +41,8 @@ For the default VRF as transport, leave out the `transport` section (see the lab
 
 | Field | Default | Meaning |
 |---|---|---|
-| `locator` | required | This gateway's SRv6 locator, e.g. `fd00:dc1:a::/48`. The first address (`<locator>::1`) becomes the gateway loopback: the VPN session endpoint and the SRv6 encap source. Function 0 is never allocated as a SID. |
+| `locator` | required | The gateway's SRv6 locator, e.g. `fd00:dc1:a::/48`. The redundant gateways of a partition share it (anycast): they announce the same locator and, with the same `sid`s, the same SIDs. |
+| `loopback` | `<locator>::1` | The gateway's own address: VPN session endpoint and SRv6 encap source. The default lies inside the locator (function 0 is never a SID), which only works for a single gateway. A redundant pair needs a unique loopback per gateway, inside `locatorBlock` but outside the locator; open-dci announces it next to the locator. |
 | `locatorBlock` | required | Contains the locators of all gateways, e.g. `fd00:dc1::/32`. Traffic to it is routed into the transport. |
 | `nodeLength` | `16` | Node bits of the locator. Block length + node length must equal the locator's prefix length. 16 function bits follow. |
 | `asn` | discovered | ASN of the existing default BGP instance. If set, it must match the running FRR. |
@@ -75,6 +79,7 @@ session, before any VRF import.
 | `rd` | `<routerID>:<nn>` | Route distinguisher for the VPN export. The default takes `<nn>` from `routeTarget`. |
 | `vni` | required | The tenant's L3VNI in this partition (1 – 16777215). open-dci provisions the VRF with it: VRF, bridge `dcibr<vni>`, VXLAN device `dcivx<vni>`, the FRR VRF with `vni`, and a BGP instance that advertises the routes as type-5. |
 | `table` | the VNI | Kernel routing table of the VRF. |
+| `sid` | the VNI | Function part of the network's End.DT46 SID, `<locator>:<sid in hex>::` (1 – 65535). Pinned, so the SID survives restarts and is identical on both gateways of a pair. Must be set if the VNI doesn't fit 16 bits. |
 | `prefixes` | required | The stitched network's address space in all partitions, in FRR prefix-list syntax: `PREFIX [ge N] [le N]`. A bare prefix matches exactly, `ge`/`le` extend it to more-specific ones (`10.0.16.0/24 le 32`: the /24 and every host in it). Only matching routes are exported from and imported into the VRF. Everything else stays in its partition, including a default route unless `0.0.0.0/0` / `::/0` is listed. Like `routeTarget`, the list is the same on all gateways of the network. A family without entries is not exchanged at all. |
 
 ## Validation
@@ -86,6 +91,7 @@ Besides syntax, `validate` (and every other command) rejects:
 - a transport MTU that can't carry `tenantMTU` + 48 B
 - invalid route targets or distinguishers
 - a missing `vni`, one out of range or used twice, a reserved or duplicate table
+- a `sid` out of range or used twice, a `loopback` inside the locator or outside the block
 - missing `prefixes`, malformed entries (host bits set, `ge`/`le` out of range, `ge` > `le`)
   or duplicates, and a `maxPrefixes` below 1
 
@@ -100,6 +106,7 @@ At runtime, `apply`/`run`/`diff`/`status` also check the system:
 
 **Both modes:**
 - FRR ≥ 10 (tested 10.6) with bgpd, zebra and staticd, and the integrated config (`vtysh`).
+- Linux with nf_tables (the gateway's ingress filter).
   Linux ≥ 5.14 (End.DT46).
 - The base FRR config has a default BGP instance with a router-id that peers EVPN with the
   fabric (e.g. with the exit) and has `advertise-all-vni` in its `l2vpn evpn` address
@@ -117,6 +124,20 @@ At runtime, `apply`/`run`/`diff`/`status` also check the system:
 - The exits route the DCI VRF to the other partitions.
 - Every fabric link on the DCI path must carry ≥ tenant MTU + 98 B (SRv6 + VXLAN), e.g.
   9098 for 9000 B tenants.
+
+**Redundant gateways (a pair per partition):**
+- Both gateways have the same `locator`, `networks` (so the same SIDs), and the same BGP
+  ASN in their base config. The shared ASN makes each drop the routes the other one
+  re-announced into the fabric, so neither re-exports or detours through its partner.
+- Each has its own `loopback` and router-id. Remote gateways list both as `peers`.
+- The fabric (exit, core) spreads traffic to the shared locator over both gateways (ECMP)
+  and falls back to the survivor.
+- Known limit: a gateway whose transport is up but whose fabric side (EVPN) is broken still
+  attracts traffic for the locator.
+
+**The edge of the SRv6 domain** (see [Operation](operation.md#the-srv6-domain-and-its-edge)):
+the exits must keep the locator block unreachable from anything but the gateways and the
+core, and drop packets from the core into the block with a source outside it.
 
 **Default-VRF mode:**
 - IPv6 unicast must be activated towards the underlay peers.

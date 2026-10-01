@@ -29,7 +29,11 @@ Scope decisions, which should not be revisited without the user:
     Route leaking does not work (see `docs/phase0b-findings.md`).
   - unset: the default VRF; the locator is announced by the default BGP instance.
 
-  The lab runs gw-a in the first mode and gw-b in the second.
+  The lab runs pair A (gw-a1/gw-a2) in the first mode and pair B in the second.
+- **Redundancy by anycast:** the gateways of a partition share locator, pinned SIDs
+  (`networks[].sid`, default the VNI) and ASN; each has its own `gateway.loopback`.
+- **The SRv6 domain is closed at its edge:** open-dci's ingress filter (nftables, pure-Go
+  `google/nftables`, no `nft` binary needed) on the gateways, ACLs on the exits.
 - **Go** for everything, lab tooling included. No bash scripts.
 
 ## Layout
@@ -37,15 +41,16 @@ Scope decisions, which should not be revisited without the user:
 - `cmd/open-dci`: CLI. `internal/config`: schema and validation. `internal/frr`:
   `dci.conf.tpl`, parser, drift/removals, vtysh. `internal/kernel`: netlink.
   `internal/gateway`: reconcile, pre-flight, status.
-- `internal/frr/testdata/gw-{a,b}.golden` are the rendered configs for the lab's gateways
+- `internal/frr/testdata/gw-{a1,b1}.golden` are the rendered configs for the lab's gateways
   (`go test ./internal/frr -update` rewrites them; review the diff!).
-  `testdata/gw-a.running.conf` is a real FRR running-config: every rendered line must
+  `testdata/gw-a1.running.conf` is a real FRR running-config: every rendered line must
   appear in it verbatim, otherwise drift detection re-applies forever.
-- `lab/`: the containerlab lab (13 nodes, `clab-open-dci-<node>`).
-  - The gateways gw-a/gw-b hang off the exits, start with a base config without tenant
-    VRFs (`configs/gw-*/{node.yaml,frr.conf}`) and run `open-dci run` as a sidecar with
-    `configs/gw-*/open-dci.yaml`. They provision two tenants (m-a/m-b, m-a2/m-b2). gw-a's
-    base config has the DCI network (vrf104100); gw-b uses partition B's IPv6 underlay.
+- `lab/`: the containerlab lab (15 nodes, `clab-open-dci-<node>`).
+  - The gateway pairs gw-a1/gw-a2 and gw-b1/gw-b2 hang off the exits, start with a base
+    config without tenant VRFs (`configs/gw-*/{node.yaml,frr.conf}`) and run `open-dci run`
+    as a sidecar with `configs/gw-*/open-dci.yaml`. They provision two tenants (m-a/m-b,
+    m-a2/m-b2). Pair A's base config has the DCI network (vrf104100); pair B uses partition
+    B's IPv6 underlay. The exits' `node.yaml` has an `edgeFilter` (labnode, nftables).
   - `lab/cmd/labnode` is the container entrypoint (node.yaml → netlink → sidecars → FRR).
   - e2e tests: `lab/*_test.go`, build tag `e2e`.
 - `docs/`: findings of phases 0/0b (historical design reasoning), the lab's routing
@@ -69,7 +74,7 @@ make lab-check       # e2e tests against the running lab
 make lab-redeploy    # down + up + check
 make lab-capture
 make lab-down
-docker exec clab-open-dci-gw-a open-dci status -c /etc/open-dci/config.yaml
+docker exec clab-open-dci-gw-a1 open-dci status -c /etc/open-dci/config.yaml
 docker exec clab-open-dci-<node> vtysh -c '<cmd>'
 ```
 
@@ -101,6 +106,14 @@ old binary until it is redeployed (or you `docker cp` for a quick look).
   Route-map changes take effect after FRR's route-map delay timer (~5 s).
 - The sidecar reverts manual FRR changes to its own lines within one interval; e2e tests
   that need a deliberately wrong state pause it (`pkill -STOP -f "open-dci run"`).
+- SRv6 encapsulation routes the *outer* packet in the tenant VRF's table (not main), by its
+  destination SID; the nexthop in the encap route doesn't help. So tenant VRFs need
+  `unreachable default` *and* `throw <locatorBlock>`. Policy rules (`ip rule ... iif`) can't
+  separate tenant packets from encapsulated ones (the re-lookup keeps the iif); nftables
+  prerouting can. Any node that originates SRv6 (e.g. in tests) needs a route to the SID.
+- Locally generated packets pass prerouting via `lo`, and the own DCI VRF answers via the
+  veth with a link-local source (e.g. ICMPv6 "unreachable route" to the own loopback when a
+  remote gateway disappears); exempt both from source filters, or the counters fill up.
 - `frr-reload.py` may exit 1 from its own second pass ("Refusing to remove a non-existent
   route") even though it worked.
 - vtysh reports config errors on stdout (`% ...`), not always via the exit code;
