@@ -11,7 +11,7 @@ this could be automated (see the [roadmap](development.md#roadmap)).
 |---|---|---|
 | `gateway.locatorBlock` | global | identical on every gateway |
 | `gateway.locator` | per gateway | unique inside the block |
-| `peers[]` | per gateway | every other gateway's loopback (`<locator>::1`) and ASN: a full mesh |
+| `peers[]` | per gateway | the session to the exit (`interface`); or, without relaying exits, every other gateway's loopback and ASN (a full mesh) |
 | `networks[].routeTarget` | per stitched network | identical on all its members, unique per stitched network |
 | `networks[].prefixes` | per stitched network | identical on all its members: the network's address space in all partitions |
 | `networks[].vni` | local | the tenant's VNI in this partition |
@@ -26,11 +26,13 @@ this could be automated (see the [roadmap](development.md#roadmap)).
     `loopback` per gateway inside the block but outside the locator
   - give both the same BGP ASN in their base config (loop prevention)
   - choose the transport mode
-  - list all other gateways' loopbacks as `peers`
+  - `peers: [{interface: uplink0}]`: the session to the exit
   - list its tenant VRFs with their VNIs in G's partition and the RTs of the networks they
     join
-- **On every existing gateway:** add G1 and G2 to `peers`. This is the only change that
-  touches all locations.
+- **On the new partition's exits:** relay VPN routes to and from the gateways and join the
+  other exits' mesh or ring (see [Configuration](configuration.md#requirements-on-the-environment)).
+  Existing gateways don't change; with a full mesh of `address` peers instead, every
+  existing gateway would have to add G1 and G2.
 - **Exits:** extend the SRv6 domain's edge filtering (see
   [Operation](operation.md#the-srv6-domain-and-its-edge)) to the new partition's exits.
 - **Transport:**
@@ -60,7 +62,8 @@ Only that partition's gateway changes: add or remove the `networks` entry.
 
 ### Removing a gateway
 
-Remove it from every other gateway's `peers`. On each gateway, open-dci removes the lines it
+With exit peering, nothing changes on other gateways; with `address` peers, remove it from
+every other gateway's `peers`. On each gateway, open-dci removes the lines it
 had applied for it (see [Operation](operation.md#frr-via-vtysh-never-touching-frrconf)).
 
 ## Choosing route targets
@@ -116,15 +119,15 @@ These options build on each other and are not implemented yet:
    (`{name, locator, asn, partition}`) and the stitched networks
    (`{name, routeTarget?, members: {gateway: vrf}}`). Each gateway finds its own entry (by a
    flag, or by the discovered ASN, router-id or loopback) and derives the rest:
-   - its `peers`: the gateways that share at least one stitched network with it
+   - with `address` peers: the gateways that share at least one stitched network with it
    - its `networks`, and RTs computed from the names
    - checks that locators and RTs are unique across all gateways
 
    Adding a partition becomes a single change in one file.
-2. **Route reflectors instead of the full mesh.** One or two VPNv4/v6 route reflectors
-   accept every gateway with `bgp listen range <locatorBlock> peer-group GW`. Gateways peer
-   only with the reflectors, so a new gateway needs no change on any other gateway. Still
-   to verify: FRR reflects SRv6 VPN routes unchanged.
+2. **No full mesh** (implemented): gateways peer only with their exit (`peers[].interface`),
+   and the exits relay the VPN routes. Among many exits, one or two VPNv4/v6 route
+   reflectors (accepting every exit with `bgp listen range`) could replace a mesh or ring
+   of exit sessions, so a new partition's exits need no change on the others.
 3. **Config from metal-api** (Phase 4). The inventory, or each gateway's config, is
    generated from metal-api: labelled private networks (project, partition, VRF ID) become
    stitched networks, and their VRF IDs the gateways' `vni`s.

@@ -60,6 +60,8 @@ func TestValidate(t *testing.T) {
 		{"prefix ge above le", "10.0.16.0/24 le 32", "10.0.16.0/24 ge 30 le 28", "ge must not be larger"},
 		{"prefix garbage", "10.0.16.0/24 le 32", "10.0.16.0/24 lt 32", "want PREFIX"},
 		{"prefix listed twice", `"10.0.16.0/24 le 32"]`, `"10.0.16.0/24 le 32", "10.0.16.0/24  le 32"]`, "listed twice"},
+		{"peer with interface and address", `{address: "fd00:dc1:b::1", asn: 4200000022}`, `{interface: uplink0, address: "fd00:dc1:b::1"}`, "either interface"},
+		{"peer with bad interface", `{address: "fd00:dc1:b::1", asn: 4200000022}`, `{interface: "bad name"}`, "invalid interface"},
 		{"max prefixes negative", "asn: 4200000022}", "asn: 4200000022, maxPrefixes: -1}", "maxPrefixes"},
 		{"bad vtep", "locatorBlock: fd00:dc1::/32\n", "locatorBlock: fd00:dc1::/32\n  vtep: fd00::1\n", "gateway.vtep"},
 	} {
@@ -138,5 +140,20 @@ func TestMaxPrefixesDefault(t *testing.T) {
 	}
 	if c.Peers[0].MaxPrefixes != DefaultMaxPrefixes {
 		t.Fatalf("maxPrefixes: %d", c.Peers[0].MaxPrefixes)
+	}
+}
+
+func TestInterfacePeer(t *testing.T) {
+	c, err := Parse([]byte(strings.Replace(valid, `{address: "fd00:dc1:b::1", asn: 4200000022}`, `{interface: uplink0}`, 1)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := c.Peers[0]; p.Neighbor() != "uplink0" || p.MaxPrefixes != DefaultMaxPrefixes {
+		t.Fatalf("peer: %+v", p)
+	}
+	dup := strings.Replace(valid, `peers:
+  - {address: "fd00:dc1:b::1", asn: 4200000022}`, `peers: [{interface: uplink0}, {interface: uplink0}]`, 1)
+	if _, err := Parse([]byte(dup)); err == nil || !strings.Contains(err.Error(), "used twice") {
+		t.Fatalf("want duplicate interface error, got %v", err)
 	}
 }

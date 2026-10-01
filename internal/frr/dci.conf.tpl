@@ -24,34 +24,39 @@ segment-routing
 exit
 !
 router bgp {{ .ASN }}
-{{- range .Peers }}
+{{- if .InterfacePeers }}
+ bgp disable-ebgp-connected-route-check
+{{- end }}
+{{- range .Peers }}{{ if .Address }}
  neighbor {{ .Address }} remote-as {{ .ASN }}
 {{- if ne .ASN $.ASN }}
  neighbor {{ .Address }} ebgp-multihop 16
 {{- end }}
  neighbor {{ .Address }} update-source {{ $.Loopback }}
  neighbor {{ .Address }} capability extended-nexthop
-{{- end }}
+{{- end }}{{ end }}
  segment-routing srv6
   locator {{ .LocatorName }}
  exit
+{{- if .AddressPeers }}
  address-family ipv4 unicast
-{{- range .Peers }}
+{{- range .Peers }}{{ if .Address }}
   no neighbor {{ .Address }} activate
-{{- end }}
+{{- end }}{{ end }}
  exit-address-family
+{{- end }}
  address-family ipv4 vpn
 {{- range .Peers }}
-  neighbor {{ .Address }} activate
-  neighbor {{ .Address }} route-map {{ peerIn }} in
-  neighbor {{ .Address }} maximum-prefix {{ .MaxPrefixes }}
+  neighbor {{ .Neighbor }} activate
+  neighbor {{ .Neighbor }} route-map {{ peerIn }} in
+  neighbor {{ .Neighbor }} maximum-prefix {{ .MaxPrefixes }}
 {{- end }}
  exit-address-family
  address-family ipv6 vpn
 {{- range .Peers }}
-  neighbor {{ .Address }} activate
-  neighbor {{ .Address }} route-map {{ peerIn }} in
-  neighbor {{ .Address }} maximum-prefix {{ .MaxPrefixes }}
+  neighbor {{ .Neighbor }} activate
+  neighbor {{ .Neighbor }} route-map {{ peerIn }} in
+  neighbor {{ .Neighbor }} maximum-prefix {{ .MaxPrefixes }}
 {{- end }}
  exit-address-family
 {{- if not .TransportVRF }}

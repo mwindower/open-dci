@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"fmt"
 	"net/netip"
+	"slices"
 	"strings"
 	"text/template"
 
@@ -63,8 +64,13 @@ type renderData struct {
 	VethPeerLL   string
 	Networks     []config.Network
 	Anycast      bool // the loopback is outside the (shared) locator
-	Filters      []filter
-	RTs          []string // all route targets, for the peers' inbound filter
+	AddressPeers bool // some peers are direct sessions to remote gateways
+	// InterfacePeers: some peers are the single-hop session to the exit. FRR
+	// tracks the remote SID as next hop of imported SRv6 VPN routes, and for
+	// single-hop eBGP it requires that to be connected, which a SID never is.
+	InterfacePeers bool
+	Filters        []filter
+	RTs            []string // all route targets, for the peers' inbound filter
 }
 
 func (d renderData) RD(vrf string) string {
@@ -93,22 +99,24 @@ func Render(cfg *config.Config, id Identity) (string, error) {
 	block := netip.MustParsePrefix(cfg.Gateway.LocatorBlock)
 	loc := netip.MustParsePrefix(cfg.Gateway.Locator)
 	d := renderData{
-		Config:       cfg,
-		ASN:          id.ASN,
-		RouterID:     id.RouterID,
-		Loopback:     cfg.Gateway.Loopback(),
-		Anycast:      cfg.Gateway.Anycast(),
-		Locator:      loc,
-		LocatorBlock: block,
-		LocatorName:  config.LocatorName,
-		BlockLen:     block.Bits(),
-		NodeLen:      cfg.Gateway.NodeLength,
-		TransportVRF: cfg.Transport.VRF,
-		Veth:         cfg.Transport.Veth,
-		VethPeer:     cfg.Transport.VethPeer,
-		VethLL:       VethLL,
-		VethPeerLL:   VethPeerLL,
-		Networks:     cfg.Networks,
+		Config:         cfg,
+		ASN:            id.ASN,
+		RouterID:       id.RouterID,
+		Loopback:       cfg.Gateway.Loopback(),
+		Anycast:        cfg.Gateway.Anycast(),
+		AddressPeers:   slices.ContainsFunc(cfg.Peers, func(p config.Peer) bool { return p.Address != "" }),
+		InterfacePeers: slices.ContainsFunc(cfg.Peers, func(p config.Peer) bool { return p.Interface != "" }),
+		Locator:        loc,
+		LocatorBlock:   block,
+		LocatorName:    config.LocatorName,
+		BlockLen:       block.Bits(),
+		NodeLen:        cfg.Gateway.NodeLength,
+		TransportVRF:   cfg.Transport.VRF,
+		Veth:           cfg.Transport.Veth,
+		VethPeer:       cfg.Transport.VethPeer,
+		VethLL:         VethLL,
+		VethPeerLL:     VethPeerLL,
+		Networks:       cfg.Networks,
 	}
 	seenRT := map[string]bool{}
 	for _, n := range cfg.Networks {

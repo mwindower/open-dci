@@ -3,13 +3,12 @@
 # with the same SID. The SRv6 transport runs in the DCI network of the base config.
 gateway:
   locator: fd00:dc1:a::/48        # shared by gw-a1 and gw-a2 (anycast); SIDs fd00:dc1:a:<sid>::
-  loopback: fd00:dc1:ff::a2        # this gateway's own address: VPN sessions, encap source
+  loopback: fd00:dc1:ff::a2        # this gateway's own address: SRv6 encap source
   locatorBlock: fd00:dc1::/32     # all gateways' locators and loopbacks
 transport:
   vrf: vrf104100                  # DCI network (base config) carrying the SRv6 transport
-peers:                           # both gateways of the remote pair
-  - {address: "fd00:dc1:ff::b1", asn: 4200000026}   # gw-b1
-  - {address: "fd00:dc1:ff::b2", asn: 4200000026}   # gw-b2
+peers:                           # the session to the exit (base config); the exits
+  - interface: uplink0            # relay the VPN routes between the partitions
 networks:
   - vrf: vrf3981                  # created by open-dci (kernel table 3981 = the VNI)
     vni: 3981                     # tenant 1's VNI in partition A (as on leaf-a); SID function = VNI

@@ -11,13 +11,12 @@ with the transport in a DCI network:
 ```yaml
 gateway:
   locator: fd00:dc1:a::/48        # shared with gw-a2 (anycast); SIDs fd00:dc1:a:<sid>::
-  loopback: fd00:dc1:ff::a1       # own address: VPN sessions, encap source
+  loopback: fd00:dc1:ff::a1       # own address: SRv6 encap source
   locatorBlock: fd00:dc1::/32     # all gateways' locators and loopbacks
 transport:
   vrf: vrf104100                  # DCI network of the base config; omit it for the default VRF
-peers:                            # the remote pair's loopbacks
-  - {address: "fd00:dc1:ff::b1", asn: 4200000026}
-  - {address: "fd00:dc1:ff::b2", asn: 4200000026}
+peers:                            # the session to the exit; the exits relay the
+  - interface: uplink0            # VPN routes between the partitions
 networks:
   - vrf: vrf3981                  # created by open-dci
     vni: 3981                     # the tenant's VNI in this partition
@@ -42,7 +41,7 @@ For the default VRF as transport, leave out the `transport` section (see the lab
 | Field | Default | Meaning |
 |---|---|---|
 | `locator` | required | The gateway's SRv6 locator, e.g. `fd00:dc1:a::/48`. The redundant gateways of a partition share it (anycast): they announce the same locator and, with the same `sid`s, the same SIDs. |
-| `loopback` | `<locator>::1` | The gateway's own address: VPN session endpoint and SRv6 encap source. The default lies inside the locator (function 0 is never a SID), which only works for a single gateway. A redundant pair needs a unique loopback per gateway, inside `locatorBlock` but outside the locator; open-dci announces it next to the locator. |
+| `loopback` | `<locator>::1` | The gateway's own address: SRv6 encap source, and session endpoint for `address` peers. The default lies inside the locator (function 0 is never a SID), which only works for a single gateway. A redundant pair needs a unique loopback per gateway, inside `locatorBlock` but outside the locator; open-dci announces it next to the locator. |
 | `locatorBlock` | required | Contains the locators of all gateways, e.g. `fd00:dc1::/32`. Traffic to it is routed into the transport. |
 | `nodeLength` | `16` | Node bits of the locator. Block length + node length must equal the locator's prefix length. 16 function bits follow. |
 | `asn` | discovered | ASN of the existing default BGP instance. If set, it must match the running FRR. |
@@ -60,11 +59,13 @@ For the default VRF as transport, leave out the `transport` section (see the lab
 
 ### `peers[]`
 
+The BGP sessions that carry the VPN routes, in one of two forms:
+
 | Field | Meaning |
 |---|---|
-| `address` | Loopback of a remote gateway (`<its locator>::1`). It must be inside `locatorBlock` and not inside the own locator. |
-| `asn` | The remote gateway's ASN. A different ASN gives eBGP multihop, an equal one iBGP. |
-| `maxPrefixes` | Maximum VPN prefixes accepted from the peer per address family (default `10000`). FRR tears the session down when it is exceeded; it stays down until `clear bgp <address>`. |
+| `interface` | **To the exit (recommended).** The base config's existing session over this interface (e.g. the unnumbered `uplink0` to the exit). open-dci only activates VPNv4/v6 on it, with its filters. The exits relay the VPN routes between the partitions, so a gateway needs no session to remote gateways, and a new partition touches no existing gateway. |
+| `address`, `asn` | **Direct to a remote gateway (full mesh).** Its loopback and ASN; a different ASN gives eBGP multihop (`update-source` = own loopback), an equal one iBGP. The address must be inside `locatorBlock` and not inside the own locator. |
+| `maxPrefixes` | Maximum VPN prefixes accepted from the peer per address family (default `10000`). FRR tears the session down when it is exceeded; it stays down until `clear bgp <neighbor>`. A session to the exit carries the routes of **all** partitions: size it accordingly. |
 
 Every peer only delivers routes that carry one of the configured `routeTarget`s (an inbound
 route-map `DCI-PEER-IN` on the VPN sessions); routes with other RTs are dropped at the
@@ -86,7 +87,8 @@ session, before any VRF import.
 
 Besides syntax, `validate` (and every other command) rejects:
 - a locator outside `locatorBlock`, with host bits set, or not matching `nodeLength`
-- peers inside the own locator, outside the block, duplicated or without ASN
+- peers with both `interface` and `address`, duplicated interfaces, invalid names
+- address peers inside the own locator, outside the block, duplicated or without ASN
 - VRFs used twice, or a tenant VRF that is also the transport VRF
 - a transport MTU that can't carry `tenantMTU` + 48 B
 - invalid route targets or distinguishers
@@ -129,11 +131,29 @@ At runtime, `apply`/`run`/`diff`/`status` also check the system:
 - Both gateways have the same `locator`, `networks` (so the same SIDs), and the same BGP
   ASN in their base config. The shared ASN makes each drop the routes the other one
   re-announced into the fabric, so neither re-exports or detours through its partner.
-- Each has its own `loopback` and router-id. Remote gateways list both as `peers`.
+- Each has its own `loopback` and router-id. With `address` peers, remote gateways list both
+  as `peers`; with `interface` peers, nothing changes elsewhere.
 - The fabric (exit, core) spreads traffic to the shared locator over both gateways (ECMP)
   and falls back to the survivor.
 - Known limit: a gateway whose transport is up but whose fabric side (EVPN) is broken still
   attracts traffic for the locator.
+
+**Peering with the exit (`peers[].interface`):**
+- open-dci adds `bgp disable-ebgp-connected-route-check` to the gateway's default instance:
+  FRR tracks the remote SID as next hop of imported SRv6 VPN routes, and requires it to be
+  directly connected for single-hop eBGP sessions, which a SID never is.
+- The exits (their base config, not open-dci):
+  - activate `ipv4 vpn` and `ipv6 vpn` towards their gateways, with `allowas-in 1`: the
+    gateways' VPN routes carry the exit's own ASN, since they were learned via EVPN through
+    the exit.
+  - relay the VPN routes to each other (eBGP between the exits; a mesh, a ring or route
+    reflectors). They import none of them.
+  - need a default-VRF path to each other for these sessions: in FRR, the VPN address
+    families only exist in the default BGP instance. In DCI-network partitions, where the
+    exit's core link sits in the DCI VRF, that means an extra link or path (the lab's
+    exit-a ↔ core `swp5`).
+- Routes pass the exits with RD, RT and SID unchanged; the BGP next hop becomes the exit,
+  which doesn't matter, since SRv6 forwards by the SID.
 
 **The edge of the SRv6 domain** (see [Operation](operation.md#the-srv6-domain-and-its-edge)):
 the exits must keep the locator block unreachable from anything but the gateways and the

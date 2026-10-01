@@ -35,9 +35,8 @@ frr       in sync
 transport vrf vrf104100  veth up: yes  path MTU: 9166 (need 9166)  local rule last: yes  vrf strict_mode: 1
 filter    dropped: tenant-to-transport 0, locator-from-outside 0, loopback-from-outside 0
 
-PEER             AS          STATE        UP        VPNv4 RCVD/SENT  VPNv6 RCVD/SENT
-fd00:dc1:ff::b1  4200000026  Established  00:01:40  2/6              2/6
-fd00:dc1:ff::b2  4200000026  Established  00:01:39  2/6              2/6
+PEER     AS          STATE        UP        VPNv4 RCVD/SENT  VPNv6 RCVD/SENT
+uplink0  4200000014  Established  00:00:29  4/6              4/6
 
 VRF      RT          RD              SID                          L3VNI    LOCAL v4/v6  REMOTE v4/v6
 vrf3981  65535:1001  10.0.0.16:1001  fd00:dc1:a:f8d:: (End.DT46)  3981 Up  1/1          1/1
@@ -46,8 +45,11 @@ vrf3982  65535:1002  10.0.0.16:1002  fd00:dc1:a:f8e:: (End.DT46)  3982 Up  1/1  
 
 - `filter` shows the ingress filter's rules with their drop counters (see below).
 - `L3VNI` shows each network's VNI with zebra's state of it.
-- `SENT` includes the routes a gateway passes on between the two gateways of the remote
-  pair; they drop them (their own ASN is in the path), so `RCVD` stays at the real count.
+- The only peer is the session to the exit (`peers[].interface`); `AS` comes from FRR.
+  `RCVD` counts the remote gateways' routes (2 tenants × 2 gateways of pair B). `SENT`
+  includes the relayed routes a gateway passes back to its exit. The exit keeps them as
+  longer, never-best paths, and the other exits and the partner gateway would drop them
+  anyway (own ASN in the path): noise, not loops.
 
 - A gateway in default-VRF mode shows `transport default VRF` instead.
 - `OPEN_DCI_OUTPUT=json open-dci status` prints the same as JSON.
@@ -131,18 +133,16 @@ segment-routing
     prefix fd00:dc1:a::/48 block-len 32 node-len 16
    ...
 router bgp 4200000016
- neighbor fd00:dc1:ff::b1 remote-as 4200000026        (and fd00:dc1:ff::b2)
- neighbor fd00:dc1:ff::b1 ebgp-multihop 16
- neighbor fd00:dc1:ff::b1 update-source fd00:dc1:ff::a1
- neighbor fd00:dc1:ff::b1 capability extended-nexthop
+ bgp disable-ebgp-connected-route-check   ! the SID as next hop of single-hop eBGP routes
  segment-routing srv6
   locator DCI
- address-family ipv4 unicast
-  no neighbor fd00:dc1:ff::b1 activate
  address-family ipv4 vpn                  (and ipv6 vpn)
-  neighbor fd00:dc1:ff::b1 activate
-  neighbor fd00:dc1:ff::b1 route-map DCI-PEER-IN in       ! only configured RTs
-  neighbor fd00:dc1:ff::b1 maximum-prefix 10000
+  neighbor uplink0 activate               ! peers[].interface: the base config's session to the exit
+  neighbor uplink0 route-map DCI-PEER-IN in       ! only configured RTs
+  neighbor uplink0 maximum-prefix 10000
+                                          (with peers[].address instead: neighbor ... remote-as,
+                                           ebgp-multihop, update-source <loopback>,
+                                           capability extended-nexthop, and no ipv4 unicast)
 !
 router bgp 4200000016 vrf vrf3981          (one per network)
  bgp router-id 10.0.0.16

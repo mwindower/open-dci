@@ -20,6 +20,10 @@
 # - MTU: machines 9000, uplinks 9216. The pair-A base config has its DCI
 #   devices at 9000; open-dci raises them to 9166 (SRv6 adds 48 B). The exits'
 #   DCI devices are configured with 9166.
+# - VPN routes: each gateway only peers with its exit (the existing fabric
+#   session); the exits relay them to each other (exit-a <-> exit-b, multihop
+#   between their loopbacks; exit-a reaches the core in the default VRF via
+#   swp5).
 name: open-dci
 
 topology:
@@ -58,6 +62,7 @@ topology:
     - endpoints: ["m-b:lan0", "leaf-b:swp1"]
     - endpoints: ["m-a2:lan0", "leaf-a:swp2"]
     - endpoints: ["m-b2:lan0", "leaf-b:swp2"]
+    - endpoints: ["exit-a:swp5", "core:swp3"]       # default VRF: VPN sessions between the exits
     - endpoints: ["gw-a1:uplink0", "exit-a:swp3"]
     - endpoints: ["gw-a2:uplink0", "exit-a:swp4"]
     - endpoints: ["gw-b1:uplink0", "exit-b:swp3"]

@@ -68,3 +68,38 @@ func TestBothPathsSameSID(t *testing.T) {
 		}
 	}
 }
+
+// No full mesh: each gateway's only VPN session is the one to its exit; the
+// exits relay the routes between the partitions, with SID and RD intact.
+func TestGatewaysPeerWithTheirExit(t *testing.T) {
+	for _, g := range gateways {
+		t.Run(g.name, func(t *testing.T) {
+			var sum struct {
+				Peers map[string]struct {
+					State string `json:"state"`
+				} `json:"peers"`
+			}
+			if err := lab.VtyshJSON(g.name, "show bgp ipv4 vpn summary", &sum); err != nil {
+				t.Fatal(err)
+			}
+			if len(sum.Peers) != 1 || sum.Peers["uplink0"].State != "Established" {
+				t.Fatalf("want exactly one VPN session (uplink0, Established), got %+v", sum.Peers)
+			}
+		})
+	}
+	// the exits hold the routes of every gateway (relay), but import none
+	for _, c := range []struct{ exit, rd, prefix string }{
+		{"exit-a", "10.0.1.16:1001", mB.v4 + "/32"}, {"exit-a", "10.0.0.17:1002", mA2.v4 + "/32"},
+		{"exit-b", "10.0.0.16:1001", mA.v4 + "/32"}, {"exit-b", "10.0.1.17:1002", mB2.v4 + "/32"},
+	} {
+		t.Run(c.exit+"/"+c.rd, func(t *testing.T) {
+			waitFor(t, converge, func() error {
+				out, err := lab.Vtysh(c.exit, "show bgp ipv4 vpn rd "+c.rd+" "+c.prefix)
+				if err != nil || !strings.Contains(out, "Remote SID") {
+					return fmt.Errorf("%s doesn't relay %s %s: %v\n%s", c.exit, c.rd, c.prefix, err, out)
+				}
+				return nil
+			})
+		})
+	}
+}

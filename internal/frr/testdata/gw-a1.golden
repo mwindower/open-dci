@@ -20,36 +20,19 @@ segment-routing
 exit
 !
 router bgp 4200000016
- neighbor fd00:dc1:ff::b1 remote-as 4200000026
- neighbor fd00:dc1:ff::b1 ebgp-multihop 16
- neighbor fd00:dc1:ff::b1 update-source fd00:dc1:ff::a1
- neighbor fd00:dc1:ff::b1 capability extended-nexthop
- neighbor fd00:dc1:ff::b2 remote-as 4200000026
- neighbor fd00:dc1:ff::b2 ebgp-multihop 16
- neighbor fd00:dc1:ff::b2 update-source fd00:dc1:ff::a1
- neighbor fd00:dc1:ff::b2 capability extended-nexthop
+ bgp disable-ebgp-connected-route-check
  segment-routing srv6
   locator DCI
  exit
- address-family ipv4 unicast
-  no neighbor fd00:dc1:ff::b1 activate
-  no neighbor fd00:dc1:ff::b2 activate
- exit-address-family
  address-family ipv4 vpn
-  neighbor fd00:dc1:ff::b1 activate
-  neighbor fd00:dc1:ff::b1 route-map DCI-PEER-IN in
-  neighbor fd00:dc1:ff::b1 maximum-prefix 10000
-  neighbor fd00:dc1:ff::b2 activate
-  neighbor fd00:dc1:ff::b2 route-map DCI-PEER-IN in
-  neighbor fd00:dc1:ff::b2 maximum-prefix 10000
+  neighbor uplink0 activate
+  neighbor uplink0 route-map DCI-PEER-IN in
+  neighbor uplink0 maximum-prefix 10000
  exit-address-family
  address-family ipv6 vpn
-  neighbor fd00:dc1:ff::b1 activate
-  neighbor fd00:dc1:ff::b1 route-map DCI-PEER-IN in
-  neighbor fd00:dc1:ff::b1 maximum-prefix 10000
-  neighbor fd00:dc1:ff::b2 activate
-  neighbor fd00:dc1:ff::b2 route-map DCI-PEER-IN in
-  neighbor fd00:dc1:ff::b2 maximum-prefix 10000
+  neighbor uplink0 activate
+  neighbor uplink0 route-map DCI-PEER-IN in
+  neighbor uplink0 maximum-prefix 10000
  exit-address-family
 exit
 !

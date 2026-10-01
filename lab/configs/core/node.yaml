@@ -1,6 +1,9 @@
 # inter-partition core: IPv6 only, knows nothing about tenants or VNIs
-waitInterfaces: [swp1, swp2]
+# swp3: default-VRF link to exit-a, carrying the exit loopbacks (VPN control
+# plane between the exits)
+waitInterfaces: [swp1, swp2, swp3]
 loopback: ["2001:db8:c::1/128"]
 interfaces:
   - {name: swp1, mtu: 9216}
   - {name: swp2, mtu: 9216}
+  - {name: swp3, mtu: 9216}

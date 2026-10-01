@@ -3,7 +3,7 @@
 # gw-b1/gw-b2 hang off swp3/swp4 like any fabric peer; the shared locator
 # arrives from both (ECMP).
 waitInterfaces: [swp1, swp2, swp3, swp4]
-loopback: [10.0.1.14/32]
+loopback: [10.0.1.14/32, "2001:db8:e::b/128"]
 interfaces:
   - {name: swp1, mtu: 9216}
   - {name: swp2, mtu: 9216}

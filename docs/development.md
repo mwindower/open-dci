@@ -51,6 +51,7 @@ make lab-redeploy  # lab down + up + e2e tests (see lab/README.md)
 | 3.1 | Multi-site config ([day2.md](day2.md)): shared inventory file, RTs derived from network names, VPN route reflectors with `bgp listen range` | |
 | 2.2 | Redundant gateway pairs: anycast locator, unique loopbacks, pinned SIDs (`networks[].sid`), failover tests | done |
 | 2.3 | SRv6 domain edge: gateway ingress filter (nftables), exit edge ACLs in the lab, no fall-through in tenant VRFs, forged-packet tests | done |
+| 2.4 | No full mesh: gateways peer only with their exit (`peers[].interface`), the exits relay the VPN routes | done |
 | 2.1 | Safety net: per-network prefix allowlists (`prefixes`), inbound route-target filter and `maxPrefixes` per peer | done |
 | 3.2 | Dedicated gateways: provisioned tenant L3VNIs (`networks[].vni`), lab gateways at the exits; the firewall placement removed | done |
 | 3.3 | Scale test for dedicated gateways: number of provisioned VRFs, packets per second | |

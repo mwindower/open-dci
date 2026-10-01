@@ -35,8 +35,12 @@ Requirements:
   a sidecar with `configs/gw-*/open-dci.yaml`: for each network it creates the VRF, bridge
   and VXLAN device and joins the partition's EVPN with them.
 - **Redundant pairs:** the two gateways of a partition share locator, SIDs (pinned to the
-  VNI) and ASN; each has its own loopback (`fd00:dc1:ff::a1` …) for the VPN sessions. Exits
-  and leaves spread traffic over both.
+  VNI) and ASN; each has its own loopback (`fd00:dc1:ff::a1` …) as encap source. Exits and
+  leaves spread traffic over both.
+- **No full mesh:** gateways run VPNv4/v6 only on their session to the exit
+  (`peers: [{interface: uplink0}]`); the exits relay the VPN routes to each other (exit-a ↔
+  exit-b between their loopbacks; exit-a reaches the core in the default VRF via an extra
+  link, `swp5`).
 - **Both transport modes side by side:**
   - Pair A's base config has the DCI network (`vrf104100`, at MTU 9000). SRv6 runs in VXLAN
     to exit-a, which routes the DCI VRF into the core; open-dci raises the MTU.
@@ -65,6 +69,7 @@ Routing tables of every node: [docs/lab-routing.md](../docs/lab-routing.md).
 | `TestTenantIsolation` | the two tenants have no routes to, and no reachability of, each other |
 | `TestNoFallThrough` | a lookup that finds nothing in a tenant VRF (gateways, leaves) is unreachable, never the main table |
 | `TestFailover` | one gateway per pair loses its uplink: all flows continue via the partner, then it rejoins |
+| `TestGatewaysPeerWithTheirExit` | each gateway's only VPN session is the one to its exit; both exits relay every gateway's routes |
 | `TestBothPathsSameSID` | remote gateways get every prefix from both gateways of a pair, with the same anycast SID |
 | `TestEdgeDropsForgedSRv6FromFabric` | an underlay device forges SRv6 with a source spoofed inside the block: dropped at the exit |
 | `TestGatewayDropsSRv6FromOutsideBlock` | forged SRv6 from inside the domain but outside the block: dropped by the gateway |

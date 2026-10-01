@@ -360,7 +360,7 @@ func TestRenderAnycastPair(t *testing.T) {
 		}
 	}
 	for gw, lo := range map[string]string{a1: "fd00:dc1:ff::a1", a2: "fd00:dc1:ff::a2"} {
-		for _, s := range []string{"source-address " + lo + "\n", "update-source " + lo + "\n", " ipv6 route " + lo + "/128 fe80::1 dci1\n"} {
+		for _, s := range []string{"source-address " + lo + "\n", " ipv6 route " + lo + "/128 fe80::1 dci1\n"} {
 			if !strings.Contains(gw, s) {
 				t.Errorf("missing %q", s)
 			}

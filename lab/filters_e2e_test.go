@@ -151,11 +151,12 @@ func TestPeerRouteTargetFilter(t *testing.T) {
 	}
 }
 
-// A peer that sends more VPN prefixes than maxPrefixes loses its session.
+// A peer that sends more VPN prefixes than maxPrefixes loses its session (here
+// the exit, so gw-a1 drops out; its partner keeps the partition connected).
 // open-dci restores the configured limit; the session comes back after a
 // clear, as FRR keeps it down until then.
 func TestMaxPrefixes(t *testing.T) {
-	const peer = "fd00:dc1:ff::b1"
+	const peer = "uplink0" // the session to the exit, carrying all partitions' routes
 	if err := vtyshConf("gw-a1", "router bgp 4200000016", "address-family ipv4 vpn", "neighbor "+peer+" maximum-prefix 1"); err != nil {
 		t.Fatal(err)
 	}

@@ -66,7 +66,7 @@ is on the [roadmap](docs/development.md#roadmap)).
 |---|---|---|
 | Stitched networks (tenant VRFs) per gateway | 65535 by design; practically far less, untested | 16 function bits per locator give one End.DT46 SID per network (`networks[].sid`). Each network costs a VRF, a bridge and a VXLAN device, an FRR VRF with its own BGP instance, prefix-lists and route-maps. |
 | Partitions (gateway pairs) | 65536 with the default `/32` block and 16 node bits | One locator (`/48`) per pair, shared by both gateways. |
-| BGP sessions per gateway | 2 × (pairs − 1) | Full mesh to every remote gateway; route reflectors would make it constant ([day-2 notes](docs/day2.md)). |
+| BGP sessions per gateway | 1 (the exit) | Gateways only peer with their exit; the exits relay the VPN routes between the partitions (mesh or ring among the exits). A full mesh between gateways (`peers[].address`) is still possible. |
 | VNIs | 24 bit | VXLAN. VNIs are local to a partition, so they don't add up. |
 | VPN prefixes per peer | `maxPrefixes`, default 10000 per address family | Safety net; exceeding it tears the session down. |
 | Throughput | CPU-bound, not measured | Encap and decap are done by the Linux kernel in software (no XDP, no offload); scale out with more gateways or pairs. |
@@ -142,13 +142,13 @@ only in `loopback`):
 ```yaml
 gateway:
   locator: fd00:dc1:a::/48      # shared by the pair
-  loopback: fd00:dc1:ff::a1     # own: sessions, encap
+  loopback: fd00:dc1:ff::a1     # own: encap source
   locatorBlock: fd00:dc1::/32   # all gateways
 transport:
   vrf: vrf104100                # DCI network
-peers:                          # the remote pair
-  - {address: "fd00:dc1:ff::b1", asn: 4200000026}
-  - {address: "fd00:dc1:ff::b2", asn: 4200000026}
+peers:                          # only the exit: the exits
+  - interface: uplink0          # relay the VPN routes
+
 networks:
   - vrf: vrf3981
     vni: 3981                   # tenant 1 in A, SID f8d
@@ -174,13 +174,13 @@ networks:
 ```yaml
 gateway:
   locator: fd00:dc1:b::/48      # shared by the pair
-  loopback: fd00:dc1:ff::b1     # own: sessions, encap
+  loopback: fd00:dc1:ff::b1     # own: encap source
   locatorBlock: fd00:dc1::/32   # same everywhere
 # no transport: default VRF (underlay)
 
-peers:                          # the remote pair
-  - {address: "fd00:dc1:ff::a1", asn: 4200000016}
-  - {address: "fd00:dc1:ff::a2", asn: 4200000016}
+peers:                          # only the exit: the exits
+  - interface: uplink0          # relay the VPN routes
+
 networks:
   - vrf: vrf4011
     vni: 4011                   # tenant 1 in B, SID fab
@@ -204,8 +204,8 @@ networks:
 </tr>
 </table>
 
-What must match across gateways: the `locatorBlock`, each peer's address and ASN, and per
-stitched network the `routeTarget` and the `prefixes`. Within a pair, also the `locator`,
+What must match across gateways: the `locatorBlock`, and per stitched network the
+`routeTarget` and the `prefixes`. Within a pair, also the `locator`,
 the `sid`s and the BGP ASN (which prevents loops). The VNIs are local to each partition.
 
 **Safety net.**

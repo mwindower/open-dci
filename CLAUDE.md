@@ -30,6 +30,9 @@ Scope decisions, which should not be revisited without the user:
   - unset: the default VRF; the locator is announced by the default BGP instance.
 
   The lab runs pair A (gw-a1/gw-a2) in the first mode and pair B in the second.
+- **No full mesh:** gateways run VPN only on their base session to the exit
+  (`peers[].interface`); the exits relay VPN routes among themselves (lab: exit-a ↔ exit-b).
+  `peers[].address` (direct multihop to remote gateways) still exists.
 - **Redundancy by anycast:** the gateways of a partition share locator, pinned SIDs
   (`networks[].sid`, default the VNI) and ASN; each has its own `gateway.loopback`.
 - **The SRv6 domain is closed at its edge:** open-dci's ingress filter (nftables, pure-Go
@@ -114,6 +117,12 @@ old binary until it is redeployed (or you `docker cp` for a quick look).
 - Locally generated packets pass prerouting via `lo`, and the own DCI VRF answers via the
   veth with a link-local source (e.g. ICMPv6 "unreachable route" to the own loopback when a
   remote gateway disappears); exempt both from source filters, or the counters fill up.
+- FRR tracks the remote *SID* as next hop of imported SRv6 VPN routes and, for single-hop
+  eBGP (the unnumbered exit session), requires it to be connected: invalid paths ("Must be
+  Connected") until `bgp disable-ebgp-connected-route-check` (per-neighbor
+  `disable-connected-check` is refused for interface peers); takes effect after a session
+  reset. Exits need `allowas-in 1` towards their gateways (the VPN routes carry the exit's
+  AS from EVPN) and, in FRR, VPN families only exist in the default instance.
 - `frr-reload.py` may exit 1 from its own second pass ("Refusing to remove a non-existent
   route") even though it worked.
 - vtysh reports config errors on stdout (`% ...`), not always via the exit code;

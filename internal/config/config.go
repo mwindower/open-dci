@@ -76,12 +76,20 @@ type Transport struct {
 // InVRF reports whether the transport runs in a (DCI network) VRF.
 func (t Transport) InVRF() bool { return t.VRF != "" }
 
+// Peer is a BGP session that carries the VPN routes, in one of two forms:
+//   - Interface: the base config's existing session over that interface, to
+//     the exit; the exits relay the VPN routes between partitions. open-dci
+//     only activates VPNv4/v6 (with its filters) on it.
+//   - Address + ASN: a direct (multihop) session to a remote gateway's
+//     loopback, i.e. a full mesh between the gateways.
 type Peer struct {
-	// Address is the remote gateway's loopback (<its locator>::1).
-	Address string `json:"address"`
-	ASN     uint32 `json:"asn"`
+	Interface string `json:"interface,omitempty"`
+	// Address is the remote gateway's loopback.
+	Address string `json:"address,omitempty"`
+	ASN     uint32 `json:"asn,omitempty"`
 	// MaxPrefixes limits the VPN prefixes accepted from the peer per address
 	// family (default 10000). FRR tears the session down when it is exceeded.
+	// A session to the exit carries the routes of all partitions.
 	MaxPrefixes int `json:"maxPrefixes,omitempty"`
 }
 
@@ -327,7 +335,23 @@ func (c *Config) Validate() error {
 		fail("peers: at least one remote gateway is required")
 	}
 	seenPeer := map[netip.Addr]bool{}
+	seenIf := map[string]bool{}
 	for i, p := range c.Peers {
+		if p.MaxPrefixes < 1 {
+			fail("peers[%d].maxPrefixes: must be at least 1", i)
+		}
+		if p.Interface != "" {
+			switch {
+			case p.Address != "" || p.ASN != 0:
+				fail("peers[%d]: either interface (the session to the exit) or address and asn", i)
+			case !ifName.MatchString(p.Interface):
+				fail("peers[%d].interface: invalid interface name %q", i, p.Interface)
+			case seenIf[p.Interface]:
+				fail("peers[%d].interface: %s used twice", i, p.Interface)
+			}
+			seenIf[p.Interface] = true
+			continue
+		}
 		a, err := netip.ParseAddr(p.Address)
 		switch {
 		case err != nil || !a.Is6():
@@ -344,9 +368,6 @@ func (c *Config) Validate() error {
 		seenPeer[a] = true
 		if p.ASN == 0 {
 			fail("peers[%d].asn: required", i)
-		}
-		if p.MaxPrefixes < 1 {
-			fail("peers[%d].maxPrefixes: must be at least 1", i)
 		}
 	}
 
@@ -426,6 +447,14 @@ func (g Gateway) Loopback() netip.Addr {
 		return netip.MustParseAddr(g.LoopbackAddress)
 	}
 	return netip.MustParsePrefix(g.Locator).Masked().Addr().Next()
+}
+
+// Neighbor is the peer's name in FRR: the interface or the address.
+func (p Peer) Neighbor() string {
+	if p.Interface != "" {
+		return p.Interface
+	}
+	return p.Address
 }
 
 // Anycast reports whether the loopback lies outside the locator, i.e. the

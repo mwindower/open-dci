@@ -101,7 +101,7 @@ shared locator has both gateways as next hops:
 fd00:dc1:a::/48     proto bgp                                     # pair A's anycast locator
         nexthop via ::ffff:10.0.0.16 dev vlan104100 onlink        #   gw-a1
         nexthop via ::ffff:10.0.0.17 dev vlan104100 onlink        #   gw-a2
-fd00:dc1:ff::a1     via ::ffff:10.0.0.16 dev vlan104100 onlink    # gw-a1's loopback (VPN sessions)
+fd00:dc1:ff::a1     via ::ffff:10.0.0.16 dev vlan104100 onlink    # gw-a1's loopback (encap source)
 fd00:dc1:ff::a2     via ::ffff:10.0.0.17 dev vlan104100 onlink    # gw-a2's loopback
 fd00:dc1:b::/48     via fe80::… dev swp2 proto bgp                # pair B's locator (from core)
 fd00:dc1:ff::b1     via fe80::… dev swp2 proto bgp                # pair B's loopbacks
@@ -137,7 +137,7 @@ Tenants' own packets to the block are dropped by the ingress filter before they 
 **Main (default VRF)**: own SIDs, own loopback, and the path into the DCI VRF:
 
 ```
-fd00:dc1:ff::a1     dev lo                                                     # own loopback: VPN sessions, encap source
+fd00:dc1:ff::a1     dev lo                                                     # own loopback: encap source
 fd00:dc1:a:f8d::    encap seg6local action End.DT46 vrftable 3981 dev vrf3981  # SID → tenant 1 (the same on gw-a2)
 fd00:dc1:a:f8e::    encap seg6local action End.DT46 vrftable 3982 dev vrf3982  # SID → tenant 2
 blackhole fd00:dc1:a::/48                                                      # rest of the locator
@@ -156,13 +156,18 @@ fd00:dc1:ff::b2     via ::ffff:10.0.0.14 dev vlan104100 onlink
 unreachable default metric 4278198272
 ```
 
-**BGP view of the prefix 10.0.32.10/32 on gw-a1**: two VPN paths, one per gateway of pair B,
-both with the same anycast SID:
+**BGP view of the prefix 10.0.32.10/32 on gw-a1**: two VPN paths, one per gateway of pair B
+(RD), both with the same anycast SID. Both arrive over gw-a1's only VPN session, the one to
+exit-a (`uplink0`): exit-b relayed them to exit-a, exit-a to its gateways.
 
-| RD | From | AS path | Notes |
+| RD | Originated by | AS path | Notes |
 |---|---|---|---|
-| `10.0.1.16:1001` | gw-b1 (`fd00:dc1:ff::b1`) | 4200000026 4200000024 4200000023 4200000021 4200000025 | `RT:65535:1001`, SID `fd00:dc1:b::` + label → `fd00:dc1:b:fab::` |
-| `10.0.1.17:1001` | gw-b2 (`fd00:dc1:ff::b2`) | same | same SID |
+| `10.0.1.16:1001` | gw-b1 | 4200000014 4200000024 4200000026 4200000024 4200000023 4200000021 4200000025 | `RT:65535:1001`, SID `fd00:dc1:b::` + label → `fd00:dc1:b:fab::` |
+| `10.0.1.17:1001` | gw-b2 | same | same SID |
+
+The path starts with exit-a and exit-b (the relays) and then contains exit-b once more: gw-b
+exported a route it learned via EVPN through exit-b. That is why the exits accept their
+gateways' VPN routes with `allowas-in 1`.
 
 Whichever path is best, the kernel route is the same: encap to `fd00:dc1:b:fab::`. Which
 gateway of pair B receives the packet is decided by the transport (exit-b's ECMP).
@@ -170,6 +175,21 @@ gateway of pair B receives the packet is decided by the transport (exit-b's ECMP
 The opposite direction: `10.0.16.10/32` comes from leaf-a as type-5 (next hop 10.0.0.11),
 lands in `vrf3981`, and is exported as VPNv4 with RD `10.0.0.16:1001` and SID
 `fd00:dc1:a:f8d::`.
+
+## VPN relay between the exits
+
+Gateways don't peer with each other. Each one runs VPNv4/v6 only on its existing session to
+the exit (`peers[].interface: uplink0`). The exits relay the VPN routes between the
+partitions without importing them:
+
+- exit-a ↔ exit-b: eBGP multihop between the exit loopbacks `2001:db8:e::a` and
+  `2001:db8:e::b`, VPN address families only. The VPN families only exist in FRR's
+  default instance, and exit-a's core link (`swp2`) is in the DCI VRF, so exit-a has a
+  second, default-VRF link to the core (`swp5`) that carries the exit loopbacks.
+- exit ↔ its gateways (`swp3`, `swp4`): VPN on the fabric session, `allowas-in 1` (see
+  above).
+- `show bgp ipv4 vpn` on an exit lists every gateway's routes, but `show ip route vrf all`
+  holds none of them: the exits have no tenant VRFs.
 
 ## Core
 
@@ -180,9 +200,12 @@ fd00:dc1:ff::a2     via fe80::… dev swp1 proto bgp
 fd00:dc1:b::/48     via fe80::… dev swp2 proto bgp                # pair B, towards exit-b
 fd00:dc1:ff::b1     via fe80::… dev swp2 proto bgp
 fd00:dc1:ff::b2     via fe80::… dev swp2 proto bgp
+2001:db8:e::a       via fe80::… dev swp3 proto bgp                # exit loopbacks (VPN relay sessions)
+2001:db8:e::b       via fe80::… dev swp2 proto bgp
 ```
 
-The core carries one locator per partition, one loopback per gateway, and nothing else.
+The core carries one locator per partition, one loopback per gateway and per exit, and
+nothing else.
 
 ## Partition B: transport in the default VRF
 

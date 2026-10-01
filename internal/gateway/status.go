@@ -68,18 +68,22 @@ func (g *Gateway) Status() (*Status, error) {
 	}
 
 	for _, p := range g.Config.Peers {
-		ps := PeerStatus{Address: p.Address, ASN: p.ASN, State: "unknown"}
+		ps := PeerStatus{Address: p.Neighbor(), ASN: p.ASN, State: "unknown"}
 		var nb map[string]struct {
 			BGPState string `json:"bgpState"`
+			RemoteAS uint32 `json:"remoteAs"`
 			Uptime   string `json:"bgpTimerUpString"`
 			AFI      map[string]struct {
 				Accepted int `json:"acceptedPrefixCounter"`
 				Sent     int `json:"sentPrefixCounter"`
 			} `json:"addressFamilyInfo"`
 		}
-		if err := g.FRR.ShowJSON("show bgp neighbors "+p.Address, &nb); err == nil {
-			if n, ok := nb[p.Address]; ok {
+		if err := g.FRR.ShowJSON("show bgp neighbors "+p.Neighbor(), &nb); err == nil {
+			if n, ok := nb[p.Neighbor()]; ok {
 				ps.State, ps.Uptime = n.BGPState, n.Uptime
+				if ps.ASN == 0 { // interface peers: the base config knows the ASN
+					ps.ASN = n.RemoteAS
+				}
 				ps.V4Accepted, ps.V4Sent = n.AFI["ipv4Vpn"].Accepted, n.AFI["ipv4Vpn"].Sent
 				ps.V6Accepted, ps.V6Sent = n.AFI["ipv6Vpn"].Accepted, n.AFI["ipv6Vpn"].Sent
 			}

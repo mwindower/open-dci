@@ -3,13 +3,12 @@
 # default VRF (underlay).
 gateway:
   locator: fd00:dc1:b::/48        # shared by gw-b1 and gw-b2 (anycast); SIDs fd00:dc1:b:<sid>::
-  loopback: fd00:dc1:ff::b2        # this gateway's own address: VPN sessions, encap source
+  loopback: fd00:dc1:ff::b2        # this gateway's own address: SRv6 encap source
   locatorBlock: fd00:dc1::/32     # all gateways' locators and loopbacks
 # no transport.vrf: open-dci announces locator and loopback to the default BGP
 # instance's IPv6 peers (exit-b)
-peers:                           # both gateways of the remote pair
-  - {address: "fd00:dc1:ff::a1", asn: 4200000016}   # gw-a1
-  - {address: "fd00:dc1:ff::a2", asn: 4200000016}   # gw-a2
+peers:                           # the session to the exit (base config); the exits
+  - interface: uplink0            # relay the VPN routes between the partitions
 networks:
   - vrf: vrf4011                  # created by open-dci (kernel table 4011 = the VNI)
     vni: 4011                     # tenant 1's VNI in partition B (as on leaf-b); SID function = VNI
