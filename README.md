@@ -45,8 +45,7 @@ tenant's networks from independent fabrics into one.
 - A tenant's private networks in several [metal-stack](https://metal-stack.io) partitions
   or datacenters, routed as one.
 - Availability zones with independent fabrics and failure domains, connected per tenant.
-- Fabrics with different VNI, route-target or ASN plans joined without renumbering, e.g.
-  after a merger or during a migration.
+- Fabrics with different VNI, route-target or ASN plans joined without renumbering, e.g. during a migration.
 - Many isolated tenants over one shared IPv6 core.
 
 > [!WARNING]
@@ -325,6 +324,7 @@ open-dci status   -c /etc/open-dci/config.yaml
 | [Configuration](docs/configuration.md) | all fields, validation, requirements per mode |
 | [Operation](docs/operation.md) | commands, `status`, what exactly is changed in kernel and FRR, failure semantics |
 | [Capabilities and limits](docs/capabilities.md) | what can be stitched, scale limits, scaling bandwidth |
+| [metal-stack integration](docs/metal-stack.md) | proposal: gateway role, network stitch entity, controller, exits via metal-roles |
 | [Adding partitions and networks](docs/day2.md) | what changes where, route targets, keeping locations in sync |
 | [Lab](lab/README.md) | the containerlab lab and its e2e tests |
 | [Failure measurements](docs/performance.md) | packet loss and TCP stalls when a gateway or an exit fails |

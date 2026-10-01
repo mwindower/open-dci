@@ -141,4 +141,5 @@ These options build on each other and are not implemented yet:
    stitched networks, and their VRF IDs the gateways' `vni`s.
 
    Still open: where this generator runs. It stays outside open-dci itself, which keeps
-   discovering everything else from kernel and FRR.
+   discovering everything else from kernel and FRR. A proposal (a `dci-controller` and a
+   network stitch entity in metal-api): [metal-stack.md](metal-stack.md).

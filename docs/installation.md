@@ -42,4 +42,6 @@ partition (the VRF ID of the tenant's metal-stack private network) as `networks[
 - **The exits** route the DCI network, or the IPv6 underlay in default-VRF mode, to the
   other partitions.
 
-The [lab](../lab/README.md) reproduces this setup.
+The [lab](../lab/README.md) reproduces this setup. How open-dci could become part of
+metal-stack itself (a gateway role, a network stitch entity in metal-api, a controller):
+[metal-stack.md](metal-stack.md).

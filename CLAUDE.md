@@ -69,7 +69,8 @@ Scope decisions, which should not be revisited without the user:
   committed SVG is stale). Change the generator, not the SVG,
   and check both colour schemes plus a few moments of the animation in a browser.
   `mascot.svg` (the weaver bird) is hand-drawn plain SVG with its own dark-mode colours.
-  `capabilities.md` holds what can be stitched, the scale limits and scaling bandwidth.
+  `capabilities.md` holds what can be stitched, the scale limits and scaling bandwidth;
+  `metal-stack.md` the (unimplemented) proposal for integrating open-dci into metal-stack.
 - Publishing: `LICENSE` (MIT), `Dockerfile` (FRR base image for vtysh),
   `deploy/systemd/`, `.goreleaser.yaml` + `.github/workflows/release.yaml` (tag `v*`), and
   `.github/workflows/ci.yaml` (unit tests + the full lab on a GitHub runner; containerlab and
