@@ -33,6 +33,10 @@ type Gateway struct {
 	// gate is the debounced readiness Run renders with; nil outside Run
 	gate       *Readiness
 	lastLogged string
+	// withdrawn is set by Run while the gateway is unhealthy: it announces
+	// nothing, like a drained one
+	withdrawn *Health
+	routerID  string
 }
 
 // Result describes what a reconcile did.
@@ -48,6 +52,8 @@ type Result struct {
 	Readiness Readiness
 	// Drained: announces nothing (open-dci drain)
 	Drained bool
+	// Withdrawn: Run found the gateway unhealthy and withdrew it (Reason)
+	Withdrawn Health
 }
 
 // Plan computes the desired FRR snippet and its difference to the running
@@ -66,8 +72,12 @@ func (g *Gateway) Plan() (desired string, res Result, err error) {
 		res.Readiness = *g.gate
 	}
 	id.Withhold = !res.Readiness.Ready
-	id.Drain = g.Drained()
-	res.Drained = id.Drain
+	id.Drain = g.Drained() || g.withdrawn != nil
+	res.Drained = g.Drained()
+	if g.withdrawn != nil {
+		res.Withdrawn = *g.withdrawn
+	}
+	g.routerID = id.RouterID
 	res.Identity = id
 	desired, err = frr.Render(g.Config, id)
 	if err != nil {
@@ -172,6 +182,10 @@ func (g *Gateway) Run(ctx context.Context, interval time.Duration) {
 	defer t.Stop()
 	poll := time.NewTicker(readyPoll)
 	defer poll.Stop()
+	healthTick := time.NewTicker(healthPoll)
+	defer healthTick.Stop()
+	defer func() { g.withdrawn = nil }()
+	bad, good := 0, 0
 	initial := g.readiness()
 	g.gate = &initial
 	defer func() { g.gate = nil }()
@@ -186,16 +200,18 @@ func (g *Gateway) Run(ctx context.Context, interval time.Duration) {
 			g.Log.Debug("in sync")
 		}
 		if err == nil {
-			state := "announced"
+			state, reason := "announced", ""
 			switch {
 			case res.Drained:
 				state = "drained"
+			case res.Withdrawn.Reason != "":
+				state, reason = "withdrawn", res.Withdrawn.Reason
 			case !res.Readiness.Ready:
-				state = "withheld"
+				state, reason = "withheld", res.Readiness.Reason
 			}
 			if state != g.lastLogged {
 				g.lastLogged = state
-				g.Log.Info("locator "+state, "reason", res.Readiness.Reason)
+				g.Log.Info("locator "+state, "reason", reason)
 			}
 		}
 		changed := 0
@@ -206,6 +222,26 @@ func (g *Gateway) Run(ctx context.Context, interval time.Duration) {
 				return
 			case <-t.C:
 				break wait
+			case <-healthTick.C:
+				if g.routerID == "" {
+					continue
+				}
+				h := g.checkHealth(g.routerID)
+				if h.OK {
+					bad, good = 0, good+1
+				} else {
+					bad, good = bad+1, 0
+				}
+				switch {
+				case g.withdrawn == nil && bad >= healthDown:
+					g.withdrawn = &h
+					break wait
+				case g.withdrawn != nil && good >= healthUp:
+					g.withdrawn = nil
+					break wait
+				case g.withdrawn != nil && !h.OK:
+					g.withdrawn = &h // keep the reason current
+				}
 			case <-poll.C:
 				r := g.readiness()
 				if r.Ready == g.gate.Ready {

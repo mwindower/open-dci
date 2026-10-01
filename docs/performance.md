@@ -17,12 +17,16 @@ the behaviour, see [Operation](operation.md#failure-semantics).
   - **Loss:** the longest run of lost pings around the failure and around the return. One
     lost ping is 20 ms, so the resolution is ±20 ms.
   - **TCP stall:** the longest time a stream moved less than 1 Mbit/s, at 200 ms resolution.
-- Two ways to fail:
+- Ways to fail:
   - **link:** all links of the node go down, so its neighbours see the loss of carrier at
     once (crash, power loss, pulled cable).
   - **hung:** the node silently drops everything (nftables, prerouting and output), and its
     links stay up (frozen kernel, broken NIC firmware, a one-way link). The neighbours only
-    notice when the BGP hold timer expires.
+    notice when BFD or the BGP hold timer expires.
+  - **drained:** planned maintenance, `open-dci drain` 3 s before the links go down.
+  - **gray:** BGP and BFD are fine, but the gateway can't forward. Kernel `unreachable`
+    routes hide every remote locator from it. Only open-dci's health check notices
+    ([Operation](operation.md#withdrawing-an-unhealthy-gateway)).
 - Timers: the sessions between gateways and exits, and between exits and spines, use
   metal-stack's `timers 2 8` (keepalive 2 s, hold 8 s). All other sessions use FRR's
   `datacenter` defaults (3 s, 9 s).
@@ -57,6 +61,7 @@ Loss of the affected flows on failure (and on return), and the longest TCP stall
 | gateway, link | 0.16 s (return ≤ 1.5 s), TCP 1.4 s | 0.16 s (return 1.8 s), TCP 3.0 s | 0.17 s (return 2.3 s), TCP 0.8 s | 0.26 s (return 0 s), TCP 0.4 s |
 | gateway, hung | **6.4 s**, TCP **12.6 s** | 0.8 s, TCP 1.2 s | 1.0 s, TCP 1.2 s | 1.0 s (return 0 s), TCP 1.4 s |
 | gateway, drained, then down | – | – | – | **0 s** (return 0 s), TCP 0 s |
+| gateway, gray failure | – | – | – | 2.8 s (return 0 s), TCP 2.8 s |
 | exit, link | 0 s (return 1.9–3.2 s), TCP 6.2 s | 0.12 s (return 1.3–2.3 s), TCP 3.0 s | 0.12 s (return 1.9–2.1 s), TCP 2.8 s | 0.18 s (return 0 s), TCP 0 s |
 | exit, hung | **7.9 s, all flows**, TCP **12.8 s** | **7.9 s, all flows**, TCP **12.6 s** | 0.85 s, all flows, TCP 1.2 s | 0.9 s, all flows, TCP 1.4 s |
 
@@ -111,6 +116,9 @@ to gw-b2.
 
   Together they took the return from up to 3 s down to 0 s. A hung node returns
   without loss either way: its sessions come back with its routing tables intact.
+- **A gray failure costs the health check's detection time.** Two failed checks 2 s apart,
+  then the withdrawal: ~2.8 s for the flows through that gateway. Without the check they
+  would be lost for as long as the failure lasts.
 - **Planned maintenance costs nothing.** `open-dci drain` before taking a gateway down
   moves all traffic to its partner while both are up; no packet was lost.
 - **Nothing outside partition B reacted.** With an anycast locator and SIDs, the remote

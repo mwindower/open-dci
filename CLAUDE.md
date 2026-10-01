@@ -147,6 +147,9 @@ old binary until it is redeployed (or you `docker cp` for a quick look).
   enable`; without it, the locator gate is useless.
 - `bgp suppress-fib-pending` on the exits: FRR never announced the EVPN-imported anycast
   locator (two next hops) to the core. Not used anywhere.
+- `run` also checks the gateway's health every 2 s (`internal/gateway/health.go`) and
+  withdraws it like a drain while unhealthy. Remote SIDs count as broken only if *none* is
+  reachable: one failed partition must not make every gateway withdraw.
 - A gateway withholds its locator until its EVPN sessions have sent End-of-RIB
   (`internal/gateway/ready.go`); `status` is unhealthy meanwhile. The readiness poll is
   debounced and ignores failed or empty answers: reconciling while `frr-reload.py`

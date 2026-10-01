@@ -21,7 +21,9 @@ type Status struct {
 	Announced      bool
 	WithheldReason string `json:",omitempty"`
 	// Drained: withdrawn on purpose (open-dci drain), counts as healthy
-	Drained  bool
+	Drained bool
+	// Health: the data-plane checks open-dci run withdraws on
+	Health   Health
 	Kernel   KernelStatus
 	Peers    []PeerStatus
 	Networks []NetworkStatus
@@ -77,6 +79,7 @@ func (g *Gateway) Status() (*Status, error) {
 		Announced:      plan.Readiness.Ready,
 		WithheldReason: plan.Readiness.Reason,
 		Drained:        plan.Drained,
+		Health:         g.checkHealth(plan.Identity.RouterID),
 		Kernel:         g.kernelStatus(),
 	}
 
@@ -211,7 +214,7 @@ func (g *Gateway) kernelStatus() KernelStatus {
 // Healthy reports whether everything open-dci is responsible for is in place.
 func (s *Status) Healthy() bool {
 	k := s.Kernel
-	if s.MissingLines > 0 || !s.Announced && !s.Drained || k.StrictMode != "1" || len(k.Filter) != k.FilterRequired {
+	if s.MissingLines > 0 || !s.Announced && !s.Drained || !s.Health.OK || k.StrictMode != "1" || len(k.Filter) != k.FilterRequired {
 		return false
 	}
 	if k.TransportVRF != "" && (!k.VethUp || k.DCIPathMTU < k.RequiredMTU || !k.LocalRuleLast) {

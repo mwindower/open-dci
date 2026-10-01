@@ -63,6 +63,7 @@ vrf3982  65535:1002  10.0.0.16:1002  fd00:dc1:a:f8e:: (End.DT46)  3982 Up  1/1  
 - The exit code is non-zero unless all of these hold:
   - there is no drift
   - the locator is announced
+  - the health checks pass (see [below](#withdrawing-an-unhealthy-gateway))
   - the kernel parts are in place
   - every peer is Established
   - every network has a SID
@@ -224,6 +225,25 @@ SIDs and sessions stay in place.
 
 Measured in the lab: drain, wait 3 s, take the links down, bring them back, undrain. No
 flow lost a packet ([measurements](performance.md)).
+
+### Withdrawing an unhealthy gateway
+
+A gateway can fail in ways neither BGP nor BFD notice: its sessions are up, but it can't
+forward. `run` checks every 2 s:
+- every network's L3VNI is `Up` (fabric side)
+- every network's SID is installed in the kernel as End.DT46 (decapsulation)
+- no tenant VRF has prefixes with valid paths but no best path
+- at least one remote SID the tenant VRFs encapsulate to has a usable route: one inside
+  the locator block, not a blackhole or `unreachable`. In DCI-network mode the transport
+  VRF's table is checked. If only some remote SIDs are unreachable, that's a remote
+  partition's problem, and withdrawing would only spread it.
+
+After two failed checks in a row, the gateway withdraws like a drain: no locator, no type-5
+routes, and its anycast partner carries everything. After three good checks it announces
+again. `status` shows `health UNHEALTHY: <reason>` and exits non-zero; the log has
+`locator withdrawn reason=...`.
+
+`apply` and `status` run the checks too, but only `run` withdraws.
 
 ### Announcing the locator
 

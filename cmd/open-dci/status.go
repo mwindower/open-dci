@@ -47,6 +47,9 @@ func printStatus(w io.Writer, st *gateway.Status) {
 	k := st.Kernel
 	fmt.Fprintf(w, "gateway   %s  AS %d  router-id %s  locator %s\n", st.Loopback, st.ASN, st.RouterID, st.Locator)
 	fmt.Fprintf(w, "frr       %s\n", drift)
+	if !st.Health.OK {
+		fmt.Fprintf(w, "health    UNHEALTHY: %s (open-dci run withdraws the gateway)\n", st.Health.Reason)
+	}
 	if st.Drained {
 		fmt.Fprintf(w, "locator   DRAINED: nothing announced, the partner carries the traffic (open-dci undrain)\n")
 	} else if st.Announced {

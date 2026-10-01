@@ -130,3 +130,68 @@ func TestDrain(t *testing.T) {
 	waitFor(t, converge, usesGW(true))
 	waitFor(t, converge, func() error { return opendci(gw, "status") })
 }
+
+// A gray failure: BGP is fine, but the gateway can't forward (here: kernel
+// routes make every remote locator unreachable, so it can't encapsulate).
+// open-dci notices it, withdraws the gateway like a drain, and announces it
+// again once it has recovered. Both transport modes.
+func TestWithdrawOnGrayFailure(t *testing.T) {
+	for _, c := range []struct {
+		gw, exit, leaf, vrf string
+		blackhole           string // ip -6 route args to break the transport
+		exitRoute           []string
+		viaGW, viaGWVTEP    string
+		peer                machine // a remote machine to ping
+		local               machine
+	}{
+		{"gw-b2", "exit-b1", "leaf-b", "", "", []string{"ip", "-6", "route", "show", "fd00:dc1:b::/48"}, "dev swp4", "10.0.1.17", mA, mB},
+		{"gw-a2", "exit-a1", "leaf-a", "vrf104100", "vrf vrf104100", []string{"ip", "-6", "route", "show", "vrf", "vrf104100", "fd00:dc1:a::/48"}, "10.0.0.17", "10.0.0.17", mB, mA},
+	} {
+		t.Run(c.gw, func(t *testing.T) {
+			routes := func(op string) string {
+				var cmds []string
+				for _, loc := range []string{"fd00:dc1:a::/48", "fd00:dc1:b::/48", "fd00:dc1:c::/48"} {
+					if strings.HasPrefix(c.local.sid, loc[:len(loc)-5]) {
+						continue // the own locator
+					}
+					cmds = append(cmds, fmt.Sprintf("ip -6 route %s unreachable %s %s metric 1", op, loc, c.blackhole))
+				}
+				return strings.Join(cmds, "; ")
+			}
+			usesGW := func(want bool) func() error {
+				return func() error {
+					e, _ := lab.Exec(c.exit, c.exitRoute...)
+					l, _ := lab.Exec(c.leaf, "ip", "route", "show", "vrf", c.local.vrf, c.peer.v4)
+					if strings.Contains(e, c.viaGW) != want || strings.Contains(l, c.viaGWVTEP) != want {
+						return fmt.Errorf("%s in use: want %v\n%s: %s\n%s: %s", c.gw, want, c.exit, e, c.leaf, l)
+					}
+					return nil
+				}
+			}
+			waitFor(t, converge, usesGW(true))
+			if out, err := lab.Exec(c.gw, "sh", "-c", routes("add")); err != nil {
+				t.Fatalf("%v\n%s", err, out)
+			}
+			restored := false
+			defer func() {
+				if !restored {
+					lab.Exec(c.gw, "sh", "-c", routes("del"))
+				}
+			}()
+			waitFor(t, converge, func() error {
+				if err := opendci(c.gw, "status"); err == nil {
+					return fmt.Errorf("%s still reports healthy", c.gw)
+				}
+				return nil
+			})
+			waitFor(t, converge, usesGW(false))
+			waitFor(t, converge, func() error { return lab.Ping(c.local.name, c.peer.v4, 0) })
+			waitFor(t, converge, func() error { return lab.Ping(c.peer.name, c.local.v4, 0) })
+
+			lab.Exec(c.gw, "sh", "-c", routes("del"))
+			restored = true
+			waitFor(t, converge, usesGW(true))
+			waitFor(t, converge, func() error { return opendci(c.gw, "status") })
+		})
+	}
+}

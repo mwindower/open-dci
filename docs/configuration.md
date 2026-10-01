@@ -138,8 +138,10 @@ At runtime, `apply`/`run`/`diff`/`status` also check the system:
   as `peers`; with `interface` peers, nothing changes elsewhere.
 - The fabric (exit, core) spreads traffic to the shared locator over both gateways (ECMP)
   and falls back to the survivor.
-- Known limit: a gateway whose transport is up but whose fabric side (EVPN) is broken still
-  attracts traffic for the locator.
+- A gateway that can't forward although its sessions are up (L3VNI down, SID not
+  installed, no remote locator reachable, routes without best path) withdraws itself
+  ([Operation](operation.md#withdrawing-an-unhealthy-gateway)). Both gateways of a pair
+  failing the same way disconnect the partition: they couldn't forward anyway.
 
 **Peering with the exit (`peers[].interface`):**
 - One `interface` peer per exit the gateway is attached to. With two exits per partition
