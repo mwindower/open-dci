@@ -30,10 +30,10 @@ and puts them back whenever the base system reloads its config.
   <img src="docs/logical-view.svg" width="960" alt="Logical view: three partitions, each with its own private network and VNI per tenant. Tenant 1 has 10.0.16.0/24 with VNI 3981 in A, 10.0.32.0/24 with VNI 4011 in B and 10.0.48.0/24 with VNI 5011 in C; tenant 2 has 10.0.17.0/24 (VNI 3982), 10.0.33.0/24 (VNI 4012) and 10.0.49.0/24 (VNI 5012). The gateway pair of each partition exports every tenant VRF with its own SRv6 SID; SRv6 L3VPN joins each tenant's networks into one routed network (route targets 65535:1001 and 65535:1002). Tenants stay separate.">
 </p>
 
-How a packet travels (spines, leaves and machines are left out):
+How a packet travels (per partition, the two exits, the gateway pair and the fabric are one box each):
 
 <p align="center">
-  <img src="docs/packet-flow.svg" width="960" alt="Animated packet flow across three partitions, each with two exits and a redundant gateway pair attached to both; spines, leaves and machines are summarised as the fabric. A tenant packet arrives from partition A's fabric over VXLAN with VNI 3981 via exit-a1 at gw-a1, which provisioned the tenant VRF. gw-a1 encapsulates it in SRv6 to partition B's anycast SID and sends it in the DCI network (VNI 104100) via the other exit, exit-a2, into the IPv6-only core. exit-b1 delivers it to gw-b2, which decapsulates it (End.DT46) and forwards it with partition B's VNI 4011 via exit-b2 into partition B's fabric. Partition C works alike.">
+  <img src="docs/packet-flow.svg" width="960" alt="Animated packet flow across three partitions joined by the DCI network, an IPv6-only core. Each partition shows its two exits, its redundant gateway pair (attached to both exits) and its fabric (spines, leaves, machines) as one box each. A tenant packet comes from partition A's fabric over VXLAN with VNI 3981 via either exit to either gateway of pair A, which provisioned the tenant VRF. The gateway encapsulates it in SRv6 to partition B's anycast SID and sends it in partition A's EVPN VRF for the transport (VNI 104100) to either exit, into the DCI network. Partition B's exits deliver it to either gateway of pair B, which decapsulates it (End.DT46) and forwards it with partition B's VNI 4011 via the exits into partition B's fabric. Partition C works alike.">
 </p>
 
 Between partitions only IPv6 is needed: exits and core see one locator prefix per gateway,
@@ -149,6 +149,22 @@ throughput needs measuring before production use.
   VNIs, RTs, ASNs and failure domains. Exchanging only type-5 prefixes as VPNv4/v6 keeps
   every EVPN domain independent. The inter-partition network needs nothing but IPv6 and
   one locator prefix per gateway: no tenant state, no VNIs, no MPLS.
+- **Why SRv6 rather than MPLS labels.** MPLS L3VPN would work the same way at the BGP
+  level. But a label needs a transport: either the core runs MPLS (LDP or SR-MPLS), coupling
+  it to the partitions, or the label is tunnelled in GRE or UDP. That means tunnel devices
+  per remote gateway pair, set up outside FRR on Linux. With SRv6, the address is the
+  tunnel and the label at once: the SID `fd00:dc1:b:fab::` routes to pair B and selects the
+  tenant VRF.
+  - The core is plain IPv6 and learns one prefix per partition.
+  - Redundancy is two gateways announcing the same locator (anycast), and ECMP hashes the
+    IPv6 flow label.
+  - The kernel's End.DT46 serves IPv4 and IPv6 with one SID per VRF.
+  - Securing the domain means ACLs on one prefix block.
+
+  The costs: 48 B per packet (VXLAN: 50 B), SIDs that decapsulate anything that reaches
+  them (hence the [edge filtering](docs/operation.md#the-srv6-domain-and-its-edge)), and few
+  switch chips that terminate SRv6. Only the Linux gateways terminate it; the core just
+  forwards IPv6.
 - **Stock FRR and the Linux kernel.** End.DT46 in the kernel and FRR's EVPN ↔ VPN
   re-origination already do the job ([Phase 0](docs/phase0-findings.md)). No custom
   data plane means nothing to maintain beyond configuration.
@@ -284,9 +300,10 @@ open-dci status   -c /etc/open-dci/config.yaml
 |---|---|
 | [Installation](docs/installation.md) | binary + systemd, container, metal-stack notes |
 | [Configuration](docs/configuration.md) | all fields, validation, requirements per mode |
-| [Operation](docs/operation.md) | commands, `status`, what exactly is changed in kernel and FRR |
+| [Operation](docs/operation.md) | commands, `status`, what exactly is changed in kernel and FRR, failure semantics |
 | [Adding partitions and networks](docs/day2.md) | what changes where, route targets, keeping locations in sync |
 | [Lab](lab/README.md) | the containerlab lab and its e2e tests |
+| [Failure measurements](docs/performance.md) | packet loss and TCP stalls when a gateway or an exit fails |
 | [Routing tables](docs/lab-routing.md) | which node knows which routes, in both modes |
 | [Development](docs/development.md) | layout, tests, CI, releases, roadmap |
 | Design findings (history) | [Phase 0](docs/phase0-findings.md): EVPN ↔ SRv6 feasibility, RT behaviour · [Phase 0b](docs/phase0b-findings.md): the DCI network design, from the dropped firewall placement |

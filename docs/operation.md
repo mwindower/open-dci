@@ -229,6 +229,46 @@ The e2e tests `TestEdgeDropsForgedSRv6FromFabric`, `TestGatewayDropsSRv6FromOuts
 and `TestGatewayDropsTenantToTransport` forge such packets and check that the respective
 rule counts them and the victim sees nothing.
 
+## Failure semantics
+
+Gateways and exits keep no per-flow state: no NAT, no connection tracking (the ingress
+filter is stateless), no sequence numbers. Any surviving gateway or exit can carry any
+packet of any flow. A failure therefore never resets a TCP connection; it only loses
+packets until the routing has removed the failed node. TCP retransmits them. Which flows
+are affected depends on ECMP hashing: a failed gateway only hits the flows hashed to it
+(roughly half of its partition's), a failed exit hits every flow of the partition, since
+leaves, spines, gateways and the core all spread over both exits.
+
+Nothing outside the partition reacts to a gateway failure: both gateways own the same
+locator and SIDs (anycast), so remote gateways keep their encapsulation routes unchanged.
+The exits only drop the failed gateway's next hop for the locator, and the leaves drop it
+for the tenant prefixes (EVPN type-5).
+
+How long packets are lost depends on how the failure is detected. Measured in the lab
+(`make lab-perf`: pings every 20 ms and 2 × 8 TCP streams between partitions while gw-b2 or
+exit-b1 fails, then returns; per-flow results and method in
+[performance.md](performance.md)):
+
+| Failure | Detected by | Packet loss (affected flows) | TCP | Recovery |
+|---|---|---|---|---|
+| Gateway loses its links (crash, power, cable) | link down at the exits | ~0.15 s | stalls ≤ 0.4 s | 0.3–1.8 s loss |
+| Gateway hangs, links stay up | BGP hold timer (8 s, `timers 2 8`) | ~7.5 s | stalls ~13 s | ≤ 0.3 s loss |
+| Exit loses its links | link down at its neighbours | ~0.15 s | stalls ≤ 0.4 s | 1.1–2 s loss |
+| Exit hangs, links stay up | BGP hold timers (8–9 s) | ~7 s, all flows of the partition | stalls ~13 s | none |
+
+- **TCP stalls longer than the loss** because of exponential retransmission backoff: after
+  a 7.5 s outage, the next retransmission comes at ~12.6 s (200 ms RTO doubled per
+  attempt). Connections survive; a connection only gives up after ~15 min
+  (`tcp_retries2`), but applications with shorter timeouts may not.
+- **A silent failure costs a hold time.** BFD (FRR `bfdd`, e.g. 3 × 300 ms) on the sessions
+  between gateways and exits, and between exits and core, would detect it in under a
+  second. That needs BFD in the base configs (and on the exit switches); open-dci doesn't
+  render it. The lab doesn't run BFD.
+- **Recovery also loses packets** for a moment when a node's links come back: the returning
+  node attracts traffic before all its routes are in place. The cause isn't analysed in
+  detail yet; a hung node that returns, whose sessions come back with routes already in
+  its tables, loses next to nothing.
+
 ## What the network sees
 
 A tenant packet on the wire from gw-a1 to exit-a1 (DCI network mode, `make lab-capture`):

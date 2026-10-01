@@ -26,6 +26,7 @@ Both tenants (m-a/m-b/m-c with VNIs 3981/4011/5011, m-a2/m-b2/m-c2 with VNIs
 ```sh
 make lab-up        # build open-dci + labnode, deploy
 make lab-check     # Go e2e tests (build tag e2e)
+make lab-perf      # failure semantics under load (not part of lab-check)
 make lab-capture   # SRv6-in-VXLAN between gw-a1 and exit-a1
 make lab-down
 ```
@@ -104,6 +105,12 @@ Routing tables of every node: [docs/lab-routing.md](../docs/lab-routing.md).
 | `TestImportFilter` | the remote gateway exports a prefix outside the local allowlist: received as VPN route, never imported |
 | `TestPeerRouteTargetFilter` | the remote gateway sends a route target that isn't configured: dropped at the session |
 | `TestMaxPrefixes` | a peer exceeding `maxPrefixes` loses its session; limit restored by open-dci, session back after `clear bgp` |
+
+`TestPerfFailover` (build tags `e2e perf`, `make lab-perf`, ~4 min) is not part of the
+suite: it fails gw-b2 and exit-b1 (links down, or silently dropping everything) while pings
+and iperf3 TCP streams run between the partitions, and logs the packet loss on failure and
+recovery and the longest TCP stall. It fails only if a TCP connection breaks or a flow
+doesn't recover. Results: [Operation](../docs/operation.md#failure-semantics).
 
 Debugging:
 

@@ -4,7 +4,7 @@ BIN     := lab/bin
 CLAB    ?= containerlab   # CI: CLAB="sudo containerlab"
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: build test lint labnode docs-svg lab-up lab-check lab-down lab-redeploy lab-capture
+.PHONY: build test lint labnode docs-svg lab-up lab-check lab-perf lab-down lab-redeploy lab-capture
 
 build:            ## open-dci binary (static)
 	CGO_ENABLED=0 go build -trimpath -ldflags "-X main.version=$(VERSION)" -o $(BIN)/open-dci ./cmd/open-dci
@@ -16,6 +16,7 @@ lint:             ## what CI checks besides tests
 	@test -z "$$(gofmt -l .)" || { gofmt -l .; exit 1; }
 	go vet ./...
 	go vet -tags e2e ./lab/...
+	go vet -tags 'e2e perf' ./lab/...
 
 docs-svg:         ## regenerate the README drawings docs/packet-flow.svg, docs/logical-view.svg
 	go run ./docs/packetflow
@@ -28,6 +29,9 @@ lab-up: build labnode   ## deploy the lab; the gateways run open-dci as sidecar
 
 lab-check:        ## e2e tests against the running lab
 	go test -tags e2e -count=1 -v -timeout 30m ./lab/
+
+lab-perf:         ## failure semantics under load (gateway/exit fails, ping + TCP), against the running lab
+	go test -tags 'e2e perf' -count=1 -v -timeout 30m -run TestPerf ./lab/
 
 lab-down:
 	$(CLAB) destroy -t $(TOPO) --cleanup

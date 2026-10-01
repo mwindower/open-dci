@@ -81,6 +81,7 @@ make lint            # gofmt + go vet (as in CI)
 make build           # lab/bin/open-dci (static)
 make lab-up          # build + deploy
 make lab-check       # e2e tests against the running lab
+make lab-perf        # failure semantics under load (tags e2e,perf; not in lab-check)
 make lab-redeploy    # down + up + check
 make lab-capture
 make lab-down
