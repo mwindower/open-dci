@@ -12,9 +12,10 @@ import (
 )
 
 // status prints the gateway state; with OPEN_DCI_OUTPUT=json as JSON.
+// routes selects the networks whose routes are listed ("", "all", VRF or VNI).
 // It exits non-zero (via the returned error) when the gateway is unhealthy.
-func status(w io.Writer, gw *gateway.Gateway) error {
-	st, err := gw.Status()
+func status(w io.Writer, gw *gateway.Gateway, routes string) error {
+	st, err := gw.Status(routes)
 	if err != nil {
 		return err
 	}
@@ -93,6 +94,66 @@ func printStatus(w io.Writer, st *gateway.Status) {
 		if n.NoBestPath > 0 {
 			fmt.Fprintf(tw, "  %s: %d prefix(es) WITHOUT BEST PATH (not installed)\n", n.VRF, n.NoBestPath)
 		}
+	}
+	tw.Flush()
+	for _, n := range st.Networks {
+		if n.Routes != nil {
+			printRoutes(w, n)
+		}
+	}
+}
+
+// printRoutes lists a network's routes: local and remote prefixes of the
+// tenant VRF, then the L3VNI's EVPN type-5 routes, indented under the network.
+func printRoutes(w io.Writer, n gateway.NetworkStatus) {
+	yes := func(b bool) string {
+		if b {
+			return "yes"
+		}
+		return "NO"
+	}
+	dash := func(s string) string {
+		if s == "" {
+			return "-"
+		}
+		return s
+	}
+	r := n.Routes
+	fmt.Fprintf(w, "\n%s  VNI %d  RT %s\n", n.VRF, n.VNI, n.RouteTarget)
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+
+	fmt.Fprintf(tw, "\n  LOCAL (%d)\tNEXT HOP\tAS PATH\tVPN\tKERNEL\n", len(r.Local))
+	for _, l := range r.Local {
+		nh, vpn := dash(l.NextHop), "-"
+		if l.Aggregate {
+			nh = "aggregate"
+		}
+		if l.Exported {
+			vpn = "exported"
+		}
+		kern := yes(l.Installed)
+		if l.NoBestPath {
+			kern = "NO BEST PATH"
+		}
+		fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\n", l.Prefix, nh, dash(l.ASPath), vpn, kern)
+	}
+
+	fmt.Fprintf(tw, "\n  REMOTE (%d)\tSID\tAS PATH\tPATHS\tKERNEL\n", len(r.Remote))
+	for _, rm := range r.Remote {
+		fmt.Fprintf(tw, "  %s\t%s\t%s\t%d\t%s\n", rm.Prefix, dash(strings.Join(rm.SIDs, ",")), dash(rm.ASPath), rm.Paths, yes(rm.Installed))
+	}
+
+	fmt.Fprintf(tw, "\n  EVPN TYPE-5 (%d)\tRD\tNEXT HOP\tAS PATH\tRT\tPATHS\n", len(r.EVPN))
+	for _, e := range r.EVPN {
+		dir := "in  "
+		if e.Advertised {
+			dir = "out "
+		}
+		paths := fmt.Sprint(e.Paths)
+		if e.NoBestPath {
+			paths += " NO BEST PATH"
+		}
+		fmt.Fprintf(tw, "  %s%s\t%s\t%s\t%s\t%s\t%s\n", dir, e.Prefix, e.RD, dash(e.NextHop), dash(e.ASPath), strings.Join(e.RTs, ","), paths)
 	}
 	tw.Flush()
 }

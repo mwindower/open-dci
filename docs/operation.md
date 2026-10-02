@@ -9,6 +9,7 @@ open-dci diff     -c config.yaml        # what is missing in the running FRR, an
 open-dci apply    -c config.yaml        # reconcile kernel + FRR once
 open-dci run      -c config.yaml -i 10s # reconcile continuously (service / sidecar)
 open-dci status   -c config.yaml        # exits non-zero if not healthy
+open-dci status   -c config.yaml --routes vrf3981   # plus the routes of a network (VRF, VNI or all)
 open-dci drain    -c config.yaml        # planned maintenance: the partner takes over
 open-dci undrain  -c config.yaml        # announce again
 open-dci version
@@ -71,6 +72,51 @@ vrf3982  65535:1002  10.0.0.16:1002  fd00:dc1:a:f8e:: (End.DT46)  3982 Up  1/1  
   - no prefix in a tenant VRF has valid paths but no best path (FRR installs nothing for
     it; seen rarely after `frr-reload.py`, fixed by a BGP session reset)
   - the ingress filter is installed
+
+### Routes of a network
+
+`status --routes <VRF|VNI|all>` lists, after the summary, the routes of the selected
+networks. On gw-a1:
+
+```
+vrf3981  VNI 3981  RT 65535:1001
+
+  LOCAL (4)            NEXT HOP   AS PATH                                      VPN       KERNEL
+  10.0.16.0/24         aggregate  -                                            exported  yes
+  10.0.16.10/32        10.0.0.11  4200000014 4200000013 4200000011 4200000015  -         yes
+  2001:db8:16::/48     aggregate  -                                            exported  yes
+  2001:db8:16::10/128  10.0.0.11  4200000014 4200000013 4200000011 4200000015  -         yes
+
+  REMOTE (4)        SID                AS PATH                           PATHS  KERNEL
+  10.0.32.0/24      fd00:dc1:b:fab::   4200000014 4200000024 4200000026  4      yes
+  10.0.48.0/24      fd00:dc1:c:1393::  4200000014 4200000034 4200000036  4      yes
+  2001:db8:32::/48  fd00:dc1:b:fab::   4200000014 4200000024 4200000026  4      yes
+  2001:db8:48::/48  fd00:dc1:c:1393::  4200000014 4200000034 4200000036  4      yes
+
+  EVPN TYPE-5 (6)          RD           NEXT HOP   AS PATH                                      RT                     PATHS
+  in  10.0.16.10/32        10.0.0.11:4  10.0.0.11  4200000014 4200000013 4200000011 4200000015  59915:3981             2
+  in  2001:db8:16::10/128  10.0.0.11:4  10.0.0.11  4200000014 4200000013 4200000011 4200000015  59915:3981             2
+  out 10.0.32.0/24         10.0.0.16:5  10.0.0.16  4200000014 4200000024 4200000026             65535:1001,59920:3981  1
+  out 10.0.48.0/24         10.0.0.16:5  10.0.0.16  4200000014 4200000034 4200000036             65535:1001,59920:3981  1
+  out 2001:db8:32::/48     10.0.0.16:5  10.0.0.16  4200000014 4200000024 4200000026             65535:1001,59920:3981  1
+  out 2001:db8:48::/48     10.0.0.16:5  10.0.0.16  4200000014 4200000034 4200000036             65535:1001,59920:3981  1
+```
+
+- `LOCAL`: the tenant VRF's prefixes from the own partition, by their best path: host
+  routes from EVPN with the VTEP as next hop, and the own aggregates. `VPN` says whether
+  the prefix is exported under the network's RD (host routes inside an aggregate are not).
+  `KERNEL` says whether zebra installed a route for it (for an aggregate, the blackhole).
+  A prefix with valid paths but no best path shows up here as `NO BEST PATH`.
+- `REMOTE`: prefixes imported from other partitions via the VPN, with the SID the kernel
+  route encapsulates to (from zebra), the AS path (its last AS is the remote gateway
+  pair's), and the number of VPN paths (both exits × both remote gateways).
+- `EVPN TYPE-5`: the L3VNI's type-5 routes in the global EVPN table. `in` are received from
+  the fabric with one of the VRF's import RTs, or an auto-derived RT with the VNI (FRR
+  imports those whatever ASN they carry); `out` are advertised by this gateway under the
+  L3VNI's RD: the remote prefixes, carrying the network's RT and the auto RT.
+- With `OPEN_DCI_OUTPUT=json`, the routes are in `Networks[].Routes`.
+
+The listing is read from FRR on every call; with many prefixes, select a single network.
 
 ## What `apply` / `run` change
 
