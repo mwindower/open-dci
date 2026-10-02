@@ -311,3 +311,79 @@ func TestAggregation(t *testing.T) {
 		t.Error("an unused address of partition A's range answers")
 	}
 }
+
+// networks[].defaultRoute: partition C (export) has the breakout, here m-c
+// announcing the default route with an "internet" address behind it that
+// isn't announced. Partition A (import) reaches it via SRv6; partition B
+// (neither) doesn't get the default route. A default route from A's own
+// fabric wins over the imported one.
+func TestDefaultRoute(t *testing.T) {
+	const internet = "198.51.100.1"
+	announce := func(node, asn string, on bool) error {
+		no := ""
+		if !on {
+			no = "no "
+		}
+		return vtyshConf(node, no+"ip route 0.0.0.0/0 blackhole", no+"ipv6 route ::/0 blackhole",
+			"router bgp "+asn, "address-family ipv4 unicast", no+"network 0.0.0.0/0", "exit",
+			"address-family ipv6 unicast", no+"network ::/0")
+	}
+	if _, err := lab.Exec("m-c", "sh", "-c", "ip link add inet0 type dummy && ip link set inet0 up && ip addr add "+internet+"/32 dev inet0"); err != nil {
+		t.Fatal(err)
+	}
+	defer lab.Exec("m-c", "ip", "link", "del", "inet0")
+	if err := announce("m-c", "4200000035", true); err != nil {
+		t.Fatal(err)
+	}
+	defer announce("m-c", "4200000035", false)
+
+	for _, af := range []struct{ name, dflt string }{{"ipv4", "0.0.0.0/0"}, {"ipv6", "::/0"}} {
+		waitFor(t, converge, present("gw-a1", af.name+" vpn", af.dflt)) // exported by pair C
+		for _, w := range []struct{ node, vrf string }{{"gw-a1", mA.vrf}, {"gw-a2", mA.vrf}, {"leaf-a", mA.vrf}} {
+			waitFor(t, converge, present(w.node, "vrf "+w.vrf+" "+af.name+" unicast", af.dflt))
+		}
+		for _, w := range []struct{ node, vrf string }{{"gw-b1", mB.vrf}, {"leaf-b", mB.vrf}} {
+			if hasRoute(w.node, "vrf "+w.vrf+" "+af.name+" unicast", af.dflt) {
+				t.Errorf("%s imported %s into %s without defaultRoute: import", w.node, af.dflt, w.vrf)
+			}
+		}
+	}
+	waitFor(t, converge, func() error {
+		out, err := lab.KernelRoute("gw-a1", mA.vrf, "default")
+		if err != nil || !strings.Contains(out, "segs 1 [ "+mC.sid+" ]") {
+			return fmt.Errorf("gw-a1's default route doesn't lead to pair C: %v\n%s", err, out)
+		}
+		return nil
+	})
+
+	// m-a's own default (the container's management network) would win
+	mgmt, err := lab.Exec("m-a", "ip", "route", "show", "default")
+	if err != nil || !strings.Contains(mgmt, "eth0") {
+		t.Fatalf("m-a's management default route: %v %q", err, mgmt)
+	}
+	if _, err := lab.Exec("m-a", "ip", "route", "del", "default", "dev", "eth0"); err != nil {
+		t.Fatal(err)
+	}
+	defer lab.Exec("m-a", "sh", "-c", "ip route add "+strings.TrimSpace(mgmt))
+	waitFor(t, converge, func() error { return lab.Ping("m-a", internet, 0) })
+
+	// a default route from A's own fabric wins; the imported one is the fallback
+	if err := announce("m-a", "4200000015", true); err != nil {
+		t.Fatal(err)
+	}
+	defer announce("m-a", "4200000015", false)
+	viaFabric := func(want bool) func() error {
+		return func() error {
+			out, err := lab.KernelRoute("gw-a1", mA.vrf, "default")
+			if err != nil || strings.Contains(out, "dev dcibr"+mA.vni) != want {
+				return fmt.Errorf("gw-a1's default route via the own fabric: want %v: %v\n%s", want, err, out)
+			}
+			return nil
+		}
+	}
+	waitFor(t, converge, viaFabric(true))
+	if err := announce("m-a", "4200000015", false); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, converge, viaFabric(false))
+}

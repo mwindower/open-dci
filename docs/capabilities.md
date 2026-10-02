@@ -17,6 +17,7 @@ design behind it: [README](../README.md#design-decisions).
 | Mixed transport modes (DCI network ↔ default VRF) | yes | yes |
 | Redundant gateways per partition (anycast locator, failover without BGP changes) | yes | yes |
 | Gateways attached to two exits each (ECMP; a whole exit can fail) | yes | yes |
+| A default route (internet breakout) of one partition for the others | yes, opt-in per gateway (`networks[].defaultRoute`); a local default route wins | yes (C → A) |
 | Overlapping prefixes *within* one stitched network | no: the partitions share one routing domain | – |
 | L2: stretched subnets, MAC/IP routes | no | – |
 

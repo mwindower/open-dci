@@ -192,6 +192,13 @@ route-map DCI-vrf3981-v4 permit 10
  match ip address prefix-list DCI-vrf3981-v4
  set large-comm-list DCI-AGG delete             ! the aggregate mark stays on the gateway
 !                                               (IPv6 alike; a family without entries: "deny 10")
+route-map DCI-vrf3981-v4-default permit 10      ! only with defaultRoute: the same allowlist,
+ match ip address prefix-list DCI-vrf3981-v4    !   used for the VPN import (import) or
+ set large-comm-list DCI-AGG delete             !   export (export) instead of DCI-vrf3981-v4
+route-map DCI-vrf3981-v4-default permit 20      !   ... plus the default route
+ match ip address prefix-list DCI-DEFAULT-v4
+ set local-preference 50                        !   import only: behind a local default route
+ip prefix-list DCI-DEFAULT-v4 seq 5 permit 0.0.0.0/0
 bgp large-community-list standard DCI-AGG seq 5 permit 4200000016:0:1   ! only with aggregates:
 route-map DCI-AGG permit 10                     !   marks the own aggregates ...
  set large-community 4200000016:0:1

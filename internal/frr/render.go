@@ -64,6 +64,16 @@ const (
 // export and import per family ("v4", "v6").
 func FilterName(vrf, family string) string { return "DCI-" + vrf + "-" + family }
 
+// DefaultFilterName is the route-map that also lets the default route through,
+// in the direction networks[].defaultRoute names; DefaultList matches it.
+func DefaultFilterName(vrf, family string) string { return FilterName(vrf, family) + "-default" }
+
+func DefaultList(family string) string { return "DCI-DEFAULT-" + family }
+
+// DefaultImportLocalPref puts an imported default route behind one from the
+// own fabric (local preference 100).
+const DefaultImportLocalPref = 50
+
 // filter is one prefix-list plus route-map; no entries means deny all.
 type filter struct {
 	Name       string
@@ -71,6 +81,11 @@ type filter struct {
 	Entries    []string
 	// DeleteMarker strips the aggregate marker on VPN export.
 	DeleteMarker bool
+	// Default ("export", "import") adds the route-map DefaultName, which
+	// also passes the default route, for that direction.
+	Default     string
+	DefaultName string
+	DefaultList string
 }
 
 type renderData struct {
@@ -96,11 +111,12 @@ type renderData struct {
 	// InterfacePeers: some peers are the single-hop session to the exit. FRR
 	// tracks the remote SID as next hop of imported SRv6 VPN routes, and for
 	// single-hop eBGP it requires that to be connected, which a SID never is.
-	InterfacePeers bool
-	Filters        []filter
-	RTs            []string // all route targets, for the peers' inbound filter
-	Aggregating    bool     // some network has aggregates
-	active         map[string]bool
+	InterfacePeers  bool
+	Filters         []filter
+	RTs             []string // all route targets, for the peers' inbound filter
+	Aggregating     bool     // some network has aggregates
+	DefaultFamilies []string // families with a default prefix-list ("v4", "v6")
+	active          map[string]bool
 }
 
 func (d renderData) RD(vrf string) string {
@@ -148,6 +164,17 @@ func (d renderData) Aggregates(vrf, family string) []netip.Prefix {
 	return out
 }
 
+// VPNFilter is the route-map of a network's VPN import or export ("import",
+// "export") in one family.
+func (d renderData) VPNFilter(vrf, family, dir string) string {
+	for _, n := range d.Config.Networks {
+		if n.VRF == vrf && n.DefaultRoute == dir {
+			return DefaultFilterName(vrf, family)
+		}
+	}
+	return FilterName(vrf, family)
+}
+
 // Render returns the FRR configuration open-dci adds for cfg.
 func Render(cfg *config.Config, id Identity) (string, error) {
 	if id.ASN == 0 || id.RouterID == "" {
@@ -185,7 +212,8 @@ func Render(cfg *config.Config, id Identity) (string, error) {
 			family, list string
 			rules        []config.PrefixRule
 		}{{"v4", "ip", v4}, {"v6", "ipv6", v6}} {
-			flt := filter{Name: FilterName(n.VRF, f.family), PrefixList: f.list, DeleteMarker: len(n.Aggregates) > 0}
+			flt := filter{Name: FilterName(n.VRF, f.family), PrefixList: f.list, DeleteMarker: len(n.Aggregates) > 0,
+				Default: n.DefaultRoute, DefaultName: DefaultFilterName(n.VRF, f.family), DefaultList: DefaultList(f.family)}
 			for _, r := range f.rules {
 				flt.Entries = append(flt.Entries, r.String())
 			}
@@ -194,20 +222,24 @@ func Render(cfg *config.Config, id Identity) (string, error) {
 		if len(n.Aggregates) > 0 {
 			d.Aggregating = true
 		}
+		if n.DefaultRoute != "" && len(d.DefaultFamilies) == 0 {
+			d.DefaultFamilies = []string{"v4", "v6"}
+		}
 		if !seenRT[n.RouteTarget] {
 			seenRT[n.RouteTarget] = true
 			d.RTs = append(d.RTs, n.RouteTarget)
 		}
 	}
 	tpl, err := template.New("dci").Funcs(template.FuncMap{
-		"list":    func(s ...string) []string { return s },
-		"seq":     func(i int) int { return (i + 1) * 5 },
-		"filter":  FilterName,
-		"peerIn":  func() string { return PeerInRouteMap },
-		"rtList":  func() string { return RTList },
-		"aggMap":  func() string { return AggregateRouteMap },
-		"aggList": func() string { return AggregateList },
-		"advMap":  func() string { return AdvertiseRouteMap },
+		"list":        func(s ...string) []string { return s },
+		"seq":         func(i int) int { return (i + 1) * 5 },
+		"peerIn":      func() string { return PeerInRouteMap },
+		"rtList":      func() string { return RTList },
+		"aggMap":      func() string { return AggregateRouteMap },
+		"aggList":     func() string { return AggregateList },
+		"advMap":      func() string { return AdvertiseRouteMap },
+		"defaultLP":   func() int { return DefaultImportLocalPref },
+		"defaultList": DefaultList,
 		"familyOf": func(af string) string {
 			if af == "ipv4" {
 				return "v4"

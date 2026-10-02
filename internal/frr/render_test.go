@@ -387,6 +387,49 @@ networks:
 	}
 }
 
+// defaultRoute adds the default route to one direction only: export sends the
+// own fabric's into the VPN, import takes a remote one behind the own fabric's.
+func TestRenderDefaultRoute(t *testing.T) {
+	cfg, err := config.Parse([]byte(`
+gateway: {locator: "fd00:dc1:a2::/48", locatorBlock: "fd00:dc1::/32"}
+peers: [{address: "fd00:dc1:b2::1", asn: 4200000026}]
+networks:
+  - {vrf: out, vni: 1, routeTarget: "65535:1", aggregates: [10.0.16.0/24], defaultRoute: export}
+  - {vrf: in, vni: 2, routeTarget: "65535:2", aggregates: [10.0.17.0/24], defaultRoute: import}
+  - {vrf: none, vni: 3, routeTarget: "65535:3", aggregates: [10.0.18.0/24]}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := Render(cfg, Identity{ASN: 4200000016, RouterID: "10.0.0.16"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []string{
+		"  route-map vpn import DCI-out-v4\n", "  route-map vpn export DCI-out-v4-default\n",
+		"  route-map vpn import DCI-in-v6-default\n", "  route-map vpn export DCI-in-v6\n",
+		"  route-map vpn import DCI-none-v4\n", "  route-map vpn export DCI-none-v4\n",
+		"route-map DCI-out-v4-default permit 10\n match ip address prefix-list DCI-out-v4\n set large-comm-list DCI-AGG delete\nexit\n!\n" +
+			"route-map DCI-out-v4-default permit 20\n match ip address prefix-list DCI-DEFAULT-v4\nexit\n",
+		"route-map DCI-in-v4-default permit 20\n match ip address prefix-list DCI-DEFAULT-v4\n set local-preference 50\nexit\n",
+		// a family without allowlist entries passes only the default route
+		"route-map DCI-in-v6-default permit 20\n match ipv6 address prefix-list DCI-DEFAULT-v6\n set local-preference 50\nexit\n",
+		"ip prefix-list DCI-DEFAULT-v4 seq 5 permit 0.0.0.0/0\nipv6 prefix-list DCI-DEFAULT-v6 seq 5 permit ::/0\n",
+	} {
+		if !strings.Contains(got, s) {
+			t.Errorf("missing %q in:\n%s", s, got)
+		}
+	}
+	for _, s := range []string{"DCI-none-v4-default", "route-map DCI-in-v6-default permit 10"} {
+		if strings.Contains(got, s) {
+			t.Errorf("must not render %q:\n%s", s, got)
+		}
+	}
+	if strings.Count(got, "DCI-DEFAULT-v4 seq") != 1 {
+		t.Errorf("the default prefix-list once:\n%s", got)
+	}
+}
+
 // Lines that are gone already (the base system reloaded FRR) aren't removed
 // again; a provisioned VRF's vni line still decides whether it's dropped.
 func TestPresent(t *testing.T) {

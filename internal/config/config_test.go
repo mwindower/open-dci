@@ -59,6 +59,8 @@ func TestValidate(t *testing.T) {
 		{"aggregate default route", `prefixes: ["10.0.16.0/24 le 32"]`, `aggregates: ["::/0"]`, "default route"},
 		{"aggregate host route", `prefixes: ["10.0.16.0/24 le 32"]`, `aggregates: [10.0.16.1/32]`, "host route"},
 		{"aggregates overlap", `prefixes: ["10.0.16.0/24 le 32"]`, `aggregates: [10.0.16.0/24, 10.0.16.128/25]`, "overlaps 10.0.16.0/24"},
+		{"bad defaultRoute", `routeTarget: "65535:1001"`, `routeTarget: "65535:1001", defaultRoute: both`, `want "export" or "import"`},
+		{"defaultRoute and default prefix", `routeTarget: "65535:1001", prefixes: ["10.0.16.0/24 le 32"]`, `routeTarget: "65535:1001", defaultRoute: import, prefixes: ["0.0.0.0/0"]`, "matches the default route"},
 		{"aggregate also a prefix", `prefixes: ["10.0.16.0/24 le 32"]`, `aggregates: [10.0.16.0/24], prefixes: [10.0.16.0/24]`, "listed twice"},
 		{"prefix with host bits", "10.0.16.0/24 le 32", "10.0.16.1/24", "host bits"},
 		{"prefix le too small", "10.0.16.0/24 le 32", "10.0.16.0/24 le 24", "between 25 and 32"},

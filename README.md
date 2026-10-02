@@ -302,7 +302,8 @@ the `sid`s and the BGP ASN (which prevents loops). The VNIs are local to each pa
 **Safety net.**
 - A partition announces each of a network's `aggregates` (e.g. a /24) instead of the
   machines' host routes in it. Only aggregates and `prefixes` leave or enter a VRF;
-  anything else, including a default route unless listed, stays in its partition.
+  anything else stays in its partition, including a default route unless a network shares
+  one from its breakout partition (`defaultRoute`).
 - Each peer only delivers routes with a configured route target, up to `maxPrefixes`
   (default 10000) per address family. See [Configuration](docs/configuration.md#networks).
 - Forged SRv6 packets never reach a SID: the gateway drops packets from tenants to the

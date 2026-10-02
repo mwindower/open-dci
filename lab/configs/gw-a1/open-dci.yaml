@@ -14,6 +14,7 @@ networks:
   - vrf: vrf3981                  # created by open-dci (kernel table 3981 = the VNI)
     vni: 3981                     # tenant 1's VNI in partition A (as on leaf-a); SID function = VNI
     routeTarget: "65535:1001"     # the stitched network's global identity
+    defaultRoute: import          # a default route from partition C (its breakout), behind a local one
     aggregates:                   # tenant 1's ranges, one per partition, same on all gateways;
                                   # each pair announces its own range instead of the host routes
       - 10.0.16.0/24              #   partition A

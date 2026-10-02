@@ -15,6 +15,7 @@ this could be automated (see the [roadmap](development.md#roadmap)).
 | `networks[].routeTarget` | per stitched network | identical on all its members, unique per stitched network |
 | `networks[].aggregates`, `networks[].prefixes` | per stitched network | identical on all its members: the network's address space in all partitions; each aggregate in exactly one partition |
 | `networks[].vni` | local | the tenant's VNI in this partition |
+| `networks[].defaultRoute` | per partition | the same on both gateways of a pair: `export` where the breakout is, `import` where it's used |
 | `networks[].vrf`, `transport` | local | none |
 
 ## Checklists

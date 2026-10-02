@@ -115,6 +115,13 @@ type Network struct {
 	// stays in its partition. Like the route target, the list is the same on
 	// all gateways of the network.
 	Prefixes []string `json:"prefixes,omitempty"`
+	// DefaultRoute shares a default route (0.0.0.0/0, ::/0) between the
+	// partitions of the network, set per gateway: "export" sends the default
+	// route from the own fabric (e.g. the partition's internet breakout) into
+	// the VPN, "import" takes over a remote partition's one as a fallback
+	// (a default route from the own fabric wins). Empty: the default route
+	// stays in its partition.
+	DefaultRoute string `json:"defaultRoute,omitempty"`
 	// VNI is the tenant's L3VNI in this partition. open-dci provisions the
 	// VRF with it: VRF, bridge, VXLAN device and the FRR VRF with its BGP
 	// instance, which joins the partition's EVPN.
@@ -255,6 +262,12 @@ func ParsePrefixRule(s string) (PrefixRule, error) {
 	}
 	return r, nil
 }
+
+// Values of Network.DefaultRoute.
+const (
+	DefaultExport = "export"
+	DefaultImport = "import"
+)
 
 // AggregatePrefixes returns the parsed aggregates, IPv4 and IPv6 separately.
 // The config must have been validated.
@@ -470,6 +483,11 @@ func (c *Config) Validate() error {
 		if len(n.Prefixes) == 0 && len(n.Aggregates) == 0 {
 			fail("networks[%d]: at least one of aggregates and prefixes is required (nothing is exchanged otherwise)", i)
 		}
+		switch n.DefaultRoute {
+		case "", DefaultExport, DefaultImport:
+		default:
+			fail("networks[%d].defaultRoute: %q, want %q or %q", i, n.DefaultRoute, DefaultExport, DefaultImport)
+		}
 		seenRule := map[PrefixRule]bool{}
 		var aggs []netip.Prefix
 		for j, s := range n.Aggregates {
@@ -493,6 +511,8 @@ func (c *Config) Validate() error {
 				fail("networks[%d].prefixes[%d]: %v", i, j, err)
 			case seenRule[r]:
 				fail("networks[%d].prefixes[%d]: %s listed twice (aggregates are part of the allowlist)", i, j, r)
+			case n.DefaultRoute != "" && r.Prefix.Bits() == 0:
+				fail("networks[%d].prefixes[%d]: %s matches the default route, which defaultRoute already handles", i, j, r)
 			}
 			seenRule[r] = true
 		}

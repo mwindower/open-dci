@@ -16,6 +16,10 @@ Each partition has two exits and a redundant gateway pair sharing locator, SIDs 
   `fd00:dc1:ff::c1`/`::c2`, exits exit-c1/c2, VTEPs 10.0.2.x). It is left out below where it
   only adds the same lines once more.
 
+Each partition announces its ranges as aggregates (`networks[].aggregates`). For tenant 1,
+partition C exports a default route and A imports it (`defaultRoute`); the lab has no
+default route in the fabric, `TestDefaultRoute` lets m-c announce one for a while.
+
 All pairs provision two tenants: tenant 1 (m-a 10.0.16.10, m-b 10.0.32.10, m-c 10.0.48.10;
 VNIs 3981/4011/5011, RT `65535:1001`) and tenant 2 (m-a2 10.0.17.10, m-b2 10.0.33.10, m-c2
 10.0.49.10; VNIs 3982/4012/5012, RT `65535:1002`). Tenant 1 between A and B is shown; tenant

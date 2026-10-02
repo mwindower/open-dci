@@ -107,6 +107,8 @@ Routing tables of every node: [docs/lab-routing.md](../docs/lab-routing.md).
 | `TestSelfHealAfterFRRReload` | `frr-reload.py` of the base config wipes all open-dci lines → back within one interval |
 | `TestSelfHealMTU` | DCI devices reset to 9000 → raised again, 9000 B packets pass |
 | `TestRemovesStaleConfig` | a peer dropped from the config is removed from FRR |
+| `TestAggregation` | each pair announces its partition's ranges instead of the host routes; the own fabric doesn't get them back as type-5; blackhole for unused addresses |
+| `TestDefaultRoute` | partition C (`defaultRoute: export`) shares m-c's default route: partition A (`import`) reaches an address behind it via SRv6, partition B doesn't get it; a default route from A's own fabric wins |
 | `TestExportFilter` | a machine announces a prefix outside the allowlist and a default route: learned by the gateway, never exported |
 | `TestImportFilter` | the remote gateway exports a prefix outside the local allowlist: received as VPN route, never imported |
 | `TestPeerRouteTargetFilter` | the remote gateway sends a route target that isn't configured: dropped at the session |

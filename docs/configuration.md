@@ -83,7 +83,8 @@ session, before any VRF import.
 | `table` | the VNI | Kernel routing table of the VRF. |
 | `sid` | the VNI | Function part of the network's End.DT46 SID, `<locator>:<sid in hex>::` (1 – 65535). Pinned, so the SID survives restarts and is identical on both gateways of a pair. Must be set if the VNI doesn't fit 16 bits. |
 | `aggregates` | – | The stitched network's address ranges, plain prefixes (`10.0.16.0/24`), **each in exactly one partition**. The gateways of the partition whose tenant VRF holds more specific routes from its own fabric in a range (the machines' /32 and /128 from EVPN) announce the range instead of them and drop traffic to its unused addresses (blackhole route). A range without such routes isn't announced, so the list is the same on all gateways of the network. open-dci checks this on every reconcile (`run -i`, default 10 s): the first host in a range, or the last one leaving it, takes effect within one interval. Aggregates are part of the allowlist (matched exactly). A range used in two partitions doesn't work: each pair prefers its own aggregate. The own aggregate isn't announced back into the own partition (it has the host routes). Adding the first aggregate to a network, or removing the last one, briefly withdraws the gateway's type-5 routes of that network (its `advertise` lines change); the partner gateway carries the traffic meanwhile, so change one gateway of a pair at a time. |
-| `prefixes` | – | Further routes passed as they are, in FRR prefix-list syntax: `PREFIX [ge N] [le N]`. A bare prefix matches exactly, `ge`/`le` extend it to more-specific ones (`10.0.16.0/24 le 32`: the /24 and every host in it). Only routes matching an aggregate or a prefix are exported from and imported into the VRF. Everything else stays in its partition, including a default route unless `0.0.0.0/0` / `::/0` is listed. Like `routeTarget`, the list is the same on all gateways of the network. A family without entries in `aggregates` and `prefixes` is not exchanged at all. At least one of the two lists is required. |
+| `prefixes` | – | Further routes passed as they are, in FRR prefix-list syntax: `PREFIX [ge N] [le N]`. A bare prefix matches exactly, `ge`/`le` extend it to more-specific ones (`10.0.16.0/24 le 32`: the /24 and every host in it). Only routes matching an aggregate or a prefix are exported from and imported into the VRF. Everything else stays in its partition, including a default route (see `defaultRoute`). Like `routeTarget`, the list is the same on all gateways of the network. A family without entries in `aggregates` and `prefixes` is not exchanged at all. At least one of the two lists is required. |
+| `defaultRoute` | – | Shares a default route (`0.0.0.0/0`, `::/0`) between the partitions of the network. Set **per gateway**, the same on both of a pair. `export`: the partition with the breakout (e.g. its firewall) sends the default route from its fabric into the VPN. `import`: the partition takes a remote one over and announces it into its fabric, with local preference 50, so a default route from the own fabric wins and the remote one is only the fallback. Unset: the default route stays in its partition, in both directions. Several exporting partitions work as redundant breakouts (the importers pick by BGP path selection). A tenant VRF with an imported default route no longer ends in its `unreachable default`: everything unknown goes to the breakout. `prefixes` must not also match the default route. |
 
 ## Validation
 
@@ -98,8 +99,9 @@ Besides syntax, `validate` (and every other command) rejects:
 - a `sid` out of range or used twice, a `loopback` inside the locator or outside the block
 - a network without `aggregates` and `prefixes`; malformed aggregates (host bits set,
   `ge`/`le`, a default or host route) or overlapping ones; malformed prefixes (host bits
-  set, `ge`/`le` out of range, `ge` > `le`) or duplicates, also of an aggregate; and a
-  `maxPrefixes` below 1
+  set, `ge`/`le` out of range, `ge` > `le`) or duplicates, also of an aggregate; a
+  `defaultRoute` other than `export`/`import`, or together with a prefix matching the
+  default route; and a `maxPrefixes` below 1
 
 At runtime, `apply`/`run`/`diff`/`status` also check the system:
 - the transport VRF (if any) exists in the kernel, with a BGP instance

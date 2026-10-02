@@ -90,8 +90,8 @@ router bgp {{ $.ASN }} vrf {{ $n.VRF }}
 {{- end }}
   rd vpn export {{ $.RD $n.VRF }}
   rt vpn both {{ $.RT $n.VRF }}
-  route-map vpn import {{ filter $n.VRF (familyOf $af) }}
-  route-map vpn export {{ filter $n.VRF (familyOf $af) }}
+  route-map vpn import {{ $.VPNFilter $n.VRF (familyOf $af) "import" }}
+  route-map vpn export {{ $.VPNFilter $n.VRF (familyOf $af) "export" }}
   export vpn
   import vpn
  exit-address-family
@@ -143,6 +143,31 @@ exit
 route-map {{ $f.Name }} deny 10
 exit
 {{- end }}
+!
+{{- if $f.Default }}
+{{- /* the same allowlist plus the default route, for one direction */}}
+{{- if $f.Entries }}
+route-map {{ $f.DefaultName }} permit 10
+ match {{ $f.PrefixList }} address prefix-list {{ $f.Name }}
+{{- if $f.DeleteMarker }}
+ set large-comm-list {{ aggList }} delete
+{{- end }}
+exit
+!
+{{- end }}
+route-map {{ $f.DefaultName }} permit 20
+ match {{ $f.PrefixList }} address prefix-list {{ $f.DefaultList }}
+{{- if eq $f.Default "import" }}
+ set local-preference {{ defaultLP }}
+{{- end }}
+exit
+!
+{{- end }}
+{{- end }}
+{{- range .DefaultFamilies }}
+{{ if eq . "v4" }}ip prefix-list {{ defaultList . }} seq 5 permit 0.0.0.0/0{{ else }}ipv6 prefix-list {{ defaultList . }} seq 5 permit ::/0{{ end }}
+{{- end }}
+{{- if .DefaultFamilies }}
 !
 {{- end }}
 {{- if .Aggregating }}
