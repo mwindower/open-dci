@@ -13,8 +13,9 @@ this could be automated (see the [roadmap](development.md#roadmap)).
 | `gateway.locator` | per gateway | unique inside the block |
 | `peers[]` | per gateway | the session to the exit (`interface`); or, without relaying exits, every other gateway's loopback and ASN (a full mesh) |
 | `networks[].routeTarget` | per stitched network | identical on all its members, unique per stitched network |
-| `networks[].prefixes` | per stitched network | identical on all its members: the network's address space in all partitions |
+| `networks[].aggregates`, `networks[].prefixes` | per stitched network | identical on all its members: the network's address space in all partitions; each aggregate in exactly one partition |
 | `networks[].vni` | local | the tenant's VNI in this partition |
+| `networks[].defaultRoute` | per partition | the same on both gateways of a pair: `export` where the breakout is, `import` where it's used |
 | `networks[].vrf`, `transport` | local | none |
 
 ## Checklists
@@ -50,11 +51,11 @@ this could be automated (see the [roadmap](development.md#roadmap)).
 - The tenant has a network (an L3VNI) in each partition (metal-stack: one private network
   per partition). Its VNIs may differ.
 - Allocate one new route target (see below) and write down the network's address space in
-  all partitions. On each member gateway, add `{vrf, vni, routeTarget, prefixes}` with the
+  all partitions. On each member gateway, add `{vrf, vni, routeTarget, aggregates}` with the
   tenant's VNI in that partition; open-dci provisions the VRF. `routeTarget` and
-  `prefixes` are the same everywhere.
+  `aggregates` (or `prefixes`) are the same everywhere.
 - A new prefix in one partition (e.g. a new private network range) must be added to
-  `prefixes` on **all** member gateways, or it won't be exchanged.
+  `aggregates` on **all** member gateways, or it won't be exchanged.
 - No peer changes. Gateways that aren't members stay untouched.
 - The network's prefixes must be disjoint across partitions.
 

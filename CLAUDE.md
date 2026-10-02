@@ -148,6 +148,16 @@ old binary until it is redeployed (or you `docker cp` for a quick look).
   though BGP withdrew the path: zebra reuses the group (`rib nhg matched, changed
   'false'`). The lab's gateways, exits, spines and core run `no zebra nexthop kernel
   enable`; without it, the locator gate is useless.
+- FRR 10.4.1's `aggregate-address` in a tenant VRF is unusable for `networks[].aggregates`:
+  it stays after its last more specific route (an EVPN type-5) is gone, and its VPN copy
+  stays even after `no aggregate-address` (only `no export vpn`/`export vpn` flushes it).
+  open-dci therefore decides itself which aggregates have hosts from the own fabric
+  (`internal/gateway/aggregate.go`; VPN-imported routes have `nhVrfName`) and renders only
+  those, as `network P route-map DCI-AGG` plus `ip route P blackhole` in the VRF; `no
+  network` withdraws cleanly. `TestWithdrawal` catches regressions.
+- Own aggregates are marked (large community `<ASN>:0:1`, `DCI-AGG`) and kept out of the
+  own partition's type-5 (`advertise … route-map DCI-ADV`); the VPN export filter deletes
+  the mark, otherwise the remote gateways' `DCI-ADV` would drop the aggregate too.
 - `bgp suppress-fib-pending` on the exits: FRR never announced the EVPN-imported anycast
   locator (two next hops) to the core. Not used anywhere.
 - `run` also checks the gateway's health every 2 s (`internal/gateway/health.go`) and
@@ -171,6 +181,8 @@ old binary until it is redeployed (or you `docker cp` for a quick look).
 ## Conventions
 
 - Lab configs are readable reference configs; keep them commented.
+- Lab BGP sessions: unnumbered (`neighbor <if> interface`) wherever there is a direct link,
+  and always `remote-as external`. Only the exits' ladder (loopback multihop) is numbered.
 - New behaviour gets a unit test (config/render/parse) and, if it touches the data plane or
   FRR, an e2e test.
 - The README stays short (mascot, intro, "Why open-dci" with key properties and use cases,

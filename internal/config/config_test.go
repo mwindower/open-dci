@@ -53,7 +53,15 @@ func TestValidate(t *testing.T) {
 		{"vni missing", "vni: 3981, ", "", "networks[0].vni: required"},
 		{"vni too large", "vni: 3981", "vni: 16777216", "networks[0].vni"},
 		{"reserved table", "vni: 3981", "vni: 254", "reserved"},
-		{"prefixes missing", `, prefixes: ["10.0.16.0/24 le 32"]`, "", "prefixes: at least one"},
+		{"prefixes missing", `, prefixes: ["10.0.16.0/24 le 32"]`, "", "at least one of aggregates and prefixes"},
+		{"aggregate with le", `prefixes: ["10.0.16.0/24 le 32"]`, `aggregates: ["10.0.16.0/24 le 32"]`, "want a plain prefix"},
+		{"aggregate with host bits", `prefixes: ["10.0.16.0/24 le 32"]`, `aggregates: [10.0.16.1/24]`, "host bits"},
+		{"aggregate default route", `prefixes: ["10.0.16.0/24 le 32"]`, `aggregates: ["::/0"]`, "default route"},
+		{"aggregate host route", `prefixes: ["10.0.16.0/24 le 32"]`, `aggregates: [10.0.16.1/32]`, "host route"},
+		{"aggregates overlap", `prefixes: ["10.0.16.0/24 le 32"]`, `aggregates: [10.0.16.0/24, 10.0.16.128/25]`, "overlaps 10.0.16.0/24"},
+		{"bad defaultRoute", `routeTarget: "65535:1001"`, `routeTarget: "65535:1001", defaultRoute: both`, `want "export" or "import"`},
+		{"defaultRoute and default prefix", `routeTarget: "65535:1001", prefixes: ["10.0.16.0/24 le 32"]`, `routeTarget: "65535:1001", defaultRoute: import, prefixes: ["0.0.0.0/0"]`, "matches the default route"},
+		{"aggregate also a prefix", `prefixes: ["10.0.16.0/24 le 32"]`, `aggregates: [10.0.16.0/24], prefixes: [10.0.16.0/24]`, "listed twice"},
 		{"prefix with host bits", "10.0.16.0/24 le 32", "10.0.16.1/24", "host bits"},
 		{"prefix le too small", "10.0.16.0/24 le 32", "10.0.16.0/24 le 24", "between 25 and 32"},
 		{"prefix le too large", "10.0.16.0/24 le 32", "10.0.16.0/24 le 33", "between 25 and 32"},
@@ -130,6 +138,27 @@ func TestPrefixRules(t *testing.T) {
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
+	}
+}
+
+func TestAggregates(t *testing.T) {
+	c, err := Parse([]byte(strings.Replace(valid, `prefixes: ["10.0.16.0/24 le 32"]`,
+		`aggregates: [10.0.16.0/24, "2001:db8:16::/48"], prefixes: ["0.0.0.0/0"]`, 1)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := c.Networks[0]
+	a4, a6 := n.AggregatePrefixes()
+	if len(a4) != 1 || a4[0].String() != "10.0.16.0/24" || len(a6) != 1 || a6[0].String() != "2001:db8:16::/48" {
+		t.Fatalf("aggregates: v4 %v v6 %v", a4, a6)
+	}
+	// aggregates are matched exactly in the allowlist, before the prefixes
+	v4, v6 := n.PrefixRules()
+	if len(v4) != 2 || v4[0].String() != "10.0.16.0/24" || v4[1].String() != "0.0.0.0/0" {
+		t.Fatalf("v4 rules: %v", v4)
+	}
+	if len(v6) != 1 || v6[0].String() != "2001:db8:16::/48" {
+		t.Fatalf("v6 rules: %v", v6)
 	}
 }
 

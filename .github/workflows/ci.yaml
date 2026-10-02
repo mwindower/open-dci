@@ -38,8 +38,14 @@ jobs:
           go-version-file: go.mod
       - name: Install containerlab
         run: bash -c "$(curl -sL https://get.containerlab.dev)" -- -v "$CLAB_VERSION"
+      # the runners' Azure kernel ships vrf only in linux-modules-extra
       - name: Kernel modules (VRF, VXLAN)
-        run: sudo modprobe -a vrf vxlan
+        run: |
+          if ! sudo modprobe -a vrf vxlan; then
+            sudo apt-get update
+            sudo apt-get install -y "linux-modules-extra-$(uname -r)"
+            sudo modprobe -a vrf vxlan
+          fi
       - run: docker pull "$FRR_IMAGE"
       - name: Deploy lab
         run: make lab-up CLAB="sudo containerlab"

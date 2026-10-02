@@ -17,6 +17,7 @@ design behind it: [README](../README.md#design-decisions).
 | Mixed transport modes (DCI network ↔ default VRF) | yes | yes |
 | Redundant gateways per partition (anycast locator, failover without BGP changes) | yes | yes |
 | Gateways attached to two exits each (ECMP; a whole exit can fail) | yes | yes |
+| A default route (internet breakout) of one partition for the others | yes, opt-in per gateway (`networks[].defaultRoute`); a local default route wins | yes (C → A) |
 | Overlapping prefixes *within* one stitched network | no: the partitions share one routing domain | – |
 | L2: stretched subnets, MAC/IP routes | no | – |
 
@@ -32,7 +33,7 @@ is on the [roadmap](development.md#roadmap)).
 | Partitions (gateway pairs) | 65536 with the default `/32` block and 16 node bits | One locator (`/48`) per pair, shared by both gateways. |
 | BGP sessions per gateway | 1 per exit it is attached to (the lab: 2) | Gateways only peer with their exits; the exits relay the VPN routes between the partitions (a ladder in the lab; mesh or route servers, see [Configuration](configuration.md#requirements-on-the-environment)). A full mesh between gateways (`peers[].address`) is still possible. |
 | VNIs | 24 bit | VXLAN. VNIs are local to a partition, so they don't add up. |
-| VPN prefixes per peer | `maxPrefixes`, default 10000 per address family | Safety net; exceeding it tears the session down. |
+| VPN prefixes per peer | `maxPrefixes`, default 10000 per address family | Safety net; exceeding it tears the session down. With `aggregates`, a partition announces one route per range instead of one per machine. |
 | Throughput | CPU-bound, not measured | Encap and decap are done by the Linux kernel in software (no XDP, no offload); see [scaling bandwidth](#scaling-bandwidth). |
 | Overhead per packet | +48 B (IPv6 + SRH), +50 B more in a DCI network | Every hop must fit tenant MTU + overhead; open-dci validates and raises the DCI devices. |
 | Reconcile | every 10 s (`run -i`) | Each run reads the whole FRR running-config; its cost grows with the number of networks. |

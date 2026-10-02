@@ -54,7 +54,7 @@ func TestBothPathsSameSID(t *testing.T) {
 		for _, rd := range c.rds {
 			t.Run(c.gw+"/"+rd, func(t *testing.T) {
 				waitFor(t, converge, func() error {
-					out, err := lab.Vtysh(c.gw, "show bgp ipv4 vpn rd "+rd+" "+c.dst.v4+"/32")
+					out, err := lab.Vtysh(c.gw, "show bgp ipv4 vpn rd "+rd+" "+c.dst.net4)
 					if err != nil {
 						return err
 					}
@@ -91,9 +91,9 @@ func TestGatewaysPeerWithTheirExit(t *testing.T) {
 	}
 	// the exits hold the routes of every gateway (relay), but import none
 	for _, c := range []struct{ exit, rd, prefix string }{
-		{"exit-a1", "10.0.1.16:1001", mB.v4 + "/32"}, {"exit-a2", "10.0.0.17:1002", mA2.v4 + "/32"},
-		{"exit-b1", "10.0.0.16:1001", mA.v4 + "/32"}, {"exit-b2", "10.0.1.17:1002", mB2.v4 + "/32"},
-		{"exit-c1", "10.0.1.16:1001", mB.v4 + "/32"}, {"exit-c2", "10.0.0.17:1002", mA2.v4 + "/32"},
+		{"exit-a1", "10.0.1.16:1001", mB.net4}, {"exit-a2", "10.0.0.17:1002", mA2.net4},
+		{"exit-b1", "10.0.0.16:1001", mA.net4}, {"exit-b2", "10.0.1.17:1002", mB2.net4},
+		{"exit-c1", "10.0.1.16:1001", mB.net4}, {"exit-c2", "10.0.0.17:1002", mA2.net4},
 	} {
 		t.Run(c.exit+"/"+c.rd, func(t *testing.T) {
 			waitFor(t, converge, func() error {

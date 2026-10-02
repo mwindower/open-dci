@@ -1,9 +1,13 @@
 vrf vrf3981
  vni 3981
+ ip route 10.0.16.0/24 blackhole
+ ipv6 route 2001:db8:16::/48 blackhole
 exit-vrf
 !
 vrf vrf3982
  vni 3982
+ ip route 10.0.17.0/24 blackhole
+ ipv6 route 2001:db8:17::/48 blackhole
 exit-vrf
 !
 segment-routing
@@ -46,24 +50,26 @@ router bgp 4200000016 vrf vrf3981
  bgp router-id 10.0.0.16
  sid vpn per-vrf export 3981
  address-family ipv4 unicast
+  network 10.0.16.0/24 route-map DCI-AGG
   rd vpn export 10.0.0.16:1001
   rt vpn both 65535:1001
-  route-map vpn import DCI-vrf3981-v4
+  route-map vpn import DCI-vrf3981-v4-default
   route-map vpn export DCI-vrf3981-v4
   export vpn
   import vpn
  exit-address-family
  address-family ipv6 unicast
+  network 2001:db8:16::/48 route-map DCI-AGG
   rd vpn export 10.0.0.16:1001
   rt vpn both 65535:1001
-  route-map vpn import DCI-vrf3981-v6
+  route-map vpn import DCI-vrf3981-v6-default
   route-map vpn export DCI-vrf3981-v6
   export vpn
   import vpn
  exit-address-family
  address-family l2vpn evpn
-  advertise ipv4 unicast
-  advertise ipv6 unicast
+  advertise ipv4 unicast route-map DCI-ADV
+  advertise ipv6 unicast route-map DCI-ADV
  exit-address-family
 exit
 !
@@ -71,6 +77,7 @@ router bgp 4200000016 vrf vrf3982
  bgp router-id 10.0.0.16
  sid vpn per-vrf export 3982
  address-family ipv4 unicast
+  network 10.0.17.0/24 route-map DCI-AGG
   rd vpn export 10.0.0.16:1002
   rt vpn both 65535:1002
   route-map vpn import DCI-vrf3982-v4
@@ -79,6 +86,7 @@ router bgp 4200000016 vrf vrf3982
   import vpn
  exit-address-family
  address-family ipv6 unicast
+  network 2001:db8:17::/48 route-map DCI-AGG
   rd vpn export 10.0.0.16:1002
   rt vpn both 65535:1002
   route-map vpn import DCI-vrf3982-v6
@@ -87,8 +95,8 @@ router bgp 4200000016 vrf vrf3982
   import vpn
  exit-address-family
  address-family l2vpn evpn
-  advertise ipv4 unicast
-  advertise ipv6 unicast
+  advertise ipv4 unicast route-map DCI-ADV
+  advertise ipv6 unicast route-map DCI-ADV
  exit-address-family
 exit
 !
@@ -106,32 +114,71 @@ vrf vrf104100
  ipv6 route fd00:dc1:ff::a1/128 fe80::1 dci1
 exit-vrf
 !
-ip prefix-list DCI-vrf3981-v4 seq 5 permit 10.0.16.0/24 le 32
-ip prefix-list DCI-vrf3981-v4 seq 10 permit 10.0.32.0/24 le 32
-ip prefix-list DCI-vrf3981-v4 seq 15 permit 10.0.48.0/24 le 32
+ip prefix-list DCI-vrf3981-v4 seq 5 permit 10.0.16.0/24
+ip prefix-list DCI-vrf3981-v4 seq 10 permit 10.0.32.0/24
+ip prefix-list DCI-vrf3981-v4 seq 15 permit 10.0.48.0/24
 route-map DCI-vrf3981-v4 permit 10
  match ip address prefix-list DCI-vrf3981-v4
+ set large-comm-list DCI-AGG delete
 exit
 !
-ipv6 prefix-list DCI-vrf3981-v6 seq 5 permit 2001:db8:16::/48 le 128
-ipv6 prefix-list DCI-vrf3981-v6 seq 10 permit 2001:db8:32::/48 le 128
-ipv6 prefix-list DCI-vrf3981-v6 seq 15 permit 2001:db8:48::/48 le 128
+route-map DCI-vrf3981-v4-default permit 10
+ match ip address prefix-list DCI-vrf3981-v4
+ set large-comm-list DCI-AGG delete
+exit
+!
+route-map DCI-vrf3981-v4-default permit 20
+ match ip address prefix-list DCI-DEFAULT-v4
+ set local-preference 50
+exit
+!
+ipv6 prefix-list DCI-vrf3981-v6 seq 5 permit 2001:db8:16::/48
+ipv6 prefix-list DCI-vrf3981-v6 seq 10 permit 2001:db8:32::/48
+ipv6 prefix-list DCI-vrf3981-v6 seq 15 permit 2001:db8:48::/48
 route-map DCI-vrf3981-v6 permit 10
  match ipv6 address prefix-list DCI-vrf3981-v6
+ set large-comm-list DCI-AGG delete
 exit
 !
-ip prefix-list DCI-vrf3982-v4 seq 5 permit 10.0.17.0/24 le 32
-ip prefix-list DCI-vrf3982-v4 seq 10 permit 10.0.33.0/24 le 32
-ip prefix-list DCI-vrf3982-v4 seq 15 permit 10.0.49.0/24 le 32
+route-map DCI-vrf3981-v6-default permit 10
+ match ipv6 address prefix-list DCI-vrf3981-v6
+ set large-comm-list DCI-AGG delete
+exit
+!
+route-map DCI-vrf3981-v6-default permit 20
+ match ipv6 address prefix-list DCI-DEFAULT-v6
+ set local-preference 50
+exit
+!
+ip prefix-list DCI-vrf3982-v4 seq 5 permit 10.0.17.0/24
+ip prefix-list DCI-vrf3982-v4 seq 10 permit 10.0.33.0/24
+ip prefix-list DCI-vrf3982-v4 seq 15 permit 10.0.49.0/24
 route-map DCI-vrf3982-v4 permit 10
  match ip address prefix-list DCI-vrf3982-v4
+ set large-comm-list DCI-AGG delete
 exit
 !
-ipv6 prefix-list DCI-vrf3982-v6 seq 5 permit 2001:db8:17::/48 le 128
-ipv6 prefix-list DCI-vrf3982-v6 seq 10 permit 2001:db8:33::/48 le 128
-ipv6 prefix-list DCI-vrf3982-v6 seq 15 permit 2001:db8:49::/48 le 128
+ipv6 prefix-list DCI-vrf3982-v6 seq 5 permit 2001:db8:17::/48
+ipv6 prefix-list DCI-vrf3982-v6 seq 10 permit 2001:db8:33::/48
+ipv6 prefix-list DCI-vrf3982-v6 seq 15 permit 2001:db8:49::/48
 route-map DCI-vrf3982-v6 permit 10
  match ipv6 address prefix-list DCI-vrf3982-v6
+ set large-comm-list DCI-AGG delete
+exit
+!
+ip prefix-list DCI-DEFAULT-v4 seq 5 permit 0.0.0.0/0
+ipv6 prefix-list DCI-DEFAULT-v6 seq 5 permit ::/0
+!
+bgp large-community-list standard DCI-AGG seq 5 permit 4200000016:0:1
+route-map DCI-AGG permit 10
+ set large-community 4200000016:0:1
+exit
+!
+route-map DCI-ADV deny 10
+ match large-community DCI-AGG
+exit
+!
+route-map DCI-ADV permit 20
 exit
 !
 bgp extcommunity-list standard DCI-RT seq 5 permit rt 65535:1001
