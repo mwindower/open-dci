@@ -236,23 +236,23 @@ networks:
   - vrf: vrf3981
     vni: 3981                   # tenant 1 in A, SID f8d
     routeTarget: "65535:1001"
-    prefixes:                   # tenant 1, all partitions
-      - 10.0.16.0/24 le 32
-      - 10.0.32.0/24 le 32
-      - 10.0.48.0/24 le 32
-      - 2001:db8:16::/48 le 128
-      - 2001:db8:32::/48 le 128
-      - 2001:db8:48::/48 le 128
+    aggregates:                 # tenant 1, one per partition
+      - 10.0.16.0/24
+      - 10.0.32.0/24
+      - 10.0.48.0/24
+      - 2001:db8:16::/48
+      - 2001:db8:32::/48
+      - 2001:db8:48::/48
   - vrf: vrf3982
     vni: 3982                   # tenant 2 in A, SID f8e
     routeTarget: "65535:1002"
-    prefixes:                   # tenant 2, all partitions
-      - 10.0.17.0/24 le 32
-      - 10.0.33.0/24 le 32
-      - 10.0.49.0/24 le 32
-      - 2001:db8:17::/48 le 128
-      - 2001:db8:33::/48 le 128
-      - 2001:db8:49::/48 le 128
+    aggregates:                 # tenant 2, one per partition
+      - 10.0.17.0/24
+      - 10.0.33.0/24
+      - 10.0.49.0/24
+      - 2001:db8:17::/48
+      - 2001:db8:33::/48
+      - 2001:db8:49::/48
 ```
 
 </td>
@@ -272,23 +272,23 @@ networks:
   - vrf: vrf4011
     vni: 4011                   # tenant 1 in B, SID fab
     routeTarget: "65535:1001"   # = gw-a1's
-    prefixes:                   # tenant 1, all partitions
-      - 10.0.16.0/24 le 32
-      - 10.0.32.0/24 le 32
-      - 10.0.48.0/24 le 32
-      - 2001:db8:16::/48 le 128
-      - 2001:db8:32::/48 le 128
-      - 2001:db8:48::/48 le 128
+    aggregates:                 # tenant 1, one per partition
+      - 10.0.16.0/24
+      - 10.0.32.0/24
+      - 10.0.48.0/24
+      - 2001:db8:16::/48
+      - 2001:db8:32::/48
+      - 2001:db8:48::/48
   - vrf: vrf4012
     vni: 4012                   # tenant 2 in B, SID fac
     routeTarget: "65535:1002"   # = gw-a1's
-    prefixes:                   # tenant 2, all partitions
-      - 10.0.17.0/24 le 32
-      - 10.0.33.0/24 le 32
-      - 10.0.49.0/24 le 32
-      - 2001:db8:17::/48 le 128
-      - 2001:db8:33::/48 le 128
-      - 2001:db8:49::/48 le 128
+    aggregates:                 # tenant 2, one per partition
+      - 10.0.17.0/24
+      - 10.0.33.0/24
+      - 10.0.49.0/24
+      - 2001:db8:17::/48
+      - 2001:db8:33::/48
+      - 2001:db8:49::/48
 ```
 
 </td>
@@ -296,12 +296,13 @@ networks:
 </table>
 
 What must match across gateways: the `locatorBlock`, and per stitched network the
-`routeTarget` and the `prefixes`. Within a pair, also the `locator`,
+`routeTarget`, the `aggregates` and the `prefixes`. Within a pair, also the `locator`,
 the `sid`s and the BGP ASN (which prevents loops). The VNIs are local to each partition.
 
 **Safety net.**
-- Only prefixes in a network's `prefixes` leave or enter its VRF; anything else, including a
-  default route unless listed, stays in its partition.
+- A partition announces each of a network's `aggregates` (e.g. a /24) instead of the
+  machines' host routes in it. Only aggregates and `prefixes` leave or enter a VRF;
+  anything else, including a default route unless listed, stays in its partition.
 - Each peer only delivers routes with a configured route target, up to `maxPrefixes`
   (default 10000) per address family. See [Configuration](docs/configuration.md#networks).
 - Forged SRv6 packets never reach a SID: the gateway drops packets from tenants to the

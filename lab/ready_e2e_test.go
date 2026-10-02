@@ -88,7 +88,7 @@ func announced(t *testing.T, gw string) bool {
 func TestDrain(t *testing.T) {
 	const gw = "gw-b2"
 	viaExit := func() (string, error) { return lab.Exec("exit-b1", "ip", "-6", "route", "show", "fd00:dc1:b::/48") }
-	viaLeaf := func() (string, error) { return lab.Exec("leaf-b", "ip", "route", "show", "vrf", mB.vrf, mA.v4) }
+	viaLeaf := func() (string, error) { return lab.Exec("leaf-b", "ip", "route", "show", "vrf", mB.vrf, mA.net4) }
 	usesGW := func(want bool) func() error {
 		return func() error {
 			e, err := viaExit()
@@ -161,7 +161,7 @@ func TestWithdrawOnGrayFailure(t *testing.T) {
 			usesGW := func(want bool) func() error {
 				return func() error {
 					e, _ := lab.Exec(c.exit, c.exitRoute...)
-					l, _ := lab.Exec(c.leaf, "ip", "route", "show", "vrf", c.local.vrf, c.peer.v4)
+					l, _ := lab.Exec(c.leaf, "ip", "route", "show", "vrf", c.local.vrf, c.peer.net4)
 					if strings.Contains(e, c.viaGW) != want || strings.Contains(l, c.viaGWVTEP) != want {
 						return fmt.Errorf("%s in use: want %v\n%s: %s\n%s: %s", c.gw, want, c.exit, e, c.leaf, l)
 					}

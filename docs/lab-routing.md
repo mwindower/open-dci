@@ -56,9 +56,9 @@ any local one. The source address is set by `ip protocol bgp route-map RM_SET_SR
 metal-stack.
 
 ```
-10.0.32.10      via inet6 fe80::… dev lan0 proto bgp src 10.0.16.10     # m-b (partition B)
-10.0.48.10      via inet6 fe80::… dev lan0 proto bgp src 10.0.16.10     # m-c (partition C)
-2001:db8:32::10, 2001:db8:48::10 via fe80::… dev lan0 proto bgp
+10.0.32.0/24    via inet6 fe80::… dev lan0 proto bgp src 10.0.16.10     # partition B (m-b)
+10.0.48.0/24    via inet6 fe80::… dev lan0 proto bgp src 10.0.16.10     # partition C (m-c)
+2001:db8:32::/48, 2001:db8:48::/48 via fe80::… dev lan0 proto bgp
 ```
 
 ## Leaf `leaf-a`
@@ -69,10 +69,10 @@ both gateways of the pair (ECMP), carried over VXLAN VNI 3981 through spine and 
 ```
 unreachable default metric 4278198272                                    # no fall-through to main
 10.0.16.10      via inet6 fe80::… dev swp1 proto bgp                     # m-a (BGP, unnumbered)
-10.0.32.10      proto bgp                                                # m-b ← re-originated by the pair
+10.0.32.0/24    proto bgp                                                # partition B's range ← re-originated by the pair
         nexthop via 10.0.0.16 dev vlan3981 weight 1 onlink               #   gw-a1
         nexthop via 10.0.0.17 dev vlan3981 weight 1 onlink               #   gw-a2
-10.0.48.10      (m-c, alike)
+10.0.48.0/24    (partition C's range, alike)
 (IPv6 alike, next hops ::ffff:10.0.0.16/17)
 ```
 
@@ -85,8 +85,8 @@ nowhere: it has no VRF for VNI 104100.
 | Type-5 prefix | Originator (RD) | RTs |
 |---|---|---|
 | 10.0.16.10/32 | leaf-a (10.0.0.11) | `59915:3981` |
-| 10.0.32.10/32 | gw-a1 (10.0.0.16) and gw-a2 (10.0.0.17) | `59920:3981` **+ `65535:1001`** (DCI RT leak, Phase 2) |
-| 10.0.33.10/32 | gw-a1, gw-a2 | `59920:3982` + `65535:1002` |
+| 10.0.32.0/24 (partition B's aggregate) | gw-a1 (10.0.0.16) and gw-a2 (10.0.0.17) | `59920:3981` **+ `65535:1001`** (DCI RT leak, Phase 2) |
+| 10.0.33.0/24 | gw-a1, gw-a2 | `59920:3982` + `65535:1002` |
 | fd00:dc1:a::/48, own loopbacks | gw-a1, gw-a2 | `59920:104100` |
 | locators and loopbacks of pairs B and C, 2001:db8:c::1/128 | exit-a1 (10.0.0.14) and exit-a2 (10.0.0.18) | `59918:104100`, `59922:104100` |
 
@@ -139,9 +139,10 @@ The gateway has three tables that work together.
 
 ```
 unreachable default metric 4278198272                                       # IPv4 and IPv6
+blackhole 10.0.16.0/24 proto 196                                            # own range (active aggregate): unused addresses
 10.0.16.10      via 10.0.0.11 dev dcibr3981 onlink                          # m-a (EVPN from leaf-a)
-10.0.32.10      encap seg6 mode encap segs 1 [ fd00:dc1:b:fab:: ] via inet6 fe80::… dev uplink0  # m-b
-10.0.48.10      encap seg6 mode encap segs 1 [ fd00:dc1:c:1393:: ] via inet6 fe80::… dev uplink0 # m-c
+10.0.32.0/24    encap seg6 mode encap segs 1 [ fd00:dc1:b:fab:: ] via inet6 fe80::… dev uplink0  # partition B
+10.0.48.0/24    encap seg6 mode encap segs 1 [ fd00:dc1:c:1393:: ] via inet6 fe80::… dev uplink0 # partition C
 throw fd00:dc1::/32 metric 1024                                             # IPv6 only, see below
 (IPv6 routes alike)
 ```
@@ -175,29 +176,32 @@ fd00:dc1:ff::b1, ::b2, ::c1, ::c2, 2001:db8:c::1/128                      # alik
 unreachable default metric 4278198272
 ```
 
-**BGP view of the prefix 10.0.32.10/32 on gw-a1**: two VPN paths, one per gateway of pair B
+**BGP view of partition B's aggregate 10.0.32.0/24 on gw-a1**: two VPN paths, one per gateway of pair B
 (RD), both with the same anycast SID. Each arrives twice, once over each of gw-a1's VPN
 sessions, to exit-a1 (`uplink0`) and exit-a2 (`uplink1`). E.g. gw-b1's path, as relayed by
 exit-b1, then by exit-a1 or exit-a2:
 
 | RD | Originated by | Via | AS path | Notes |
 |---|---|---|---|---|
-| `10.0.1.16:1001` | gw-b1 | exit-a1 | 4200000014 4200000024 4200000026 4200000024 4200000023 4200000021 4200000025 | `RT:65535:1001`, SID `fd00:dc1:b::` + label → `fd00:dc1:b:fab::` |
-| `10.0.1.16:1001` | gw-b1 | exit-a2 | 4200000018 4200000024 4200000026 … | same SID |
+| `10.0.1.16:1001` | gw-b1 | exit-a1 | 4200000014 4200000024 4200000026 | `RT:65535:1001`, SID `fd00:dc1:b::` + label → `fd00:dc1:b:fab::` |
+| `10.0.1.16:1001` | gw-b1 | exit-a2 | 4200000018 4200000024 4200000026 | same SID |
 | `10.0.1.17:1001` | gw-b2 | both | alike | same SID |
 
-The path starts with the relaying exits and then contains exit-b1 once more: gw-b1
-exported a route it learned via EVPN through exit-b1. That is why the exits accept their
-gateways' VPN routes with `allowas-in 1`.
+The path consists of the relaying exits and gw-b1, which originates the aggregate. A route
+from `networks[].prefixes` instead keeps the AS path it learned via EVPN, through exit-b1,
+which then appears twice. That is why the exits accept their gateways' VPN routes with
+`allowas-in 1`.
 
 Whichever path is best, the kernel route is the same: encap to `fd00:dc1:b:fab::`. Which
 gateway of pair B receives the packet is decided by the transport (ECMP in the core and in
 exit-b1/b2), per flow: open-dci sets `net.ipv6.seg6_flowlabel=1`, so the outer flow label
 differs per tenant flow.
 
-The opposite direction: `10.0.16.10/32` comes from leaf-a as type-5 (next hop 10.0.0.11),
-lands in `vrf3981`, and is exported as VPNv4 with RD `10.0.0.16:1001` and SID
-`fd00:dc1:a:f8d::`.
+The opposite direction: `10.0.16.10/32` comes from leaf-a as type-5 (next hop 10.0.0.11)
+and lands in `vrf3981`. It lies in the aggregate `10.0.16.0/24`, so open-dci announces
+the /24 (from a `blackhole` route in the VRF: unused addresses end there); the export
+filter lets only the /24 through, as VPNv4 with RD `10.0.0.16:1001` and
+SID `fd00:dc1:a:f8d::`. Partitions B and C route the whole /24 to pair A.
 
 ## VPN relay between the exits
 

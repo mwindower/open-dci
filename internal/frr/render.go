@@ -36,13 +36,28 @@ type Identity struct {
 	// (type-5): the fabric and the exits send nothing to a drained gateway,
 	// its partner carries everything (planned maintenance).
 	Drain bool
+	// Aggregates are the active aggregates (AggregateKey): those with more
+	// specific routes from the own partition's fabric in their range. Only
+	// they are announced, so the same list works on all gateways.
+	Aggregates map[string]bool
 }
+
+// AggregateKey identifies an aggregate of a VRF in Identity.Aggregates.
+func AggregateKey(vrf string, p netip.Prefix) string { return vrf + " " + p.String() }
 
 // Names of the route-maps and lists open-dci renders. They all start with
 // "DCI-", which marks them as open-dci's (see Removals).
 const (
 	PeerInRouteMap = "DCI-PEER-IN"
 	RTList         = "DCI-RT"
+	// AggregateRouteMap marks the aggregates a gateway announces, with a
+	// large community in AggregateList. AdvertiseRouteMap keeps marked
+	// routes out of the type-5 announcement: the own partition has the host
+	// routes already. The VPN export filter deletes the marker, so remote
+	// partitions get the aggregate as type-5.
+	AggregateRouteMap = "DCI-AGG"
+	AggregateList     = "DCI-AGG"
+	AdvertiseRouteMap = "DCI-ADV"
 )
 
 // FilterName is the prefix-list and route-map that filter a network's VPN
@@ -54,6 +69,8 @@ type filter struct {
 	Name       string
 	PrefixList string // "ip" or "ipv6"
 	Entries    []string
+	// DeleteMarker strips the aggregate marker on VPN export.
+	DeleteMarker bool
 }
 
 type renderData struct {
@@ -82,6 +99,8 @@ type renderData struct {
 	InterfacePeers bool
 	Filters        []filter
 	RTs            []string // all route targets, for the peers' inbound filter
+	Aggregating    bool     // some network has aggregates
+	active         map[string]bool
 }
 
 func (d renderData) RD(vrf string) string {
@@ -100,6 +119,33 @@ func (d renderData) RT(vrf string) string {
 		}
 	}
 	return ""
+}
+
+// Aggregates returns the active aggregates of a network in one family ("v4",
+// "v6"; "" for both).
+func (d renderData) Aggregates(vrf, family string) []netip.Prefix {
+	var out []netip.Prefix
+	for _, n := range d.Config.Networks {
+		if n.VRF != vrf {
+			continue
+		}
+		v4, v6 := n.AggregatePrefixes()
+		var ps []netip.Prefix
+		switch family {
+		case "v4":
+			ps = v4
+		case "v6":
+			ps = v6
+		default:
+			ps = append(v4, v6...)
+		}
+		for _, p := range ps {
+			if d.active[AggregateKey(vrf, p)] {
+				out = append(out, p)
+			}
+		}
+	}
+	return out
 }
 
 // Render returns the FRR configuration open-dci adds for cfg.
@@ -130,6 +176,7 @@ func Render(cfg *config.Config, id Identity) (string, error) {
 		Networks:       cfg.Networks,
 		Withhold:       id.Withhold || id.Drain,
 		Drain:          id.Drain,
+		active:         id.Aggregates,
 	}
 	seenRT := map[string]bool{}
 	for _, n := range cfg.Networks {
@@ -138,11 +185,14 @@ func Render(cfg *config.Config, id Identity) (string, error) {
 			family, list string
 			rules        []config.PrefixRule
 		}{{"v4", "ip", v4}, {"v6", "ipv6", v6}} {
-			flt := filter{Name: FilterName(n.VRF, f.family), PrefixList: f.list}
+			flt := filter{Name: FilterName(n.VRF, f.family), PrefixList: f.list, DeleteMarker: len(n.Aggregates) > 0}
 			for _, r := range f.rules {
 				flt.Entries = append(flt.Entries, r.String())
 			}
 			d.Filters = append(d.Filters, flt)
+		}
+		if len(n.Aggregates) > 0 {
+			d.Aggregating = true
 		}
 		if !seenRT[n.RouteTarget] {
 			seenRT[n.RouteTarget] = true
@@ -150,11 +200,14 @@ func Render(cfg *config.Config, id Identity) (string, error) {
 		}
 	}
 	tpl, err := template.New("dci").Funcs(template.FuncMap{
-		"list":   func(s ...string) []string { return s },
-		"seq":    func(i int) int { return (i + 1) * 5 },
-		"filter": FilterName,
-		"peerIn": func() string { return PeerInRouteMap },
-		"rtList": func() string { return RTList },
+		"list":    func(s ...string) []string { return s },
+		"seq":     func(i int) int { return (i + 1) * 5 },
+		"filter":  FilterName,
+		"peerIn":  func() string { return PeerInRouteMap },
+		"rtList":  func() string { return RTList },
+		"aggMap":  func() string { return AggregateRouteMap },
+		"aggList": func() string { return AggregateList },
+		"advMap":  func() string { return AdvertiseRouteMap },
 		"familyOf": func(af string) string {
 			if af == "ipv4" {
 				return "v4"

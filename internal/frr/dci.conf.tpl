@@ -5,10 +5,18 @@
        Every network gets its FRR VRF with the L3VNI and a complete BGP
        instance that announces its routes as EVPN type-5.
        .Withhold leaves out the announcement of locator and loopback; .Drain
-       additionally the type-5 announcement of the tenant VRFs. */ -}}
+       additionally the type-5 announcement of the tenant VRFs.
+       Active aggregates (with host routes from the own fabric in their range,
+       found by open-dci) are announced from a blackhole route in the VRF,
+       marked so that they don't go back into the own partition as type-5; the
+       VPN export removes the mark again. FRR's aggregate-address isn't used:
+       10.4.1 leaves its VPN copy behind when it goes away. */ -}}
 {{ range $n := .Networks -}}
 vrf {{ $n.VRF }}
  vni {{ $n.VNI }}
+{{- range $.Aggregates $n.VRF "" }}
+ {{ if .Addr.Is4 }}ip{{ else }}ipv6{{ end }} route {{ . }} blackhole
+{{- end }}
 exit-vrf
 !
 {{ end -}}
@@ -77,6 +85,9 @@ router bgp {{ $.ASN }} vrf {{ $n.VRF }}
  sid vpn per-vrf export {{ $n.SID }}
 {{- range $af := list "ipv4" "ipv6" }}
  address-family {{ $af }} unicast
+{{- range $.Aggregates $n.VRF (familyOf $af) }}
+  network {{ . }} route-map {{ aggMap }}
+{{- end }}
   rd vpn export {{ $.RD $n.VRF }}
   rt vpn both {{ $.RT $n.VRF }}
   route-map vpn import {{ filter $n.VRF (familyOf $af) }}
@@ -87,8 +98,8 @@ router bgp {{ $.ASN }} vrf {{ $n.VRF }}
 {{- end }}
 {{- if not $.Drain }}
  address-family l2vpn evpn
-  advertise ipv4 unicast
-  advertise ipv6 unicast
+  advertise ipv4 unicast{{ if $n.Aggregates }} route-map {{ advMap }}{{ end }}
+  advertise ipv6 unicast{{ if $n.Aggregates }} route-map {{ advMap }}{{ end }}
  exit-address-family
 {{- end }}
 exit
@@ -124,11 +135,28 @@ exit-vrf
 {{- if $f.Entries }}
 route-map {{ $f.Name }} permit 10
  match {{ $f.PrefixList }} address prefix-list {{ $f.Name }}
+{{- if $f.DeleteMarker }}
+ set large-comm-list {{ aggList }} delete
+{{- end }}
 exit
 {{- else }}
 route-map {{ $f.Name }} deny 10
 exit
 {{- end }}
+!
+{{- end }}
+{{- if .Aggregating }}
+bgp large-community-list standard {{ aggList }} seq 5 permit {{ .ASN }}:0:1
+route-map {{ aggMap }} permit 10
+ set large-community {{ .ASN }}:0:1
+exit
+!
+route-map {{ advMap }} deny 10
+ match large-community {{ aggList }}
+exit
+!
+route-map {{ advMap }} permit 20
+exit
 !
 {{- end }}
 {{- /* Peers: only routes with a configured route target are accepted. */}}

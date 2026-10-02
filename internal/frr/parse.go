@@ -91,6 +91,25 @@ func Missing(want, have []Line) []Line {
 	return out
 }
 
+// Present returns the lines of prev that are still in have, so that Removals
+// doesn't remove what is gone already (e.g. after the base system reloaded
+// FRR): FRR refuses to delete some things that don't exist, such as a static
+// route, and fails the whole batch. The "vni" lines of provisioned VRFs stay,
+// they decide whether a VRF is dropped as a whole.
+func Present(prev, have []Line) []Line {
+	idx := make(map[string]bool, len(have))
+	for _, l := range have {
+		idx[l.Key()] = true
+	}
+	var out []Line
+	for _, l := range prev {
+		if idx[l.Key()] || (len(l.Context) == 1 && strings.HasPrefix(l.Context[0], "vrf ") && strings.HasPrefix(l.Text, "vni ")) {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
 // ProvisionedVRFs returns the VRFs (name -> "vni N" line) whose L3VNI a
 // rendered open-dci snippet provisions: the "vrf X" blocks with a "vni" line
 // (the transport VRF's block never has one).

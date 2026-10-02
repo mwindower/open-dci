@@ -101,12 +101,20 @@ type Network struct {
 	RouteTarget string `json:"routeTarget"`
 	// RD is the route distinguisher. Default: <routerID>:<RT local part>.
 	RD string `json:"rd,omitempty"`
-	// Prefixes are the stitched network's address space, in FRR prefix-list
-	// syntax ("10.0.16.0/24 le 32"). Only matching routes are exported from
-	// and imported into the VRF; everything else, including a default route
-	// unless listed, stays in its partition. Like the route target, the list
-	// is the same on all gateways of the network.
-	Prefixes []string `json:"prefixes"`
+	// Aggregates are address ranges of the stitched network, each in exactly
+	// one partition ("10.0.16.0/24"). The gateways of the partition whose
+	// tenant VRF has more specific routes in a range announce the range
+	// instead of them and drop traffic to its unused addresses. A range
+	// without such routes isn't announced, so the list is the same on all
+	// gateways of the network. Aggregates are part of the allowlist.
+	Aggregates []string `json:"aggregates,omitempty"`
+	// Prefixes are further routes of the stitched network, passed as they
+	// are, in FRR prefix-list syntax ("10.0.16.0/24 le 32"). Only routes
+	// matching an aggregate or a prefix are exported from and imported into
+	// the VRF; everything else, including a default route unless listed,
+	// stays in its partition. Like the route target, the list is the same on
+	// all gateways of the network.
+	Prefixes []string `json:"prefixes,omitempty"`
 	// VNI is the tenant's L3VNI in this partition. open-dci provisions the
 	// VRF with it: VRF, bridge, VXLAN device and the FRR VRF with its BGP
 	// instance, which joins the partition's EVPN.
@@ -248,9 +256,49 @@ func ParsePrefixRule(s string) (PrefixRule, error) {
 	return r, nil
 }
 
-// PrefixRules returns the parsed allowlist, IPv4 and IPv6 separately. The
-// config must have been validated.
+// AggregatePrefixes returns the parsed aggregates, IPv4 and IPv6 separately.
+// The config must have been validated.
+func (n Network) AggregatePrefixes() (v4, v6 []netip.Prefix) {
+	for _, s := range n.Aggregates {
+		p, _ := ParseAggregate(s)
+		if p.Addr().Is4() {
+			v4 = append(v4, p)
+		} else {
+			v6 = append(v6, p)
+		}
+	}
+	return v4, v6
+}
+
+// ParseAggregate parses an aggregate: a prefix without host bits, shorter
+// than a host route and not a default route.
+func ParseAggregate(s string) (netip.Prefix, error) {
+	p, err := netip.ParsePrefix(strings.TrimSpace(s))
+	switch {
+	case err != nil:
+		return p, fmt.Errorf("%q: want a plain prefix: %v", s, err)
+	case p != p.Masked():
+		return p, fmt.Errorf("%q: host bits set", s)
+	case p.Bits() == 0:
+		return p, fmt.Errorf("%q: a default route can't be an aggregate", s)
+	case p.Bits() == p.Addr().BitLen():
+		return p, fmt.Errorf("%q: a host route can't be an aggregate", s)
+	}
+	return p, nil
+}
+
+// PrefixRules returns the parsed allowlist, IPv4 and IPv6 separately: the
+// aggregates (exact match), then the prefixes. The config must have been
+// validated.
 func (n Network) PrefixRules() (v4, v6 []PrefixRule) {
+	for _, s := range n.Aggregates {
+		p, _ := ParseAggregate(s)
+		if p.Addr().Is4() {
+			v4 = append(v4, PrefixRule{Prefix: p})
+		} else {
+			v6 = append(v6, PrefixRule{Prefix: p})
+		}
+	}
 	for _, s := range n.Prefixes {
 		r, _ := ParsePrefixRule(s)
 		if r.Prefix.Addr().Is4() {
@@ -419,17 +467,32 @@ func (c *Config) Validate() error {
 			fail("networks[%d].sid: %d used twice", i, n.SID)
 		}
 		seenSID[n.SID] = true
-		if len(n.Prefixes) == 0 {
-			fail("networks[%d].prefixes: at least one prefix is required (nothing is exchanged otherwise)", i)
+		if len(n.Prefixes) == 0 && len(n.Aggregates) == 0 {
+			fail("networks[%d]: at least one of aggregates and prefixes is required (nothing is exchanged otherwise)", i)
 		}
 		seenRule := map[PrefixRule]bool{}
+		var aggs []netip.Prefix
+		for j, s := range n.Aggregates {
+			p, err := ParseAggregate(s)
+			if err != nil {
+				fail("networks[%d].aggregates[%d]: %v", i, j, err)
+				continue
+			}
+			for _, q := range aggs {
+				if p.Overlaps(q) {
+					fail("networks[%d].aggregates[%d]: %s overlaps %s", i, j, p, q)
+				}
+			}
+			aggs = append(aggs, p)
+			seenRule[PrefixRule{Prefix: p}] = true
+		}
 		for j, s := range n.Prefixes {
 			r, err := ParsePrefixRule(s)
 			switch {
 			case err != nil:
 				fail("networks[%d].prefixes[%d]: %v", i, j, err)
 			case seenRule[r]:
-				fail("networks[%d].prefixes[%d]: %s listed twice", i, j, r)
+				fail("networks[%d].prefixes[%d]: %s listed twice (aggregates are part of the allowlist)", i, j, r)
 			}
 			seenRule[r] = true
 		}

@@ -82,7 +82,7 @@ Routing tables of every node: [docs/lab-routing.md](../docs/lab-routing.md).
 
 | Test | Checks |
 |---|---|
-| `TestControlPlane` | all sessions; per tenant VRF: provisioned devices (alias `open-dci`), L3VNI Up, End.DT46 into the VNI's table; remote locators, EVPN→VPN with SID, SRv6 encap routes, machines learn remote machines, exits/core carry no tenant prefixes |
+| `TestControlPlane` | all sessions; per tenant VRF: provisioned devices (alias `open-dci`), L3VNI Up, End.DT46 into the VNI's table; remote locators, EVPN→VPN as aggregate with SID (no host routes), SRv6 encap routes to the remote aggregates, machines learn the remote aggregates, exits/core carry no tenant prefixes |
 | `TestDataPlane`, `TestMTU` | both tenants between every pair of partitions, v4/v6 in both directions, full-size 9000 B packets |
 | `TestTenantIsolation` | the two tenants have no routes to, and no reachability of, each other |
 | `TestNoFallThrough` | a lookup that finds nothing in a tenant VRF (gateways, leaves) is unreachable, never the main table |
@@ -102,7 +102,7 @@ Routing tables of every node: [docs/lab-routing.md](../docs/lab-routing.md).
 | `TestLocatorWithheldUntilReady` | a gateway's links come back: the exit only sends to it once its tenant VRF holds the fabric's routes (both transport modes) |
 | `TestDrain` | `open-dci drain`: exit and leaf stop using the gateway, all flows continue via the partner, the sidecar keeps it drained; `undrain` brings it back |
 | `TestWithdrawOnGrayFailure` | a gateway loses every remote locator (kernel `unreachable` routes) while BGP is fine: it withdraws, flows continue via the partner, and it returns once fixed (both transport modes) |
-| `TestWithdrawal` | a prefix removed in partition A disappears from all gateways' VPN tables and B's and C's fabrics |
+| `TestWithdrawal` | an aggregate whose last host route in partition A is gone disappears from all gateways' VPN tables, B's and C's fabrics and as blackhole from pair A, and comes back with the host |
 | `TestGatewaysHealthy` | `open-dci status` healthy on all six gateways |
 | `TestSelfHealAfterFRRReload` | `frr-reload.py` of the base config wipes all open-dci lines → back within one interval |
 | `TestSelfHealMTU` | DCI devices reset to 9000 → raised again, 9000 B packets pass |

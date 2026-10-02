@@ -12,10 +12,21 @@ import (
 var update = flag.Bool("update", false, "rewrite golden files")
 
 var (
-	gwA1 = Identity{ASN: 4200000016, RouterID: "10.0.0.16"} // transport in a DCI network
-	gwA2 = Identity{ASN: 4200000016, RouterID: "10.0.0.17"} // gw-a1's redundant partner
-	gwB1 = Identity{ASN: 4200000026, RouterID: "10.0.1.16"} // transport in the default VRF
+	// each pair's own ranges have hosts (active aggregates), the others' don't
+	aggA = active("vrf3981 10.0.16.0/24", "vrf3981 2001:db8:16::/48", "vrf3982 10.0.17.0/24", "vrf3982 2001:db8:17::/48")
+	gwA1 = Identity{ASN: 4200000016, RouterID: "10.0.0.16", Aggregates: aggA} // transport in a DCI network
+	gwA2 = Identity{ASN: 4200000016, RouterID: "10.0.0.17", Aggregates: aggA} // gw-a1's redundant partner
+	gwB1 = Identity{ASN: 4200000026, RouterID: "10.0.1.16",                   // transport in the default VRF
+		Aggregates: active("vrf4011 10.0.32.0/24", "vrf4011 2001:db8:32::/48", "vrf4012 10.0.33.0/24", "vrf4012 2001:db8:33::/48")}
 )
+
+func active(keys ...string) map[string]bool {
+	m := map[string]bool{}
+	for _, k := range keys {
+		m[k] = true
+	}
+	return m
+}
 
 func renderLab(t *testing.T, node string, id Identity) string {
 	t.Helper()
@@ -60,7 +71,7 @@ func TestRenderDefaultVRFTransport(t *testing.T) {
 			t.Errorf("missing %q", s)
 		}
 	}
-	for _, s := range []string{"dci0", "dci1", "redistribute static", "\n ipv6 route"} {
+	for _, s := range []string{"dci0", "dci1", "redistribute static", "\n ipv6 route fd00:"} { // routes into the block in a VRF
 		if strings.Contains(got, s) {
 			t.Errorf("default-VRF transport must not contain %q", s)
 		}
@@ -305,6 +316,95 @@ networks:
 	}
 }
 
+// Active aggregates are announced from a blackhole in the tenant VRF, inactive
+// ones not at all; both are matched exactly by the allowlist. One that becomes
+// inactive is removed on its own.
+func TestRenderAggregates(t *testing.T) {
+	cfg, err := config.Parse([]byte(`
+gateway: {locator: "fd00:dc1:a2::/48", locatorBlock: "fd00:dc1::/32"}
+peers: [{address: "fd00:dc1:b2::1", asn: 4200000026}]
+networks:
+  - {vrf: t1, vni: 1, routeTarget: "65535:1", aggregates: [10.0.16.0/24, 10.0.32.0/24, "2001:db8:16::/48"], prefixes: ["10.99.0.0/16 le 32"]}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := Identity{ASN: 4200000016, RouterID: "10.0.0.16", Aggregates: active("t1 10.0.16.0/24", "t1 2001:db8:16::/48")}
+	got, err := Render(cfg, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []string{
+		"vrf t1\n vni 1\n ip route 10.0.16.0/24 blackhole\n ipv6 route 2001:db8:16::/48 blackhole\nexit-vrf\n",
+		" address-family ipv4 unicast\n  network 10.0.16.0/24 route-map DCI-AGG\n  rd vpn export",
+		" address-family ipv6 unicast\n  network 2001:db8:16::/48 route-map DCI-AGG\n  rd vpn export",
+		"ip prefix-list DCI-t1-v4 seq 5 permit 10.0.16.0/24\nip prefix-list DCI-t1-v4 seq 10 permit 10.0.32.0/24\nip prefix-list DCI-t1-v4 seq 15 permit 10.99.0.0/16 le 32\n",
+		"ipv6 prefix-list DCI-t1-v6 seq 5 permit 2001:db8:16::/48\n",
+		// the own aggregates stay out of the own partition's type-5 ...
+		"  advertise ipv4 unicast route-map DCI-ADV\n  advertise ipv6 unicast route-map DCI-ADV\n",
+		"bgp large-community-list standard DCI-AGG seq 5 permit 4200000016:0:1\nroute-map DCI-AGG permit 10\n set large-community 4200000016:0:1\nexit\n",
+		"route-map DCI-ADV deny 10\n match large-community DCI-AGG\nexit\n!\nroute-map DCI-ADV permit 20\nexit\n",
+		// ... but the mark doesn't leave the gateway
+		"route-map DCI-t1-v4 permit 10\n match ip address prefix-list DCI-t1-v4\n set large-comm-list DCI-AGG delete\nexit\n",
+	} {
+		if !strings.Contains(got, s) {
+			t.Errorf("missing %q in:\n%s", s, got)
+		}
+	}
+	if strings.Contains(got, "10.0.32.0/24 blackhole") || strings.Contains(got, "network 10.0.32.0/24") {
+		t.Errorf("the inactive aggregate is announced:\n%s", got)
+	}
+
+	// the last host of 10.0.16.0/24 is gone
+	id.Aggregates = active("t1 2001:db8:16::/48")
+	want, err := Render(cfg, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rm := Removals(Parse(got), Parse(want))
+	for _, s := range []string{
+		"vrf t1\n no ip route 10.0.16.0/24 blackhole\n",
+		"router bgp 4200000016 vrf t1\n address-family ipv4 unicast\n  no network 10.0.16.0/24 route-map DCI-AGG\n",
+	} {
+		if !strings.Contains(rm, s) {
+			t.Errorf("removals lack %q:\n%s", s, rm)
+		}
+	}
+	if strings.Contains(rm, "2001:db8:16::/48") || strings.Contains(rm, "prefix-list") {
+		t.Errorf("removals touch the active aggregate or the allowlist:\n%s", rm)
+	}
+
+	// without aggregates, nothing of the marking is rendered
+	cfg.Networks[0].Aggregates = nil
+	plain, err := Render(cfg, Identity{ASN: 4200000016, RouterID: "10.0.0.16"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []string{"route 10.0.16.0/24 blackhole", "DCI-AGG", "DCI-ADV"} {
+		if strings.Contains(plain, s) {
+			t.Errorf("rendered %q without aggregates:\n%s", s, plain)
+		}
+	}
+}
+
+// Lines that are gone already (the base system reloaded FRR) aren't removed
+// again; a provisioned VRF's vni line still decides whether it's dropped.
+func TestPresent(t *testing.T) {
+	prev := Parse("vrf t1\n vni 1\n ip route 10.0.16.0/24 blackhole\nexit-vrf\nrouter bgp 1 vrf t1\n address-family ipv4 unicast\n  network 10.0.16.0/24 route-map DCI-AGG\n exit-address-family\nexit\n")
+	have := Parse("router bgp 1 vrf t1\n address-family ipv4 unicast\n  network 10.0.16.0/24 route-map DCI-AGG\n exit-address-family\nexit\n")
+	rm := Removals(Present(prev, have), nil)
+	if strings.Contains(rm, "no ip route") {
+		t.Errorf("removes a route that is gone:\n%s", rm)
+	}
+	if !strings.Contains(rm, "no router bgp 1 vrf t1") {
+		t.Errorf("the dropped VRF must still go:\n%s", rm)
+	}
+	rm = Removals(Present(prev, have), Parse("vrf t1\n vni 1\nexit-vrf\n"))
+	if !strings.Contains(rm, "no network 10.0.16.0/24 route-map DCI-AGG") || strings.Contains(rm, "no ip route") {
+		t.Errorf("want only the present network removed:\n%s", rm)
+	}
+}
+
 // Filters of a dropped network go completely (route-maps as a whole, list
 // entries one by one); a changed prefix only swaps its entry.
 func TestRemovalsFilters(t *testing.T) {
@@ -427,7 +527,7 @@ func TestRenderDrain(t *testing.T) {
 		t.Error("draining must keep the VRFs and their VPN import")
 	}
 	got := Removals(Parse(announced), Parse(drained))
-	for _, s := range []string{"router bgp 4200000026 vrf vrf4011\n address-family l2vpn evpn\n  no advertise ipv4 unicast\n", "no network fd00:dc1:b::/48"} {
+	for _, s := range []string{"router bgp 4200000026 vrf vrf4011\n address-family l2vpn evpn\n  no advertise ipv4 unicast route-map DCI-ADV\n", "no network fd00:dc1:b::/48"} {
 		if !strings.Contains(got, s) {
 			t.Errorf("removals lack %q:\n%s", s, got)
 		}

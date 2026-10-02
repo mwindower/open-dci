@@ -9,6 +9,7 @@
 package lab
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -33,6 +34,8 @@ type machine struct {
 	vrf, vni string
 	sid      string
 	v4, v6   string // announced by the machine itself
+	// the aggregates its partition announces instead of v4/v6 (networks[].aggregates)
+	net4, net6 string
 }
 
 var (
@@ -46,12 +49,12 @@ var (
 		{"gw-c1", "", "fd00:dc1:a::/48"}, {"gw-c2", "", "fd00:dc1:b::/48"},
 	}
 
-	mA  = machine{"m-a", pairA, "vrf3981", "3981", "fd00:dc1:a:f8d::", "10.0.16.10", "2001:db8:16::10"}   // tenant 1
-	mB  = machine{"m-b", pairB, "vrf4011", "4011", "fd00:dc1:b:fab::", "10.0.32.10", "2001:db8:32::10"}   // tenant 1
-	mA2 = machine{"m-a2", pairA, "vrf3982", "3982", "fd00:dc1:a:f8e::", "10.0.17.10", "2001:db8:17::10"}  // tenant 2
-	mB2 = machine{"m-b2", pairB, "vrf4012", "4012", "fd00:dc1:b:fac::", "10.0.33.10", "2001:db8:33::10"}  // tenant 2
-	mC  = machine{"m-c", pairC, "vrf5011", "5011", "fd00:dc1:c:1393::", "10.0.48.10", "2001:db8:48::10"}  // tenant 1
-	mC2 = machine{"m-c2", pairC, "vrf5012", "5012", "fd00:dc1:c:1394::", "10.0.49.10", "2001:db8:49::10"} // tenant 2
+	mA  = machine{"m-a", pairA, "vrf3981", "3981", "fd00:dc1:a:f8d::", "10.0.16.10", "2001:db8:16::10", "10.0.16.0/24", "2001:db8:16::/48"}   // tenant 1
+	mB  = machine{"m-b", pairB, "vrf4011", "4011", "fd00:dc1:b:fab::", "10.0.32.10", "2001:db8:32::10", "10.0.32.0/24", "2001:db8:32::/48"}   // tenant 1
+	mA2 = machine{"m-a2", pairA, "vrf3982", "3982", "fd00:dc1:a:f8e::", "10.0.17.10", "2001:db8:17::10", "10.0.17.0/24", "2001:db8:17::/48"}  // tenant 2
+	mB2 = machine{"m-b2", pairB, "vrf4012", "4012", "fd00:dc1:b:fac::", "10.0.33.10", "2001:db8:33::10", "10.0.33.0/24", "2001:db8:33::/48"}  // tenant 2
+	mC  = machine{"m-c", pairC, "vrf5011", "5011", "fd00:dc1:c:1393::", "10.0.48.10", "2001:db8:48::10", "10.0.48.0/24", "2001:db8:48::/48"}  // tenant 1
+	mC2 = machine{"m-c2", pairC, "vrf5012", "5012", "fd00:dc1:c:1394::", "10.0.49.10", "2001:db8:49::10", "10.0.49.0/24", "2001:db8:49::/48"} // tenant 2
 
 	machines = []machine{mA, mB, mC, mA2, mB2, mC2}
 	// stitched pairs, both directions; every partition pair per tenant
@@ -108,17 +111,24 @@ func TestControlPlane(t *testing.T) {
 		src, dst := f[0], f[1]
 		for _, gw := range src.gws {
 			// the leaf's type-5 route of the machine reaches the gateway via
-			// the exit and goes out as VPN route with SID
-			t.Run("evpn-to-vpn-with-sid/"+gw+"/"+src.v4, func(t *testing.T) {
+			// the exit; the gateway announces its aggregate as VPN route with
+			// SID instead, and not the machine's host route
+			t.Run("evpn-to-vpn-with-sid/"+gw+"/"+src.net4, func(t *testing.T) {
 				labtest.Eventually(t, converge, labtest.Contains(func() (string, error) {
-					return lab.Vtysh(gw, "show bgp ipv4 vpn "+src.v4+"/32")
+					return lab.Vtysh(gw, "show bgp ipv4 vpn "+src.net4)
 				}, "Remote SID"))
+				labtest.Eventually(t, converge, func() error {
+					if hasRoute(gw, "ipv4 vpn", src.v4+"/32") {
+						return fmt.Errorf("%s exports the host route %s", gw, src.v4)
+					}
+					return nil
+				})
 			})
 			// remote machines via SRv6 to the remote pair's anycast SID, never
 			// via the partner gateway's re-announcement in the fabric
-			t.Run("tenant-route-seg6-encap/"+gw+"/"+dst.v6, func(t *testing.T) {
+			t.Run("tenant-route-seg6-encap/"+gw+"/"+dst.net6, func(t *testing.T) {
 				labtest.Eventually(t, converge, labtest.Contains(func() (string, error) {
-					return lab.KernelRoute(gw, src.vrf, dst.v6)
+					return lab.KernelRoute(gw, src.vrf, dst.net6)
 				}, "segs 1 [ "+dst.sid+" ]"))
 			})
 			// own machines via the fabric (EVPN), never back via SRv6: no loops
@@ -128,10 +138,11 @@ func TestControlPlane(t *testing.T) {
 				}, "dev dcibr"+src.vni))
 			})
 		}
-		// the remote machine arrives at the local one as a plain BGP route from its leaf
-		t.Run("machine-learns-remote-machine/"+src.name, func(t *testing.T) {
+		// the remote partition's aggregate arrives at the local machine as a
+		// plain BGP route from its leaf
+		t.Run("machine-learns-remote-machine/"+src.name+"/"+dst.net4, func(t *testing.T) {
 			labtest.Eventually(t, converge, labtest.Contains(func() (string, error) {
-				return lab.KernelRoute(src.name, "", dst.v4)
+				return lab.KernelRoute(src.name, "", dst.net4)
 			}, "proto bgp"))
 		})
 	}
@@ -144,8 +155,10 @@ func TestControlPlane(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, m := range machines {
-				if strings.Contains(out, m.v4) {
-					t.Fatalf("%s knows tenant prefix %s:\n%s", n, m.v4, out)
+				for _, p := range []string{m.v4, m.net4} {
+					if strings.Contains(out, p) {
+						t.Fatalf("%s knows tenant prefix %s:\n%s", n, p, out)
+					}
 				}
 			}
 		})
@@ -185,16 +198,21 @@ func TestMTU(t *testing.T) {
 
 // The two tenants share leaves, exits, core and gateways, but never see each other.
 func TestTenantIsolation(t *testing.T) {
-	for _, c := range []struct{ node, dst string }{
-		{"m-a", mB2.v4}, {"m-a", mA2.v4}, {"m-a2", mB.v4}, {"m-b2", mA.v4},
+	for _, c := range []struct {
+		node string
+		dst  machine
+	}{
+		{"m-a", mB2}, {"m-a", mA2}, {"m-a2", mB}, {"m-b2", mA},
 	} {
-		t.Run(c.node+"->"+c.dst, func(t *testing.T) {
-			out, _ := lab.KernelRoute(c.node, "", c.dst)
-			if strings.Contains(out, "proto bgp") {
-				t.Fatalf("%s has a route to the other tenant's %s: %s", c.node, c.dst, out)
+		t.Run(c.node+"->"+c.dst.v4, func(t *testing.T) {
+			for _, p := range []string{c.dst.v4, c.dst.net4} {
+				out, _ := lab.KernelRoute(c.node, "", p)
+				if strings.Contains(out, "proto bgp") {
+					t.Fatalf("%s has a route to the other tenant's %s: %s", c.node, p, out)
+				}
 			}
-			if err := lab.Ping(c.node, c.dst, 0); err == nil {
-				t.Fatalf("%s reaches the other tenant's %s", c.node, c.dst)
+			if err := lab.Ping(c.node, c.dst.v4, 0); err == nil {
+				t.Fatalf("%s reaches the other tenant's %s", c.node, c.dst.v4)
 			}
 		})
 	}

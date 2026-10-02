@@ -162,6 +162,8 @@ router bgp 4200000016 vrf vrf3981          (one per network)
  bgp router-id 10.0.0.16
  sid vpn per-vrf export 3981             ! networks[].sid (default: the VNI) → fd00:dc1:a:f8d::
  address-family ipv4 unicast              (and ipv6 unicast)
+  network 10.0.16.0/24 route-map DCI-AGG   ! networks[].aggregates with hosts from the own
+                                          !   fabric (10.0.32.0/24 is partition B's: not here)
   rd vpn export 10.0.0.16:1001
   rt vpn both 65535:1001
   route-map vpn import DCI-vrf3981-v4     (-v6 in ipv6 unicast)
@@ -169,8 +171,8 @@ router bgp 4200000016 vrf vrf3981          (one per network)
   export vpn
   import vpn
  address-family l2vpn evpn
-  advertise ipv4 unicast
-  advertise ipv6 unicast
+  advertise ipv4 unicast route-map DCI-ADV   ! without aggregates: no route-map
+  advertise ipv6 unicast route-map DCI-ADV
 !
 router bgp 4200000016 vrf vrf104100
  address-family ipv6 unicast
@@ -178,15 +180,24 @@ router bgp 4200000016 vrf vrf104100
 !
 ipv6 route fd00:dc1::/32 fe80::2 dci0          ! remote locators → DCI VRF
 ipv6 route fd00:dc1:a::/48 blackhole
+vrf vrf3981
+ ip route 10.0.16.0/24 blackhole               ! active aggregate: unused addresses end here
 vrf vrf104100
  ipv6 route fd00:dc1:a::/48 fe80::1 dci1       ! own locator → default VRF (SIDs)
  ipv6 route fd00:dc1:ff::a1/128 fe80::1 dci1   ! own loopback, if outside the locator
 !
-ip prefix-list DCI-vrf3981-v4 seq 5 permit 10.0.16.0/24 le 32      ! networks[].prefixes
-ip prefix-list DCI-vrf3981-v4 seq 10 permit 10.0.32.0/24 le 32
+ip prefix-list DCI-vrf3981-v4 seq 5 permit 10.0.16.0/24     ! networks[].aggregates (exact),
+ip prefix-list DCI-vrf3981-v4 seq 10 permit 10.0.32.0/24    !   then networks[].prefixes
 route-map DCI-vrf3981-v4 permit 10
  match ip address prefix-list DCI-vrf3981-v4
-!                                               (IPv6 alike; a family without prefixes: "deny 10")
+ set large-comm-list DCI-AGG delete             ! the aggregate mark stays on the gateway
+!                                               (IPv6 alike; a family without entries: "deny 10")
+bgp large-community-list standard DCI-AGG seq 5 permit 4200000016:0:1   ! only with aggregates:
+route-map DCI-AGG permit 10                     !   marks the own aggregates ...
+ set large-community 4200000016:0:1
+route-map DCI-ADV deny 10                       !   ... and keeps them out of the own
+ match large-community DCI-AGG                  !   partition's type-5 (it has the hosts)
+route-map DCI-ADV permit 20
 bgp extcommunity-list standard DCI-RT seq 5 permit rt 65535:1001   ! one per route target
 bgp extcommunity-list standard DCI-RT seq 10 permit rt 65535:1002
 route-map DCI-PEER-IN permit 10

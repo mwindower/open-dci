@@ -22,15 +22,15 @@ networks:
   - vrf: vrf3981                  # created by open-dci
     vni: 3981                     # the tenant's VNI in this partition
     routeTarget: "65535:1001"     # the stitched network's identity, same on all gateways
-    prefixes:                     # its address space in all partitions, same on all gateways
-      - 10.0.16.0/24 le 32
-      - 10.0.32.0/24 le 32
-      - 2001:db8:16::/48 le 128
-      - 2001:db8:32::/48 le 128
+    aggregates:                   # its ranges, one per partition, same on all gateways
+      - 10.0.16.0/24              #   partition A
+      - 10.0.32.0/24              #   partition B
+      - 2001:db8:16::/48
+      - 2001:db8:32::/48
   - vrf: vrf3982
     vni: 3982
     routeTarget: "65535:1002"
-    prefixes: [10.0.17.0/24 le 32, 10.0.33.0/24 le 32, 2001:db8:17::/48 le 128, 2001:db8:33::/48 le 128]
+    aggregates: [10.0.17.0/24, 10.0.33.0/24, 2001:db8:17::/48, 2001:db8:33::/48]
 ```
 
 For the default VRF as transport, leave out the `transport` section (see the lab's gw-b1).
@@ -82,7 +82,8 @@ session, before any VRF import.
 | `vni` | required | The tenant's L3VNI in this partition (1 – 16777215). open-dci provisions the VRF with it: VRF, bridge `dcibr<vni>`, VXLAN device `dcivx<vni>`, the FRR VRF with `vni`, and a BGP instance that advertises the routes as type-5. |
 | `table` | the VNI | Kernel routing table of the VRF. |
 | `sid` | the VNI | Function part of the network's End.DT46 SID, `<locator>:<sid in hex>::` (1 – 65535). Pinned, so the SID survives restarts and is identical on both gateways of a pair. Must be set if the VNI doesn't fit 16 bits. |
-| `prefixes` | required | The stitched network's address space in all partitions, in FRR prefix-list syntax: `PREFIX [ge N] [le N]`. A bare prefix matches exactly, `ge`/`le` extend it to more-specific ones (`10.0.16.0/24 le 32`: the /24 and every host in it). Only matching routes are exported from and imported into the VRF. Everything else stays in its partition, including a default route unless `0.0.0.0/0` / `::/0` is listed. Like `routeTarget`, the list is the same on all gateways of the network. A family without entries is not exchanged at all. |
+| `aggregates` | – | The stitched network's address ranges, plain prefixes (`10.0.16.0/24`), **each in exactly one partition**. The gateways of the partition whose tenant VRF holds more specific routes from its own fabric in a range (the machines' /32 and /128 from EVPN) announce the range instead of them and drop traffic to its unused addresses (blackhole route). A range without such routes isn't announced, so the list is the same on all gateways of the network. open-dci checks this on every reconcile (`run -i`, default 10 s): the first host in a range, or the last one leaving it, takes effect within one interval. Aggregates are part of the allowlist (matched exactly). A range used in two partitions doesn't work: each pair prefers its own aggregate. The own aggregate isn't announced back into the own partition (it has the host routes). Adding the first aggregate to a network, or removing the last one, briefly withdraws the gateway's type-5 routes of that network (its `advertise` lines change); the partner gateway carries the traffic meanwhile, so change one gateway of a pair at a time. |
+| `prefixes` | – | Further routes passed as they are, in FRR prefix-list syntax: `PREFIX [ge N] [le N]`. A bare prefix matches exactly, `ge`/`le` extend it to more-specific ones (`10.0.16.0/24 le 32`: the /24 and every host in it). Only routes matching an aggregate or a prefix are exported from and imported into the VRF. Everything else stays in its partition, including a default route unless `0.0.0.0/0` / `::/0` is listed. Like `routeTarget`, the list is the same on all gateways of the network. A family without entries in `aggregates` and `prefixes` is not exchanged at all. At least one of the two lists is required. |
 
 ## Validation
 
@@ -95,8 +96,10 @@ Besides syntax, `validate` (and every other command) rejects:
 - invalid route targets or distinguishers
 - a missing `vni`, one out of range or used twice, a reserved or duplicate table
 - a `sid` out of range or used twice, a `loopback` inside the locator or outside the block
-- missing `prefixes`, malformed entries (host bits set, `ge`/`le` out of range, `ge` > `le`)
-  or duplicates, and a `maxPrefixes` below 1
+- a network without `aggregates` and `prefixes`; malformed aggregates (host bits set,
+  `ge`/`le`, a default or host route) or overlapping ones; malformed prefixes (host bits
+  set, `ge`/`le` out of range, `ge` > `le`) or duplicates, also of an aggregate; and a
+  `maxPrefixes` below 1
 
 At runtime, `apply`/`run`/`diff`/`status` also check the system:
 - the transport VRF (if any) exists in the kernel, with a BGP instance

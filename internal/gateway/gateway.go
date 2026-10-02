@@ -37,6 +37,8 @@ type Gateway struct {
 	// nothing, like a drained one
 	withdrawn *Health
 	routerID  string
+	// lastAggregates: the active aggregates, kept when FRR can't be asked
+	lastAggregates map[string]bool
 }
 
 // Result describes what a reconcile did.
@@ -73,6 +75,7 @@ func (g *Gateway) Plan() (desired string, res Result, err error) {
 	}
 	id.Withhold = !res.Readiness.Ready
 	id.Drain = g.Drained() || g.withdrawn != nil
+	id.Aggregates = g.activeAggregates()
 	res.Drained = g.Drained()
 	if g.withdrawn != nil {
 		res.Withdrawn = *g.withdrawn
@@ -83,11 +86,11 @@ func (g *Gateway) Plan() (desired string, res Result, err error) {
 	if err != nil {
 		return "", res, err
 	}
-	want := frr.Parse(desired)
-	res.Missing = frr.Missing(want, frr.Parse(running))
+	want, have := frr.Parse(desired), frr.Parse(running)
+	res.Missing = frr.Missing(want, have)
 	if prev, err := os.ReadFile(g.StateFile); err == nil {
 		res.RemovedL3VNIs = frr.L3VNIRemovals(frr.Parse(string(prev)), want)
-		res.Removed = frr.Removals(frr.Parse(string(prev)), want)
+		res.Removed = frr.Removals(frr.Present(frr.Parse(string(prev)), have), want)
 	}
 	return desired, res, nil
 }
