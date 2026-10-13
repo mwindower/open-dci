@@ -233,23 +233,53 @@ func (g *Gateway) kernelStatus() KernelStatus {
 }
 
 // Healthy reports whether everything open-dci is responsible for is in place.
-func (s *Status) Healthy() bool {
+func (s *Status) Healthy() bool { return len(s.Problems()) == 0 }
+
+// Problems lists what is not in place, empty if the gateway is healthy.
+func (s *Status) Problems() []string {
+	var out []string
+	add := func(format string, a ...any) { out = append(out, fmt.Sprintf(format, a...)) }
 	k := s.Kernel
-	if s.MissingLines > 0 || !s.Announced && !s.Drained || !s.Health.OK || k.StrictMode != "1" || len(k.Filter) != k.FilterRequired {
-		return false
+	if s.MissingLines > 0 {
+		add("frr: %d line(s) missing", s.MissingLines)
 	}
-	if k.TransportVRF != "" && (!k.VethUp || k.DCIPathMTU < k.RequiredMTU || !k.LocalRuleLast) {
-		return false
+	if !s.Announced && !s.Drained {
+		add("locator withheld: %s", s.WithheldReason)
+	}
+	if !s.Health.OK {
+		add("unhealthy: %s", s.Health.Reason)
+	}
+	if k.StrictMode != "1" {
+		add("net.vrf.strict_mode is %q, not 1", k.StrictMode)
+	}
+	if len(k.Filter) != k.FilterRequired {
+		add("ingress filter: %d of %d rules", len(k.Filter), k.FilterRequired)
+	}
+	if k.TransportVRF != "" {
+		if !k.VethUp {
+			add("transport: veth down")
+		}
+		if k.DCIPathMTU < k.RequiredMTU {
+			add("transport: path MTU %d below %d", k.DCIPathMTU, k.RequiredMTU)
+		}
+		if !k.LocalRuleLast {
+			add("transport: the local ip rule is not behind l3mdev")
+		}
 	}
 	for _, p := range s.Peers {
 		if p.State != "Established" {
-			return false
+			add("peer %s: %s", p.Address, p.State)
 		}
 	}
 	for _, n := range s.Networks {
-		if n.SID == "" || n.L3VNIState != "Up" || n.NoBestPath > 0 {
-			return false
+		switch {
+		case n.SID == "":
+			add("%s: no SID", n.VRF)
+		case n.L3VNIState != "Up":
+			add("%s: L3VNI %d %s", n.VRF, n.VNI, n.L3VNIState)
+		case n.NoBestPath > 0:
+			add("%s: %d prefix(es) without best path", n.VRF, n.NoBestPath)
 		}
 	}
-	return true
+	return out
 }

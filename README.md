@@ -39,7 +39,8 @@ tenant's networks from independent fabrics into one.
 - **Safe by default.** Prefix allowlists per network, route-target filters and prefix
   limits per peer, no DCI route target in any fabric, and an SRv6 domain closed at its edge.
 - **Hands-off.** One YAML file per gateway. open-dci reconciles continuously, survives
-  config reloads of the base system and reports its health in `status`.
+  config reloads of the base system and reports its health in `status`, as Prometheus
+  metrics and on a health endpoint.
 
 **Use cases**
 - A tenant's private networks in several [metal-stack](https://metal-stack.io) partitions

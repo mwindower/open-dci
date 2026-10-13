@@ -7,7 +7,8 @@ cmd/open-dci/        CLI (validate, render, diff, apply, run, status, version)
 internal/config/     config schema, defaults, validation
 internal/frr/        rendering (dci.conf.tpl), running-config parser, drift/removals, vtysh client
 internal/kernel/     netlink primitives: veth, MTU path discovery, ip rules, sysctls
-internal/gateway/    reconcile loop, pre-flight checks, status
+internal/gateway/    reconcile loop, pre-flight checks, status, Monitor (what run publishes)
+internal/metrics/    /metrics (Prometheus) and /healthz from the Monitor
 lab/                 containerlab lab: topology, configs/<node>/, e2e tests, labnode
 docs/                user docs, feasibility findings, lab routing tables, packet-flow-*.svg
 docs/packetflow/     generator of the packet-flow animations (make docs-svg)
@@ -48,7 +49,7 @@ make lab-redeploy  # lab down + up + e2e tests (see lab/README.md)
 | 1.1 | Default-VRF transport, lab in CI, releases (binaries, image, systemd unit) | done |
 | 2 | Robustness: type-5 routes without the VPN's extended communities (no DCI RT in the fabrics), site of origin (`gateway.siteOfOrigin`) kept out of the VPN, RT/RD/SoO local-part widths validated per admin type, default RD `<routerID>:<sid>` | done |
 | 2.5 | Failure detection: BFD on the gateway's, exit's, spine's and core's sessions (base configs, [measured](performance.md)), locator withheld until End-of-RIB and withdrawn while unhealthy | done |
-| 3 | Operations: Prometheus metrics, health endpoint | |
+| 3 | Operations: Prometheus metrics and health endpoint (`run --listen`) | done |
 | 3.1 | Multi-site config ([day2.md](day2.md)): shared inventory file, RTs derived from network names, VPN route reflectors with `bgp listen range` | |
 | 2.2 | Redundant gateway pairs: anycast locator, unique loopbacks, pinned SIDs (`networks[].sid`), failover tests | done |
 | 2.3 | SRv6 domain edge: gateway ingress filter (nftables), exit edge ACLs in the lab, no fall-through in tenant VRFs, forged-packet tests | done |

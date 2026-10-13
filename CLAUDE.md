@@ -47,7 +47,8 @@ Scope decisions, which should not be revisited without the user:
 
 - `cmd/open-dci`: CLI. `internal/config`: schema and validation. `internal/frr`:
   `dci.conf.tpl`, parser, drift/removals, vtysh. `internal/kernel`: netlink.
-  `internal/gateway`: reconcile, pre-flight, status.
+  `internal/gateway`: reconcile, pre-flight, status, `Monitor`. `internal/metrics`:
+  `/metrics` and `/healthz` (`run --listen`), served from what `run` last published.
 - `internal/frr/testdata/gw-{a1,b1}.golden` are the rendered configs for the lab's gateways
   (`go test ./internal/frr -update` rewrites them; review the diff!).
   `testdata/gw-a1.running.conf` is a real FRR running-config: every rendered line must

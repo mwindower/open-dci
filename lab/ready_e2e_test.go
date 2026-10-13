@@ -115,6 +115,8 @@ func TestDrain(t *testing.T) {
 	if err := opendci(gw, "status"); err != nil {
 		t.Errorf("drained gateway not healthy: %v", err)
 	}
+	waitFor(t, converge, healthzSays(gw, 200, "drained"))
+	waitFor(t, converge, metricsContain(gw, "open_dci_healthy 1", `open_dci_locator_state{state="drained"} 1`, `open_dci_locator_state{state="announced"} 0`))
 	// the sidecar keeps it drained across reconciles
 	time.Sleep(12 * time.Second)
 	if err := usesGW(false)(); err != nil {
@@ -129,6 +131,7 @@ func TestDrain(t *testing.T) {
 	}
 	waitFor(t, converge, usesGW(true))
 	waitFor(t, converge, func() error { return opendci(gw, "status") })
+	waitFor(t, converge, healthzSays(gw, 200, "announced"))
 }
 
 // A gray failure: BGP is fine, but the gateway can't forward (here: kernel
@@ -185,6 +188,12 @@ func TestWithdrawOnGrayFailure(t *testing.T) {
 				return nil
 			})
 			waitFor(t, converge, usesGW(false))
+			// the health endpoint and the metrics say so, too
+			waitFor(t, converge, healthzSays(c.gw, 503, "withdrawn"))
+			waitFor(t, converge, metricsContain(c.gw, "open_dci_healthy 0", "open_dci_dataplane_healthy 0", `open_dci_locator_state{state="withdrawn"} 1`))
+			if err := metricsContain(c.gw, "open_dci_withdrawals_total 0")(); err == nil {
+				t.Errorf("%s: withdrawal not counted", c.gw)
+			}
 			waitFor(t, converge, func() error { return lab.Ping(c.local.name, c.peer.v4, 0) })
 			waitFor(t, converge, func() error { return lab.Ping(c.peer.name, c.local.v4, 0) })
 
@@ -192,6 +201,7 @@ func TestWithdrawOnGrayFailure(t *testing.T) {
 			restored = true
 			waitFor(t, converge, usesGW(true))
 			waitFor(t, converge, func() error { return opendci(c.gw, "status") })
+			waitFor(t, converge, healthzSays(c.gw, 200, "announced"))
 		})
 	}
 }
