@@ -79,7 +79,7 @@ router bgp 4200000016 vrf vrf3982
  address-family ipv4 unicast
   network 10.0.17.0/24 route-map DCI-AGG
   rd vpn export 10.0.0.16:3982
-  rt vpn both 65535:1002
+  rt vpn both 65535:3473928608
   route-map vpn import DCI-vrf3982-v4
   route-map vpn export DCI-vrf3982-v4
   export vpn
@@ -88,7 +88,7 @@ router bgp 4200000016 vrf vrf3982
  address-family ipv6 unicast
   network 2001:db8:17::/48 route-map DCI-AGG
   rd vpn export 10.0.0.16:3982
-  rt vpn both 65535:1002
+  rt vpn both 65535:3473928608
   route-map vpn import DCI-vrf3982-v6
   route-map vpn export DCI-vrf3982-v6
   export vpn
@@ -214,7 +214,7 @@ exit
 bgp extcommunity-list expanded DCI-ANY seq 5 permit .*
 bgp extcommunity-list standard DCI-SOO seq 5 permit soo 4200000016:10
 bgp extcommunity-list standard DCI-RT seq 5 permit rt 65535:1001
-bgp extcommunity-list standard DCI-RT seq 10 permit rt 65535:1002
+bgp extcommunity-list standard DCI-RT seq 10 permit rt 65535:3473928608
 route-map DCI-PEER-IN permit 10
  match extcommunity DCI-RT
 exit

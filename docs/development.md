@@ -9,7 +9,8 @@ internal/frr/        rendering (dci.conf.tpl), running-config parser, drift/remo
 internal/kernel/     netlink primitives: veth, MTU path discovery, ip rules, sysctls
 internal/gateway/    reconcile loop, pre-flight checks, status, Monitor (what run publishes)
 internal/metrics/    /metrics (Prometheus) and /healthz from the Monitor
-lab/                 containerlab lab: topology, configs/<node>/, e2e tests, labnode
+internal/source/     network sources: metalstack (metal-apiserver API v2: mapping, polling, cache; fakeapi for tests and the lab)
+lab/                 containerlab lab: topology, configs/<node>/, e2e tests, labnode, fakeapi
 docs/                user docs, feasibility findings, lab routing tables, packet-flow-*.svg
 docs/packetflow/     generator of the packet-flow animations (make docs-svg)
 deploy/systemd/      systemd unit
@@ -50,11 +51,12 @@ make lab-redeploy  # lab down + up + e2e tests (see lab/README.md)
 | 2 | Robustness: type-5 routes without the VPN's extended communities (no DCI RT in the fabrics), site of origin (`gateway.siteOfOrigin`) kept out of the VPN, RT/RD/SoO local-part widths validated per admin type, default RD `<routerID>:<sid>` | done |
 | 2.5 | Failure detection: BFD on the gateway's, exit's, spine's and core's sessions (base configs, [measured](performance.md)), locator withheld until End-of-RIB and withdrawn while unhealthy | done |
 | 3 | Operations: Prometheus metrics and health endpoint (`run --listen`) | done |
-| 3.1 | Multi-site config ([day2.md](day2.md)): shared inventory file, RTs derived from network names, VPN route reflectors with `bgp listen range` | |
+| 3.1 | Multi-site config ([day2.md](day2.md)): shared inventory file, VPN route reflectors with `bgp listen range` | |
 | 2.2 | Redundant gateway pairs: anycast locator, unique loopbacks, pinned SIDs (`networks[].sid`), failover tests | done |
 | 2.3 | SRv6 domain edge: gateway ingress filter (nftables), exit edge ACLs in the lab, no fall-through in tenant VRFs, forged-packet tests | done |
 | 2.4 | No full mesh: gateways peer only with their exit (`peers[].interface`), the exits relay the VPN routes | done |
 | 2.1 | Safety net: per-network prefix allowlists (`prefixes`), inbound route-target filter and `maxPrefixes` per peer | done |
 | 3.2 | Dedicated gateways: provisioned tenant L3VNIs (`networks[].vni`), lab gateways at the exits; the firewall placement removed | done |
 | 3.3 | Scale test for dedicated gateways: number of provisioned VRFs, packets per second | |
-| 4 | metal-stack integration: gateway configs (tenant VNIs, RTs) generated from metal-api | |
+| 4 | metal-stack integration, step 1: networks from metal-apiserver (`source.metalStack`: by project or label, RTs derived from the group names, cached last answer), no new metal-stack entities; fake API in the lab | done |
+| 4.1 | metal-stack integration, step 2: a network stitch entity, `dci-controller` and gateway role ([proposal](metal-stack.md)) | |

@@ -3,6 +3,7 @@ package gateway
 import (
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/vishvananda/netlink"
 
@@ -29,6 +30,8 @@ type Status struct {
 	Kernel   KernelStatus
 	Peers    []PeerStatus
 	Networks []NetworkStatus
+	// Source: the network source, if one is configured
+	Source *SourceStatus `json:",omitempty"`
 }
 
 type KernelStatus struct {
@@ -53,7 +56,9 @@ type PeerStatus struct {
 
 type NetworkStatus struct {
 	VRF, RouteTarget, RD string
-	SID, Behavior        string
+	// Group: the source's name for the network ("" = from the config file)
+	Group         string `json:",omitempty"`
+	SID, Behavior string
 	// VNI and the EVPN state of the L3VNI as zebra sees it ("Up" once VRF,
 	// bridge and VXLAN device are bound)
 	VNI        uint32
@@ -92,6 +97,10 @@ func (g *Gateway) Status(routes string) (*Status, error) {
 		Kernel:         g.kernelStatus(),
 	}
 
+	if g.Source != nil {
+		src := g.source
+		st.Source = &src
+	}
 	for _, p := range g.Config.Peers {
 		ps := PeerStatus{Address: p.Neighbor(), ASN: p.ASN, State: "unknown"}
 		var nb map[string]struct {
@@ -129,7 +138,7 @@ func (g *Gateway) Status(routes string) (*Status, error) {
 	}
 
 	for _, n := range g.Config.Networks {
-		ns := NetworkStatus{VRF: n.VRF, RouteTarget: n.RouteTarget, RD: g.Config.RDFor(n, st.RouterID)}
+		ns := NetworkStatus{VRF: n.VRF, RouteTarget: n.RouteTarget, RD: g.Config.RDFor(n, st.RouterID), Group: n.Group}
 		for sid, s := range sids {
 			if s.Context.VRFName == n.VRF {
 				ns.SID, ns.Behavior = sid, s.Behavior
@@ -234,6 +243,28 @@ func (g *Gateway) kernelStatus() KernelStatus {
 
 // Healthy reports whether everything open-dci is responsible for is in place.
 func (s *Status) Healthy() bool { return len(s.Problems()) == 0 }
+
+// Warnings lists what needs attention but doesn't make the gateway
+// unhealthy: a stale network source (its last answer stays in place) and
+// groups it can't stitch.
+func (s *Status) Warnings(now time.Time) []string {
+	src := s.Source
+	if src == nil {
+		return nil
+	}
+	var out []string
+	if src.Stale(now) {
+		last := "never"
+		if !src.Synced.IsZero() {
+			last = src.Synced.UTC().Format(time.RFC3339)
+		}
+		out = append(out, fmt.Sprintf("source: no answer since %s, keeping the last one: %s", last, src.LastError))
+	}
+	for _, sk := range src.Skipped {
+		out = append(out, fmt.Sprintf("source: %s not stitched: %s", sk.Group, sk.Reason))
+	}
+	return out
+}
 
 // Problems lists what is not in place, empty if the gateway is healthy.
 func (s *Status) Problems() []string {

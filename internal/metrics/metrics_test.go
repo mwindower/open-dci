@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mwindower/open-dci/internal/config"
 	"github.com/mwindower/open-dci/internal/gateway"
 	"github.com/mwindower/open-dci/internal/kernel"
 )
@@ -101,5 +102,37 @@ func TestHealthz(t *testing.T) {
 				t.Errorf("got %d %s, want %d with %q", code, body, c.code, c.problems)
 			}
 		})
+	}
+}
+
+func TestSourceMetrics(t *testing.T) {
+	mon := &gateway.Monitor{}
+	now := time.Now()
+	st := healthyStatus()
+	st.Source = &gateway.SourceStatus{
+		Synced: now.Add(-time.Hour), Interval: 30 * time.Second, Networks: 3, Errors: 4, LastError: "connection refused",
+		Skipped: []config.Skipped{{Group: "label/p1/dup", Reason: "2 networks in partition a"}},
+	}
+	mon.Publish(gateway.Snapshot{Status: st, StatusTime: now, Interval: 10 * time.Second, Locator: gateway.LocatorAnnounced})
+	h := Handler(mon, "v1")
+	_, body := get(t, h, "/metrics")
+	for _, s := range []string{
+		"open_dci_source_networks 3",
+		"open_dci_source_errors_total 4",
+		"open_dci_source_stale 1",
+		`open_dci_source_skipped{group="label/p1/dup",reason="2 networks in partition a"} 1`,
+		"open_dci_healthy 1", // a stale source doesn't make the gateway unhealthy
+	} {
+		if !strings.Contains(body, s+"\n") {
+			t.Errorf("missing %q", s)
+		}
+	}
+	code, body := get(t, h, "/healthz")
+	var health Health
+	if err := json.Unmarshal([]byte(body), &health); err != nil {
+		t.Fatal(err)
+	}
+	if code != http.StatusOK || len(health.Warnings) != 2 || !strings.Contains(health.Warnings[0], "connection refused") {
+		t.Fatalf("/healthz %d %+v", code, health)
 	}
 }

@@ -4,12 +4,16 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/netip"
+	"net/url"
 	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"sigs.k8s.io/yaml"
 )
@@ -25,7 +29,74 @@ type Config struct {
 	Peers []Peer `json:"peers"`
 	// Networks are the tenant VRFs to stitch.
 	Networks []Network `json:"networks"`
+	// Source adds networks from an inventory (metal-apiserver) to Networks.
+	// Optional: without it, Networks is all there is.
+	Source *Source `json:"source,omitempty"`
 }
+
+// Source names where further networks come from. open-dci polls it and
+// merges its networks with the static ones (a static network wins a
+// conflict).
+type Source struct {
+	MetalStack *MetalStackSource `json:"metalStack,omitempty"`
+}
+
+// MetalStackSource derives networks from metal-apiserver's private networks
+// (API v2), without metal-stack entities of its own, in one of two modes:
+// all private networks of a project form one stitched network (Projects), or
+// a project's networks with the same Label value do. Either way, networks of
+// different projects are never stitched together.
+type MetalStackSource struct {
+	// URL of metal-apiserver, e.g. https://api.metal.example.com.
+	URL string `json:"url"`
+	// TokenFile holds the API token (re-read on every poll). With explicit
+	// Projects a viewer role in each of them is enough; "*" and Label need
+	// the admin viewer role.
+	TokenFile string `json:"tokenFile,omitempty"`
+	// Partition is the gateway's own partition: its networks there become
+	// the gateway's tenant VRFs.
+	Partition string `json:"partition"`
+	// Interval between polls (default 30s).
+	Interval Duration `json:"interval,omitempty"`
+	// RouteTargetASN is the 2-byte admin part of the derived route targets,
+	// a namespace independent of the gateways' (possibly 4-byte) ASNs.
+	RouteTargetASN uint32 `json:"routeTargetASN"`
+	// Projects whose private networks are stitched, all of a project's
+	// networks into one (one per partition); "*" = every project. Exclusive
+	// with Label.
+	Projects []string `json:"projects,omitempty"`
+	// Label is a network label key: only labelled networks are stitched, a
+	// project's networks with the same value into one. Exclusive with
+	// Projects.
+	Label string `json:"label,omitempty"`
+	// DefaultRouteLabel is a network label key whose value (export or
+	// import) sets networks[].defaultRoute for the gateway's own network.
+	DefaultRouteLabel string `json:"defaultRouteLabel,omitempty"`
+}
+
+// DefaultSourceInterval is the default poll interval of a source.
+const DefaultSourceInterval = 30 * time.Second
+
+// AllProjects in MetalStackSource.Projects selects every project.
+const AllProjects = "*"
+
+// Duration is a time.Duration written as "30s" in the config.
+type Duration struct{ time.Duration }
+
+func (d *Duration) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err != nil {
+		return fmt.Errorf("duration: want a string like \"30s\"")
+	}
+	v, err := time.ParseDuration(s)
+	if err != nil {
+		return err
+	}
+	d.Duration = v
+	return nil
+}
+
+func (d Duration) MarshalJSON() ([]byte, error) { return json.Marshal(d.String()) }
 
 type Gateway struct {
 	// ASN of the existing "router bgp" instance. Optional: discovered from FRR.
@@ -137,6 +208,9 @@ type Network struct {
 	VNI uint32 `json:"vni"`
 	// Table is the kernel routing table of the VRF (default: the VNI).
 	Table uint32 `json:"table,omitempty"`
+	// Group is the source's name of the stitched network (empty for static
+	// networks). Not part of the config file.
+	Group string `json:"-"`
 	// SID is the function part of the network's End.DT46 SID
 	// (<locator>:<sid in hex>::), pinned so that it survives restarts and is
 	// identical on redundant gateways. Default: the VNI (if it fits 16 bits).
@@ -211,6 +285,9 @@ func (c *Config) Default() {
 		if p := &c.Peers[i]; p.MaxPrefixes == 0 {
 			p.MaxPrefixes = DefaultMaxPrefixes
 		}
+	}
+	if c.Source != nil && c.Source.MetalStack != nil && c.Source.MetalStack.Interval.Duration == 0 {
+		c.Source.MetalStack.Interval.Duration = DefaultSourceInterval
 	}
 }
 
@@ -450,8 +527,12 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	if len(c.Networks) == 0 {
-		fail("networks: at least one tenant VRF is required")
+	if c.Source != nil {
+		for _, e := range c.Source.validate() {
+			fail("source.%s", e)
+		}
+	} else if len(c.Networks) == 0 {
+		fail("networks: at least one tenant VRF is required (or a source)")
 	}
 	seenVRF := map[string]bool{}
 	seenVNI := map[uint32]bool{}
@@ -539,6 +620,39 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid config:\n  - %s", strings.Join(errs, "\n  - "))
 	}
 	return nil
+}
+
+func (s *Source) validate() []string {
+	m := s.MetalStack
+	if m == nil {
+		return []string{"metalStack: required (the only source so far)"}
+	}
+	var errs []string
+	if u, err := url.Parse(m.URL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		errs = append(errs, fmt.Sprintf("metalStack.url: want http(s)://host: %q", m.URL))
+	}
+	if m.Partition == "" {
+		errs = append(errs, "metalStack.partition: required (the gateway's own partition)")
+	}
+	if m.Interval.Duration < time.Second {
+		errs = append(errs, fmt.Sprintf("metalStack.interval: %s is too short", m.Interval))
+	}
+	if m.RouteTargetASN == 0 || m.RouteTargetASN > 1<<16-1 {
+		errs = append(errs, fmt.Sprintf("metalStack.routeTargetASN: %d, want a 2-byte value (1-65535): it is only the route targets' namespace, "+
+			"and after a 4-byte ASN the local part has 16 bits, too few for hashed group names; the gateways' own ASN may still be 4-byte", m.RouteTargetASN))
+	}
+	switch {
+	case len(m.Projects) == 0 && m.Label == "":
+		errs = append(errs, "metalStack: projects or label required")
+	case len(m.Projects) > 0 && m.Label != "":
+		errs = append(errs, "metalStack: projects and label are exclusive: stitch all networks of the projects, or only the labelled ones")
+	}
+	for i, p := range m.Projects {
+		if p == "" || (p == AllProjects && len(m.Projects) > 1) {
+			errs = append(errs, fmt.Sprintf("metalStack.projects[%d]: %q, want project IDs or a single %q", i, p, AllProjects))
+		}
+	}
+	return errs
 }
 
 // Loopback returns the gateway loopback: the configured one, or the first
@@ -635,4 +749,45 @@ func ParseCommunity(s string) (Community, error) {
 		return Community{}, fmt.Errorf("%q: the local part after %s has 16 bits (at most %d)", s, kind, max)
 	}
 	return Community{Admin: admin, Local: uint32(n)}, nil
+}
+
+// Skipped is a group of a source that isn't stitched, and why.
+type Skipped struct {
+	Group  string
+	Reason string
+}
+
+// WithNetworks returns a copy of the config with the source's networks added
+// to the static ones. A source network that conflicts with the networks
+// before it (VRF, VNI, SID, table, route target) or is invalid is skipped;
+// static networks always stay. The config must have been validated.
+func (c *Config) WithNetworks(nets []Network) (*Config, []Skipped) {
+	out := *c
+	out.Networks = slices.Clone(c.Networks)
+	var skipped []Skipped
+	rts := map[uint32]bool{}
+	for _, n := range c.Networks {
+		if rt, err := ParseCommunity(n.RouteTarget); err == nil {
+			rts[rt.Local] = true
+		}
+	}
+	for _, n := range nets {
+		try := out
+		try.Networks = append(slices.Clone(out.Networks), n)
+		try.Default()
+		err := try.Validate()
+		if err == nil {
+			if rt, _ := ParseCommunity(n.RouteTarget); rts[rt.Local] {
+				err = fmt.Errorf("route target %s is already used", n.RouteTarget)
+			}
+		}
+		if err != nil {
+			skipped = append(skipped, Skipped{Group: n.Group, Reason: strings.ReplaceAll(err.Error(), "\n", " ")})
+			continue
+		}
+		rt, _ := ParseCommunity(n.RouteTarget)
+		rts[rt.Local] = true
+		out.Networks = try.Networks
+	}
+	return &out, skipped
 }

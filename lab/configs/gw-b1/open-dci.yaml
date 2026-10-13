@@ -22,13 +22,17 @@ networks:
       - 2001:db8:16::/48
       - 2001:db8:32::/48
       - 2001:db8:48::/48
-  - vrf: vrf4012
-    vni: 4012                     # tenant 2's VNI in partition B
-    routeTarget: "65535:1002"
-    aggregates:
-      - 10.0.17.0/24
-      - 10.0.33.0/24
-      - 10.0.49.0/24
-      - 2001:db8:17::/48
-      - 2001:db8:33::/48
-      - 2001:db8:49::/48
+# tenant 2 comes from metal-apiserver (in the lab: the fake one on the core,
+# configs/core/metal-api.yaml): all private networks of project tenant-2, one per
+# partition, become one stitched network; its VNI here is the VRF ID of the
+# partition-b network (vrf4012), the route target is derived from the project.
+source:
+  metalStack:
+    url: http://core:8080
+    partition: b                    # this gateway's partition
+    interval: 5s                    # lab: react quickly (default 30s)
+    routeTargetASN: 65535           # namespace of the derived route targets
+    projects: [tenant-2, tenant-3, tenant-4]   # stitch all private networks of these
+                                    # projects, one stitched network per project (tenant-3/4:
+                                    # only while e2e tests add them); the alternative is
+                                    # "label: <key>": only labelled networks, by label value

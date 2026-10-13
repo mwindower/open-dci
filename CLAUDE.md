@@ -23,7 +23,10 @@ Scope decisions, which should not be revisited without the user:
   transport VRF belongs to the base config.
 - **Keep the code independent of metal-stack.** Discover state from kernel and FRR (ASN,
   router-id, VNI device chain) instead of assuming metal-networker's names. metal-stack
-  specifics belong in the lab and in docs.
+  specifics belong in the lab and in docs. The one exception is the optional network
+  source `internal/source/metalstack` (`source.metalStack`: networks from metal-apiserver
+  by project or label, no new metal-stack entities); the gateway only sees it as
+  `gateway.NetworkSource`, and without a `source` block nothing changes.
 - **Two transport modes**:
   - `transport.vrf` set: a DCI network (EVPN VRF) joined to the default VRF by a veth pair.
     Route leaking does not work (see `docs/phase0b-findings.md`).
@@ -49,6 +52,9 @@ Scope decisions, which should not be revisited without the user:
   `dci.conf.tpl`, parser, drift/removals, vtysh. `internal/kernel`: netlink.
   `internal/gateway`: reconcile, pre-flight, status, `Monitor`. `internal/metrics`:
   `/metrics` and `/healthz` (`run --listen`), served from what `run` last published.
+  `internal/source/metalstack`: the optional network source (metal-apiserver API v2;
+  mapping, polling, cache), the only metal-stack-specific code, behind
+  `gateway.NetworkSource`; `fakeapi` serves fixtures for tests and the lab.
 - `internal/frr/testdata/gw-{a1,b1}.golden` are the rendered configs for the lab's gateways
   (`go test ./internal/frr -update` rewrites them; review the diff!).
   `testdata/gw-a1.running.conf` is a real FRR running-config: every rendered line must
@@ -62,6 +68,10 @@ Scope decisions, which should not be revisited without the user:
   - Two exits per partition (exit-a1/a2, exit-b1/b2, exit-c1/c2); every gateway is attached to both
     (`uplink0`/`uplink1`), and the exits relay the VPN routes in a ladder.
   - `lab/cmd/labnode` is the container entrypoint (node.yaml → netlink → sidecars → FRR).
+  - Tenant 2 comes from the gateways' network source: `lab/cmd/fakeapi` (a sidecar of the
+    core, `http://core:8080` on the management network) serves `configs/core/metal-api.yaml`
+    as metal-apiserver. Its route target is derived (`65535:3473928608`); tests change the
+    answer via `/run/fakeapi/` on the core.
   - e2e tests: `lab/*_test.go`, build tag `e2e`.
 - `docs/`: findings of phases 0/0b (historical design reasoning), the lab's routing
   tables, and the README drawings `logical-view.svg` (static) and `packet-flow.svg` (the
@@ -71,7 +81,8 @@ Scope decisions, which should not be revisited without the user:
   and check both colour schemes plus a few moments of the animation in a browser.
   `mascot.svg` (the weaver bird) is hand-drawn plain SVG with its own dark-mode colours.
   `capabilities.md` holds what can be stitched, the scale limits and scaling bandwidth;
-  `metal-stack.md` the (unimplemented) proposal for integrating open-dci into metal-stack.
+  `metal-stack.md` the networks from metal-apiserver (implemented) and the (unimplemented)
+  proposal for integrating open-dci further into metal-stack.
 - Publishing: `LICENSE` (MIT), `Dockerfile` (FRR base image for vtysh),
   `deploy/systemd/`, `.goreleaser.yaml` + `.github/workflows/release.yaml` (tag `v*`), and
   `.github/workflows/ci.yaml` (unit tests + the full lab on a GitHub runner; containerlab and

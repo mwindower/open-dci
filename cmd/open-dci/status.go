@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/mwindower/open-dci/internal/gateway"
 )
@@ -77,6 +78,17 @@ func printStatus(w io.Writer, st *gateway.Status) {
 		fmt.Fprintf(w, "          %s\n", k.Err)
 	}
 
+	if src := st.Source; src != nil {
+		synced := "never"
+		if !src.Synced.IsZero() {
+			synced = src.Synced.Format(time.RFC3339)
+		}
+		fmt.Fprintf(w, "source    %d network(s), answered %s, %d error(s), %d skipped\n", src.Networks, synced, src.Errors, len(src.Skipped))
+		for _, warn := range st.Warnings(time.Now()) {
+			fmt.Fprintf(w, "          %s\n", warn)
+		}
+	}
+
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "\nPEER\tAS\tSTATE\tUP\tVPNv4 RCVD/SENT\tVPNv6 RCVD/SENT")
 	for _, p := range st.Peers {
@@ -90,7 +102,11 @@ func printStatus(w io.Writer, st *gateway.Status) {
 		} else {
 			sid += " (" + n.Behavior + ")"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d %s\t%d/%d\t%d/%d\n", n.VRF, n.RouteTarget, n.RD, sid, n.VNI, n.L3VNIState, n.LocalV4, n.LocalV6, n.RemoteV4, n.RemoteV6)
+		vrf := n.VRF
+		if n.Group != "" {
+			vrf += " (" + n.Group + ")"
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d %s\t%d/%d\t%d/%d\n", vrf, n.RouteTarget, n.RD, sid, n.VNI, n.L3VNIState, n.LocalV4, n.LocalV6, n.RemoteV4, n.RemoteV6)
 		if n.NoBestPath > 0 {
 			fmt.Fprintf(tw, "  %s: %d prefix(es) WITHOUT BEST PATH (not installed)\n", n.VRF, n.NoBestPath)
 		}

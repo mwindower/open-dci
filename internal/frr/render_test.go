@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/mwindower/open-dci/internal/config"
+	"github.com/mwindower/open-dci/internal/source/metalstack"
+	"github.com/mwindower/open-dci/internal/source/metalstack/fakeapi"
 )
 
 var update = flag.Bool("update", false, "rewrite golden files")
@@ -28,13 +30,33 @@ func active(keys ...string) map[string]bool {
 	return m
 }
 
-func renderLab(t *testing.T, node string, id Identity) string {
+// labConfig loads a lab gateway's config with the networks its source gets
+// from the lab's fake metal-apiserver.
+func labConfig(t *testing.T, node string) *config.Config {
 	t.Helper()
 	cfg, err := config.Load("../../lab/configs/" + node + "/open-dci.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := Render(cfg, id)
+	if cfg.Source == nil {
+		return cfg
+	}
+	api, err := fakeapi.Load("../../lab/configs/core/metal-api.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	nets, skipped := metalstack.Map(api, cfg.Source.MetalStack)
+	metalstack.AssignSIDs(nets, cfg.Networks)
+	cfg, more := cfg.WithNetworks(nets)
+	if len(skipped)+len(more) > 0 {
+		t.Fatalf("%s: skipped %+v %+v", node, skipped, more)
+	}
+	return cfg
+}
+
+func renderLab(t *testing.T, node string, id Identity) string {
+	t.Helper()
+	out, err := Render(labConfig(t, node), id)
 	if err != nil {
 		t.Fatal(err)
 	}

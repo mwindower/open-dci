@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"github.com/mwindower/open-dci/internal/frr"
 	"github.com/mwindower/open-dci/internal/gateway"
 	"github.com/mwindower/open-dci/internal/metrics"
+	"github.com/mwindower/open-dci/internal/source/metalstack"
 )
 
 // version is set at build time (-ldflags "-X main.version=...").
@@ -45,10 +47,14 @@ Usage:
   open-dci undrain  -c FILE              announce again
   open-dci version
 
+With a network source (config "source"), render, diff, apply and status use
+its last answer (cached by run); --refresh asks the source first.
+
 Common flags:
   -c FILE        config file (default /etc/open-dci/config.yaml)
   --vtysh PATH   vtysh binary (default vtysh)
   --state FILE   last applied FRR snippet (default /var/lib/open-dci/applied.conf)
+  --refresh      poll the network source first (not run)
   -v             debug logging
 `
 
@@ -72,6 +78,7 @@ func main() {
 	asn := fs.Uint("asn", 0, "BGP ASN (render without FRR)")
 	routerID := fs.String("router-id", "", "BGP router-id (render without FRR)")
 	routes := fs.String("routes", "", "list the routes of a network: VRF, VNI or all (status)")
+	refresh := fs.Bool("refresh", false, "poll the network source first")
 	verbose := fs.Bool("v", false, "debug logging")
 	_ = fs.Parse(os.Args[2:])
 
@@ -86,10 +93,21 @@ func main() {
 		fatal(err)
 	}
 	gw := &gateway.Gateway{Config: cfg, FRR: frr.Vtysh{Path: *vtysh}, Log: log, StateFile: *state}
+	if cfg.Source != nil && cfg.Source.MetalStack != nil {
+		// the last answer, for the commands and a restart without the API
+		cache := filepath.Join(filepath.Dir(*state), "metal-stack-networks.json")
+		gw.Source = metalstack.New(cfg.Source.MetalStack, cache, log)
+		gw.ApplySource()
+		if *refresh && cmd != "run" {
+			if _, err := gw.SyncSource(context.Background()); err != nil {
+				log.Warn("source: using the last answer", "err", err)
+			}
+		}
+	}
 
 	switch cmd {
 	case "validate":
-		fmt.Printf("%s: valid (loopback %s, %d peer(s), %d network(s))\n", *cfgPath, cfg.Gateway.Loopback(), len(cfg.Peers), len(cfg.Networks))
+		fmt.Printf("%s: valid (loopback %s, %d peer(s), %d network(s))\n", *cfgPath, cfg.Gateway.Loopback(), len(cfg.Peers), len(gw.Config.Networks))
 	case "render":
 		err = render(os.Stdout, gw, uint32(*asn), *routerID)
 	case "diff":
