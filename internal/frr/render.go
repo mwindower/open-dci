@@ -58,6 +58,14 @@ const (
 	AggregateRouteMap = "DCI-AGG"
 	AggregateList     = "DCI-AGG"
 	AdvertiseRouteMap = "DCI-ADV"
+	// AnyList matches every extended community: AdvertiseRouteMap deletes
+	// them from VPN routes before they become type-5, so that neither the
+	// DCI route target nor the remote partition's RTs reach the fabric (EVPN
+	// imports auto RTs by their local part, i.e. by VNI).
+	AnyList = "DCI-ANY"
+	// SOOList matches the gateway's site of origin, which AdvertiseRouteMap
+	// sets on the type-5 routes; the VPN filters deny such routes.
+	SOOList = "DCI-SOO"
 )
 
 // FilterName is the prefix-list and route-map that filter a network's VPN
@@ -116,6 +124,7 @@ type renderData struct {
 	RTs             []string // all route targets, for the peers' inbound filter
 	Aggregating     bool     // some network has aggregates
 	DefaultFamilies []string // families with a default prefix-list ("v4", "v6")
+	SiteOfOrigin    string
 	active          map[string]bool
 }
 
@@ -180,6 +189,10 @@ func Render(cfg *config.Config, id Identity) (string, error) {
 	if id.ASN == 0 || id.RouterID == "" {
 		return "", fmt.Errorf("BGP ASN and router-id are unknown: set gateway.asn/gateway.routerID or let open-dci discover them from FRR")
 	}
+	soo, err := cfg.SiteOfOriginFor(id.ASN)
+	if err != nil {
+		return "", err
+	}
 	block := netip.MustParsePrefix(cfg.Gateway.LocatorBlock)
 	loc := netip.MustParsePrefix(cfg.Gateway.Locator)
 	d := renderData{
@@ -203,6 +216,7 @@ func Render(cfg *config.Config, id Identity) (string, error) {
 		Networks:       cfg.Networks,
 		Withhold:       id.Withhold || id.Drain,
 		Drain:          id.Drain,
+		SiteOfOrigin:   soo,
 		active:         id.Aggregates,
 	}
 	seenRT := map[string]bool{}
@@ -238,6 +252,8 @@ func Render(cfg *config.Config, id Identity) (string, error) {
 		"aggMap":      func() string { return AggregateRouteMap },
 		"aggList":     func() string { return AggregateList },
 		"advMap":      func() string { return AdvertiseRouteMap },
+		"anyList":     func() string { return AnyList },
+		"sooList":     func() string { return SOOList },
 		"defaultLP":   func() int { return DefaultImportLocalPref },
 		"defaultList": DefaultList,
 		"familyOf": func(af string) string {

@@ -117,7 +117,7 @@ func TestImportFilter(t *testing.T) {
 // any VRF import, and keeps reaching partition B via gw-b2. gw-b1's sidecar is
 // paused meanwhile, since it would revert the change within one interval.
 func TestPeerRouteTargetFilter(t *testing.T) {
-	const fromB1 = "ipv4 vpn rd 10.0.1.16:1001" // gw-b1's paths of tenant 1
+	const fromB1 = "ipv4 vpn rd 10.0.1.16:4011" // gw-b1's paths of tenant 1
 	if _, err := lab.Exec("gw-b1", "pkill", "-STOP", "-f", "open-dci run"); err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +137,7 @@ func TestPeerRouteTargetFilter(t *testing.T) {
 	})
 	for _, gw := range pairA {
 		waitFor(t, converge, absent(gw, fromB1, mB.net4))
-		waitFor(t, converge, present(gw, "ipv4 vpn rd 10.0.1.17:1001", mB.net4)) // gw-b2's
+		waitFor(t, converge, present(gw, "ipv4 vpn rd 10.0.1.17:4011", mB.net4)) // gw-b2's
 	}
 	// tenant 1 keeps working via gw-b2, tenant 2 is unaffected
 	waitFor(t, converge, func() error { return lab.Ping("m-a", mB.v4, 0) })

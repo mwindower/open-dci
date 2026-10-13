@@ -44,8 +44,8 @@ uplink0  4200000014  Established  00:00:29  4/6              4/6
 uplink1  4200000018  Established  00:00:29  4/6              4/6
 
 VRF      RT          RD              SID                          L3VNI    LOCAL v4/v6  REMOTE v4/v6
-vrf3981  65535:1001  10.0.0.16:1001  fd00:dc1:a:f8d:: (End.DT46)  3981 Up  1/1          1/1
-vrf3982  65535:1002  10.0.0.16:1002  fd00:dc1:a:f8e:: (End.DT46)  3982 Up  1/1          1/1
+vrf3981  65535:1001  10.0.0.16:3981  fd00:dc1:a:f8d:: (End.DT46)  3981 Up  1/1          1/1
+vrf3982  65535:1002  10.0.0.16:3982  fd00:dc1:a:f8e:: (End.DT46)  3982 Up  1/1          1/1
 ```
 
 - `locator` is `announced`, or `WITHHELD` with the reason (see
@@ -96,10 +96,10 @@ vrf3981  VNI 3981  RT 65535:1001
   EVPN TYPE-5 (6)          RD           NEXT HOP   AS PATH                                      RT                     PATHS
   in  10.0.16.10/32        10.0.0.11:4  10.0.0.11  4200000014 4200000013 4200000011 4200000015  59915:3981             2
   in  2001:db8:16::10/128  10.0.0.11:4  10.0.0.11  4200000014 4200000013 4200000011 4200000015  59915:3981             2
-  out 10.0.32.0/24         10.0.0.16:5  10.0.0.16  4200000014 4200000024 4200000026             65535:1001,59920:3981  1
-  out 10.0.48.0/24         10.0.0.16:5  10.0.0.16  4200000014 4200000034 4200000036             65535:1001,59920:3981  1
-  out 2001:db8:32::/48     10.0.0.16:5  10.0.0.16  4200000014 4200000024 4200000026             65535:1001,59920:3981  1
-  out 2001:db8:48::/48     10.0.0.16:5  10.0.0.16  4200000014 4200000034 4200000036             65535:1001,59920:3981  1
+  out 10.0.32.0/24         10.0.0.16:5  10.0.0.16  4200000014 4200000024 4200000026             59920:3981             1
+  out 10.0.48.0/24         10.0.0.16:5  10.0.0.16  4200000014 4200000034 4200000036             59920:3981             1
+  out 2001:db8:32::/48     10.0.0.16:5  10.0.0.16  4200000014 4200000024 4200000026             59920:3981             1
+  out 2001:db8:48::/48     10.0.0.16:5  10.0.0.16  4200000014 4200000034 4200000036             59920:3981             1
 ```
 
 - `LOCAL`: the tenant VRF's prefixes from the own partition, by their best path: host
@@ -113,7 +113,8 @@ vrf3981  VNI 3981  RT 65535:1001
 - `EVPN TYPE-5`: the L3VNI's type-5 routes in the global EVPN table. `in` are received from
   the fabric with one of the VRF's import RTs, or an auto-derived RT with the VNI (FRR
   imports those whatever ASN they carry); `out` are advertised by this gateway under the
-  L3VNI's RD: the remote prefixes, carrying the network's RT and the auto RT.
+  L3VNI's RD: the remote prefixes, carrying only the L3VNI's auto RT (open-dci strips the
+  network's RT and everything else the route brought from the VPN, and adds its SoO).
 - With `OPEN_DCI_OUTPUT=json`, the routes are in `Networks[].Routes`.
 
 The listing is read from FRR on every call; with many prefixes, select a single network.
@@ -210,14 +211,14 @@ router bgp 4200000016 vrf vrf3981          (one per network)
  address-family ipv4 unicast              (and ipv6 unicast)
   network 10.0.16.0/24 route-map DCI-AGG   ! networks[].aggregates with hosts from the own
                                           !   fabric (10.0.32.0/24 is partition B's: not here)
-  rd vpn export 10.0.0.16:1001
+  rd vpn export 10.0.0.16:3981
   rt vpn both 65535:1001
   route-map vpn import DCI-vrf3981-v4     (-v6 in ipv6 unicast)
   route-map vpn export DCI-vrf3981-v4
   export vpn
   import vpn
  address-family l2vpn evpn
-  advertise ipv4 unicast route-map DCI-ADV   ! without aggregates: no route-map
+  advertise ipv4 unicast route-map DCI-ADV   ! type-5 into the own fabric, see DCI-ADV
   advertise ipv6 unicast route-map DCI-ADV
 !
 router bgp 4200000016 vrf vrf104100
@@ -234,6 +235,9 @@ vrf vrf104100
 !
 ip prefix-list DCI-vrf3981-v4 seq 5 permit 10.0.16.0/24     ! networks[].aggregates (exact),
 ip prefix-list DCI-vrf3981-v4 seq 10 permit 10.0.32.0/24    !   then networks[].prefixes
+route-map DCI-vrf3981-v4 deny 5                 ! (in every filter route-map) a route with the
+ match extcommunity DCI-SOO                     !   own site of origin came back from the own
+                                                !   fabric: never into the VPN
 route-map DCI-vrf3981-v4 permit 10
  match ip address prefix-list DCI-vrf3981-v4
  set large-comm-list DCI-AGG delete             ! the aggregate mark stays on the gateway
@@ -250,7 +254,13 @@ route-map DCI-AGG permit 10                     !   marks the own aggregates ...
  set large-community 4200000016:0:1
 route-map DCI-ADV deny 10                       !   ... and keeps them out of the own
  match large-community DCI-AGG                  !   partition's type-5 (it has the hosts)
-route-map DCI-ADV permit 20
+route-map DCI-ADV permit 20                     ! type-5: drop every extended community the
+ on-match next                                  !   route brought from the VPN (DCI RT, the
+ set extended-comm-list DCI-ANY delete          !   remote partition's RTs and router MAC) ...
+route-map DCI-ADV permit 30                     !   ... then mark it with the site of origin;
+ set extcommunity soo 4200000016:10             !   FRR adds the L3VNI's RT and router MAC
+bgp extcommunity-list expanded DCI-ANY seq 5 permit .*
+bgp extcommunity-list standard DCI-SOO seq 5 permit soo 4200000016:10   ! gateway.siteOfOrigin
 bgp extcommunity-list standard DCI-RT seq 5 permit rt 65535:1001   ! one per route target
 bgp extcommunity-list standard DCI-RT seq 10 permit rt 65535:1002
 route-map DCI-PEER-IN permit 10

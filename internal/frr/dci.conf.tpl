@@ -10,7 +10,11 @@
        found by open-dci) are announced from a blackhole route in the VRF,
        marked so that they don't go back into the own partition as type-5; the
        VPN export removes the mark again. FRR's aggregate-address isn't used:
-       10.4.1 leaves its VPN copy behind when it goes away. */ -}}
+       10.4.1 leaves its VPN copy behind when it goes away.
+       Routes announced into the fabric as type-5 lose the extended
+       communities they brought from the VPN (the DCI route target, the remote
+       partition's RTs and router MAC) and get the gateway's site of origin;
+       routes carrying it are never exported into the VPN. */ -}}
 {{ range $n := .Networks -}}
 vrf {{ $n.VRF }}
  vni {{ $n.VNI }}
@@ -98,8 +102,8 @@ router bgp {{ $.ASN }} vrf {{ $n.VRF }}
 {{- end }}
 {{- if not $.Drain }}
  address-family l2vpn evpn
-  advertise ipv4 unicast{{ if $n.Aggregates }} route-map {{ advMap }}{{ end }}
-  advertise ipv6 unicast{{ if $n.Aggregates }} route-map {{ advMap }}{{ end }}
+  advertise ipv4 unicast route-map {{ advMap }}
+  advertise ipv6 unicast route-map {{ advMap }}
  exit-address-family
 {{- end }}
 exit
@@ -129,6 +133,11 @@ exit-vrf
 !
 {{- /* Prefix allowlists: only these routes leave or enter a tenant VRF. */}}
 {{- range $f := .Filters }}
+{{- /* a route that came back from the own fabric stays out of the VPN */}}
+route-map {{ $f.Name }} deny 5
+ match extcommunity {{ sooList }}
+exit
+!
 {{- range $i, $e := $f.Entries }}
 {{ $f.PrefixList }} prefix-list {{ $f.Name }} seq {{ seq $i }} permit {{ $e }}
 {{- end }}
@@ -146,6 +155,10 @@ exit
 !
 {{- if $f.Default }}
 {{- /* the same allowlist plus the default route, for one direction */}}
+route-map {{ $f.DefaultName }} deny 5
+ match extcommunity {{ sooList }}
+exit
+!
 {{- if $f.Entries }}
 route-map {{ $f.DefaultName }} permit 10
  match {{ $f.PrefixList }} address prefix-list {{ $f.Name }}
@@ -180,10 +193,19 @@ route-map {{ advMap }} deny 10
  match large-community {{ aggList }}
 exit
 !
+{{- end }}
+{{- /* type-5: drop all extended communities from the VPN, then mark (SoO) */}}
 route-map {{ advMap }} permit 20
+ on-match next
+ set extended-comm-list {{ anyList }} delete
 exit
 !
-{{- end }}
+route-map {{ advMap }} permit 30
+ set extcommunity soo {{ .SiteOfOrigin }}
+exit
+!
+bgp extcommunity-list expanded {{ anyList }} seq 5 permit .*
+bgp extcommunity-list standard {{ sooList }} seq 5 permit soo {{ .SiteOfOrigin }}
 {{- /* Peers: only routes with a configured route target are accepted. */}}
 {{- range $i, $rt := .RTs }}
 bgp extcommunity-list standard {{ rtList }} seq {{ seq $i }} permit rt {{ $rt }}

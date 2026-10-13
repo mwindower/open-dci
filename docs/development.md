@@ -46,7 +46,7 @@ make lab-redeploy  # lab down + up + e2e tests (see lab/README.md)
 | 0 / 0b | Feasibility: [standalone](phase0-findings.md), [metal-stack firewall + DCI network](phase0b-findings.md) (the firewall placement was dropped later) | done |
 | 1 | Tool MVP: config, validation, kernel, FRR render/diff/apply/reconcile, status, golden + e2e tests | done |
 | 1.1 | Default-VRF transport, lab in CI, releases (binaries, image, systemd unit) | done |
-| 2 | Robustness: strip the DCI RT from EVPN exports, SoO, validate RT/RD local-part widths per admin type and decouple the default RD from the RT | next |
+| 2 | Robustness: type-5 routes without the VPN's extended communities (no DCI RT in the fabrics), site of origin (`gateway.siteOfOrigin`) kept out of the VPN, RT/RD/SoO local-part widths validated per admin type, default RD `<routerID>:<sid>` | done |
 | 2.5 | Failure detection: BFD on the gateway's, exit's, spine's and core's sessions (base configs, [measured](performance.md)), locator withheld until End-of-RIB and withdrawn while unhealthy | done |
 | 3 | Operations: Prometheus metrics, health endpoint | |
 | 3.1 | Multi-site config ([day2.md](day2.md)): shared inventory file, RTs derived from network names, VPN route reflectors with `bgp listen range` | |

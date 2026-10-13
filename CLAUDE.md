@@ -118,6 +118,18 @@ old binary until it is redeployed (or you `docker cp` for a quick look).
 - In a `route-map vpn export`, `set extcommunity rt X` *adds* X to the export RTs, and
   `set extcommunity none` drops the route entirely; only `rt vpn export` replaces them.
   Route-map changes take effect after FRR's route-map delay timer (~5 s).
+- VPN routes keep the extended communities they brought (DCI RT, the source partition's
+  RTs and router MAC), and a VRF's type-5 announcement merges its own into them. The only
+  place to clean them is the `advertise ... route-map` (`DCI-ADV`): not the shared VPN
+  filter route-maps, because the export one runs *after* FRR added the export RTs (deleting
+  all would drop the route). FRR 10.4.1's syntax is `set extended-comm-list X delete`
+  (`extcomm-list` is unknown), an *expanded* list deletes every community once its regex
+  matches the whole string, and the order of several `set`s in one entry isn't defined:
+  delete in one entry with `on-match next`, then set the SoO in the next.
+- A `route-map vpn export` deny only keeps a route *out*: when an attribute change of an
+  already exported route makes the filter deny it, FRR 10.4.1 keeps the stale VPN copy
+  (`vpn_leak_from_vrf_update` returns early). Filters on attributes (SoO) hold for new
+  routes only; e2e tests must announce the route afresh.
 - The sidecar reverts manual FRR changes to its own lines within one interval; e2e tests
   that need a deliberately wrong state pause it (`pkill -STOP -f "open-dci run"`).
 - SRv6 encapsulation routes the *outer* packet in the tenant VRF's table (not main), by its

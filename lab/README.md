@@ -104,6 +104,8 @@ Routing tables of every node: [docs/lab-routing.md](../docs/lab-routing.md).
 | `TestWithdrawOnGrayFailure` | a gateway loses every remote locator (kernel `unreachable` routes) while BGP is fine: it withdraws, flows continue via the partner, and it returns once fixed (both transport modes) |
 | `TestWithdrawal` | an aggregate whose last host route in partition A is gone disappears from all gateways' VPN tables, B's and C's fabrics and as blackhole from pair A, and comes back with the host |
 | `TestGatewaysHealthy` | `open-dci status` healthy on all six gateways |
+| `TestType5Hygiene` | the gateways' type-5 routes of remote prefixes carry the L3VNI's route target and the partition's site of origin, but no DCI RT or other community from the VPN |
+| `TestSiteOfOriginNotExported` | gw-a1 announces its aggregate afresh, marked with the own site of origin (by hand): it never reaches the VPN, gw-a2's path carries the traffic; without the mark it is exported again |
 | `TestSelfHealAfterFRRReload` | `frr-reload.py` of the base config wipes all open-dci lines → back within one interval |
 | `TestSelfHealMTU` | DCI devices reset to 9000 → raised again, 9000 B packets pass |
 | `TestRemovesStaleConfig` | a peer dropped from the config is removed from FRR |

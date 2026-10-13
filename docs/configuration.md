@@ -48,6 +48,7 @@ For the default VRF as transport, leave out the `transport` section (see the lab
 | `asn` | discovered | ASN of the existing default BGP instance. If set, it must match the running FRR. |
 | `routerID` | discovered | Router-id of the existing BGP instance, used for route distinguishers. If set, it must match the running FRR. |
 | `vtep` | router-id | VXLAN source address (IPv4) of the provisioned L3VNIs. |
+| `siteOfOrigin` | `<asn>:<locator node>` | Site of origin (SoO, `<asn>:<nn>` or `<ipv4>:<nn>`) the gateway sets on the type-5 routes it announces into its fabric. A route carrying it is never exported into the VPN: a remote partition's route that comes back from the own fabric (e.g. via the partner gateway) must not be announced as the own partition's. It must be the same on both gateways of a pair. The default (e.g. `4200000016:10` for locator `fd00:dc1:a::/48` in block `fd00:dc1::/32`) is, as long as they share ASN and locator; set it explicitly if they don't, or if the locator node doesn't fit the local part (16 bits after a 4-byte ASN). |
 
 ### `transport`
 
@@ -77,12 +78,12 @@ session, before any VRF import.
 | Field | Default | Meaning |
 |---|---|---|
 | `vrf` | required | Tenant VRF to stitch. open-dci creates it; a VRF of that name that open-dci didn't create is refused. |
-| `routeTarget` | required | `<asn>:<nn>` or `<ipv4>:<nn>`. It identifies the stitched network across all partitions and must be the same on all its gateways. |
-| `rd` | `<routerID>:<nn>` | Route distinguisher for the VPN export. The default takes `<nn>` from `routeTarget`. |
+| `routeTarget` | required | `<asn>:<nn>` or `<ipv4>:<nn>`. It identifies the stitched network across all partitions and must be the same on all its gateways. The local part `<nn>` has 32 bits after a 2-byte ASN and 16 bits after a 4-byte ASN or an IPv4 address. |
+| `rd` | `<routerID>:<sid>` | Route distinguisher for the VPN export, same format. The default is unique per gateway (router-id) and network (`sid`), and independent of the route target. |
 | `vni` | required | The tenant's L3VNI in this partition (1 – 16777215). open-dci provisions the VRF with it: VRF, bridge `dcibr<vni>`, VXLAN device `dcivx<vni>`, the FRR VRF with `vni`, and a BGP instance that advertises the routes as type-5. |
 | `table` | the VNI | Kernel routing table of the VRF. |
 | `sid` | the VNI | Function part of the network's End.DT46 SID, `<locator>:<sid in hex>::` (1 – 65535). Pinned, so the SID survives restarts and is identical on both gateways of a pair. Must be set if the VNI doesn't fit 16 bits. |
-| `aggregates` | – | The stitched network's address ranges, plain prefixes (`10.0.16.0/24`), **each in exactly one partition**. The gateways of the partition whose tenant VRF holds more specific routes from its own fabric in a range (the machines' /32 and /128 from EVPN) announce the range instead of them and drop traffic to its unused addresses (blackhole route). A range without such routes isn't announced, so the list is the same on all gateways of the network. open-dci checks this on every reconcile (`run -i`, default 10 s): the first host in a range, or the last one leaving it, takes effect within one interval. Aggregates are part of the allowlist (matched exactly). A range used in two partitions doesn't work: each pair prefers its own aggregate. The own aggregate isn't announced back into the own partition (it has the host routes). Adding the first aggregate to a network, or removing the last one, briefly withdraws the gateway's type-5 routes of that network (its `advertise` lines change); the partner gateway carries the traffic meanwhile, so change one gateway of a pair at a time. |
+| `aggregates` | – | The stitched network's address ranges, plain prefixes (`10.0.16.0/24`), **each in exactly one partition**. The gateways of the partition whose tenant VRF holds more specific routes from its own fabric in a range (the machines' /32 and /128 from EVPN) announce the range instead of them and drop traffic to its unused addresses (blackhole route). A range without such routes isn't announced, so the list is the same on all gateways of the network. open-dci checks this on every reconcile (`run -i`, default 10 s): the first host in a range, or the last one leaving it, takes effect within one interval. Aggregates are part of the allowlist (matched exactly). A range used in two partitions doesn't work: each pair prefers its own aggregate. The own aggregate isn't announced back into the own partition (it has the host routes). |
 | `prefixes` | – | Further routes passed as they are, in FRR prefix-list syntax: `PREFIX [ge N] [le N]`. A bare prefix matches exactly, `ge`/`le` extend it to more-specific ones (`10.0.16.0/24 le 32`: the /24 and every host in it). Only routes matching an aggregate or a prefix are exported from and imported into the VRF. Everything else stays in its partition, including a default route (see `defaultRoute`). Like `routeTarget`, the list is the same on all gateways of the network. A family without entries in `aggregates` and `prefixes` is not exchanged at all. At least one of the two lists is required. |
 | `defaultRoute` | – | Shares a default route (`0.0.0.0/0`, `::/0`) between the partitions of the network. Set **per gateway**, the same on both of a pair. `export`: the partition with the breakout (e.g. its firewall) sends the default route from its fabric into the VPN. `import`: the partition takes a remote one over and announces it into its fabric, with local preference 50, so a default route from the own fabric wins and the remote one is only the fallback. Unset: the default route stays in its partition, in both directions. Several exporting partitions work as redundant breakouts (the importers pick by BGP path selection). A tenant VRF with an imported default route no longer ends in its `unreachable default`: everything unknown goes to the breakout. `prefixes` must not also match the default route. |
 
@@ -94,7 +95,9 @@ Besides syntax, `validate` (and every other command) rejects:
 - address peers inside the own locator, outside the block, duplicated or without ASN
 - VRFs used twice, or a tenant VRF that is also the transport VRF
 - a transport MTU that can't carry `tenantMTU` + 48 B
-- invalid route targets or distinguishers
+- invalid route targets, distinguishers or sites of origin, including local parts too wide
+  for their admin part (more than 16 bits after a 4-byte ASN or an IPv4 address), and a
+  default `siteOfOrigin` that doesn't fit (checked when `asn` is set, otherwise at render)
 - a missing `vni`, one out of range or used twice, a reserved or duplicate table
 - a `sid` out of range or used twice, a `loopback` inside the locator or outside the block
 - a network without `aggregates` and `prefixes`; malformed aggregates (host bits set,
