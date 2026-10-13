@@ -192,6 +192,61 @@ func TestDiscoverBase(t *testing.T) {
 
 // Every network gets the FRR VRF with the L3VNI and a full BGP instance with
 // EVPN type-5 advertisement.
+// Type-5 routes lose the communities they brought from the VPN and carry the
+// site of origin; the VPN filters deny routes with it, also in the variant
+// with the default route.
+func TestRenderSiteOfOrigin(t *testing.T) {
+	for _, c := range []struct{ name, gateway, soo string }{
+		{"default", `{locator: "fd00:dc1:a2::/48", locatorBlock: "fd00:dc1::/32"}`, "4200000016:162"},
+		{"explicit", `{locator: "fd00:dc1:a2::/48", locatorBlock: "fd00:dc1::/32", siteOfOrigin: "10.0.0.1:7"}`, "10.0.0.1:7"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			cfg, err := config.Parse([]byte(`
+gateway: ` + c.gateway + `
+peers: [{address: "fd00:dc1:b2::1", asn: 4200000026}]
+networks:
+  - {vrf: t1, vni: 1, routeTarget: "65535:1", defaultRoute: export, prefixes: ["10.99.0.0/16 le 32"]}
+`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := Render(cfg, Identity{ASN: 4200000016, RouterID: "10.0.0.16"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, s := range []string{
+				"  advertise ipv4 unicast route-map DCI-ADV\n  advertise ipv6 unicast route-map DCI-ADV\n",
+				"route-map DCI-ADV permit 20\n on-match next\n set extended-comm-list DCI-ANY delete\nexit\n!\n",
+				"route-map DCI-ADV permit 30\n set extcommunity soo " + c.soo + "\nexit\n",
+				"bgp extcommunity-list expanded DCI-ANY seq 5 permit .*\n",
+				"bgp extcommunity-list standard DCI-SOO seq 5 permit soo " + c.soo + "\n",
+				"route-map DCI-t1-v4 deny 5\n match extcommunity DCI-SOO\nexit\n",
+				"route-map DCI-t1-v6 deny 5\n match extcommunity DCI-SOO\nexit\n",
+				"route-map DCI-t1-v4-default deny 5\n match extcommunity DCI-SOO\nexit\n",
+				"route-map DCI-t1-v6-default deny 5\n match extcommunity DCI-SOO\nexit\n",
+			} {
+				if !strings.Contains(got, s) {
+					t.Errorf("missing %q in:\n%s", s, got)
+				}
+			}
+			if strings.Contains(got, "DCI-AGG") {
+				t.Errorf("aggregate marker without aggregates:\n%s", got)
+			}
+		})
+	}
+	cfg, err := config.Parse([]byte(`
+gateway: {locator: "fd00:dc1:ffff:ff00::/56", locatorBlock: "fd00:dc1::/32", nodeLength: 24}
+peers: [{address: "fd00:dc1:b2::1", asn: 4200000026}]
+networks: [{vrf: t1, vni: 1, routeTarget: "65535:1", prefixes: ["10.99.0.0/16 le 32"]}]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Render(cfg, Identity{ASN: 4200000016, RouterID: "10.0.0.16"}); err == nil || !strings.Contains(err.Error(), "gateway.siteOfOrigin") {
+		t.Errorf("a locator node that doesn't fit the default SoO: got %v", err)
+	}
+}
+
 func TestRenderProvisioned(t *testing.T) {
 	cfg, err := config.Parse([]byte(`
 gateway: {locator: "fd00:dc1:a2::/48", locatorBlock: "fd00:dc1::/32"}
@@ -212,7 +267,7 @@ networks:
 	}
 	for _, s := range []string{
 		"router bgp 4200000016 vrf vrf3982\n bgp router-id 10.0.0.16\n sid vpn per-vrf export 3982\n",
-		" address-family l2vpn evpn\n  advertise ipv4 unicast\n  advertise ipv6 unicast\n exit-address-family\nexit\n!\nrouter bgp 4200000016 vrf vrf3983\n bgp router-id 10.0.0.16\n sid vpn",
+		" address-family l2vpn evpn\n  advertise ipv4 unicast route-map DCI-ADV\n  advertise ipv6 unicast route-map DCI-ADV\n exit-address-family\nexit\n!\nrouter bgp 4200000016 vrf vrf3983\n bgp router-id 10.0.0.16\n sid vpn",
 	} {
 		if !strings.Contains(got, s) {
 			t.Errorf("missing %q in:\n%s", s, got)
@@ -343,7 +398,7 @@ networks:
 		// the own aggregates stay out of the own partition's type-5 ...
 		"  advertise ipv4 unicast route-map DCI-ADV\n  advertise ipv6 unicast route-map DCI-ADV\n",
 		"bgp large-community-list standard DCI-AGG seq 5 permit 4200000016:0:1\nroute-map DCI-AGG permit 10\n set large-community 4200000016:0:1\nexit\n",
-		"route-map DCI-ADV deny 10\n match large-community DCI-AGG\nexit\n!\nroute-map DCI-ADV permit 20\nexit\n",
+		"route-map DCI-ADV deny 10\n match large-community DCI-AGG\nexit\n!\nroute-map DCI-ADV permit 20\n",
 		// ... but the mark doesn't leave the gateway
 		"route-map DCI-t1-v4 permit 10\n match ip address prefix-list DCI-t1-v4\n set large-comm-list DCI-AGG delete\nexit\n",
 	} {
@@ -380,7 +435,7 @@ networks:
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, s := range []string{"route 10.0.16.0/24 blackhole", "DCI-AGG", "DCI-ADV"} {
+	for _, s := range []string{"route 10.0.16.0/24 blackhole", "DCI-AGG", "DCI-ADV deny 10"} {
 		if strings.Contains(plain, s) {
 			t.Errorf("rendered %q without aggregates:\n%s", s, plain)
 		}

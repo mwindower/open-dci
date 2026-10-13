@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"github.com/mwindower/open-dci/internal/config"
 	"github.com/mwindower/open-dci/internal/frr"
 	"github.com/mwindower/open-dci/internal/gateway"
+	"github.com/mwindower/open-dci/internal/metrics"
 )
 
 // version is set at build time (-ldflags "-X main.version=...").
@@ -31,7 +33,10 @@ Usage:
                                          print the FRR configuration open-dci adds
   open-dci diff     -c FILE              show what is missing in the running FRR
   open-dci apply    -c FILE              reconcile kernel and FRR once
-  open-dci run      -c FILE [-i 10s]     reconcile continuously
+  open-dci run      -c FILE [-i 10s] [--listen ADDR]
+                                         reconcile continuously; --listen serves
+                                         Prometheus metrics (/metrics) and the
+                                         health (/healthz) on ADDR, e.g. :9469
   open-dci status   -c FILE [--routes all|VRF|VNI]
                                          show sessions, SIDs, prefixes and drift;
                                          --routes lists the networks' local and
@@ -63,6 +68,7 @@ func main() {
 	vtysh := fs.String("vtysh", "vtysh", "vtysh binary")
 	state := fs.String("state", "/var/lib/open-dci/applied.conf", "state file")
 	interval := fs.Duration("i", 10*time.Second, "reconcile interval (run)")
+	listen := fs.String("listen", "", "address for /metrics and /healthz, e.g. :9469 (run)")
 	asn := fs.Uint("asn", 0, "BGP ASN (render without FRR)")
 	routerID := fs.String("router-id", "", "BGP router-id (render without FRR)")
 	routes := fs.String("routes", "", "list the routes of a network: VRF, VNI or all (status)")
@@ -98,6 +104,18 @@ func main() {
 		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 		defer stop()
 		log.Info("open-dci started", "version", version, "config", *cfgPath, "interval", *interval, "loopback", cfg.Gateway.Loopback())
+		if *listen != "" {
+			gw.Monitor = &gateway.Monitor{}
+			srv := &http.Server{Addr: *listen, Handler: metrics.Handler(gw.Monitor, version), ReadHeaderTimeout: 5 * time.Second}
+			go func() {
+				log.Info("serving /metrics and /healthz", "listen", *listen)
+				if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+					// the gateway works without it: log, don't stop
+					log.Error("metrics listener", "err", err)
+				}
+			}()
+			defer srv.Close()
+		}
 		gw.Run(ctx, *interval)
 	case "status":
 		err = status(os.Stdout, gw, *routes)

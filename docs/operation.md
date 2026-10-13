@@ -8,6 +8,7 @@ open-dci render   -c config.yaml        # FRR lines open-dci adds (--asn/--route
 open-dci diff     -c config.yaml        # what is missing in the running FRR, and what is stale
 open-dci apply    -c config.yaml        # reconcile kernel + FRR once
 open-dci run      -c config.yaml -i 10s # reconcile continuously (service / sidecar)
+open-dci run      -c config.yaml --listen :9469   # ... and serve /metrics and /healthz
 open-dci status   -c config.yaml        # exits non-zero if not healthy
 open-dci status   -c config.yaml --routes vrf3981   # plus the routes of a network (VRF, VNI or all)
 open-dci drain    -c config.yaml        # planned maintenance: the partner takes over
@@ -26,7 +27,7 @@ Common flags:
 `run` is meant to run permanently, as a service or as a sidecar next to FRR. It retries until
 FRR is up, and it re-applies its configuration whenever the base system (e.g. a
 configuration management running `frr-reload.py`) removes it. In the lab, that takes one
-interval.
+interval. With `--listen` it serves [metrics and its health](#metrics-and-health) over HTTP.
 
 ## Status
 
@@ -44,8 +45,8 @@ uplink0  4200000014  Established  00:00:29  4/6              4/6
 uplink1  4200000018  Established  00:00:29  4/6              4/6
 
 VRF      RT          RD              SID                          L3VNI    LOCAL v4/v6  REMOTE v4/v6
-vrf3981  65535:1001  10.0.0.16:1001  fd00:dc1:a:f8d:: (End.DT46)  3981 Up  1/1          1/1
-vrf3982  65535:1002  10.0.0.16:1002  fd00:dc1:a:f8e:: (End.DT46)  3982 Up  1/1          1/1
+vrf3981  65535:1001  10.0.0.16:3981  fd00:dc1:a:f8d:: (End.DT46)  3981 Up  1/1          1/1
+vrf3982  65535:1002  10.0.0.16:3982  fd00:dc1:a:f8e:: (End.DT46)  3982 Up  1/1          1/1
 ```
 
 - `locator` is `announced`, or `WITHHELD` with the reason (see
@@ -73,6 +74,55 @@ vrf3982  65535:1002  10.0.0.16:1002  fd00:dc1:a:f8e:: (End.DT46)  3982 Up  1/1  
     it; seen rarely after `frr-reload.py`, fixed by a BGP session reset)
   - the ingress filter is installed
 
+## Metrics and health
+
+`run --listen ADDR` (e.g. `:9469`, off by default) serves two endpoints. Both answer from
+what `run` collected last: after every reconcile, at least once per interval (`-i`), `run`
+collects the same status as `open-dci status`. A scrape never calls into FRR. The endpoints
+have no authentication: bind them to a management address or filter the port.
+
+**`GET /healthz`** answers `200` if the gateway is healthy by the same rules as the exit
+code of `status` (a drained gateway is healthy), `503` otherwise. The body says why:
+
+```json
+{"healthy":false,"locator":"withdrawn","reason":"no remote SID reachable (fd00:dc1:b:fab::)",
+ "problems":["unhealthy: no remote SID reachable (fd00:dc1:b:fab::)"],"updated":"2026-10-13T12:00:00Z"}
+```
+
+A status older than three intervals plus 30 s counts as unhealthy (`run` is stuck), as
+does one that could not be collected yet.
+
+**`GET /metrics`** (Prometheus), all prefixed `open_dci_`:
+
+| Metric | Labels | Meaning |
+|---|---|---|
+| `info` | `version`, `asn`, `router_id`, `loopback`, `locator` | always 1 |
+| `healthy` | | 1 if `/healthz` answers 200 |
+| `locator_state` | `state` | 1 for the current state: `announced`, `withheld` (waiting for the fabric), `withdrawn` (unhealthy), `drained` |
+| `dataplane_healthy` | | 1 if the [health checks](#withdrawing-an-unhealthy-gateway) pass |
+| `frr_missing_lines` | | drift: rendered lines missing in FRR |
+| `reconciles_total`, `reconcile_errors_total` | | reconciles since start, failed ones |
+| `frr_applies_total`, `frr_removals_total` | | reconciles that repaired drift or removed stale lines |
+| `withdrawals_total` | | times the health checks withdrew the gateway |
+| `last_reconcile_timestamp_seconds`, `status_timestamp_seconds` | | when `run` last reconciled successfully, collected the status |
+| `peer_established` | `peer` | 1 if the VPN session is up |
+| `peer_vpn_prefixes` | `peer`, `family`, `direction` | VPN prefixes `accepted` from / `sent` to the peer |
+| `network_l3vni_up` | `vrf`, `vni` | 1 if the L3VNI is `Up` |
+| `network_sid` | `vrf`, `sid` | 1 if the network has its End.DT46 SID |
+| `network_prefixes` | `vrf`, `family`, `origin` | best paths in the tenant VRF, `local` (own partition) or `remote` (VPN) |
+| `network_no_best_path` | `vrf` | prefixes with valid paths but no best path (a silent black hole) |
+| `kernel_vrf_strict_mode` | | 1 if `net.vrf.strict_mode=1` |
+| `filter_dropped_packets_total` | `rule` | packets dropped by the [ingress filter](#the-srv6-domain-and-its-edge) |
+| `filter_rules`, `filter_rules_required` | | rules installed / wanted |
+| `transport_veth_up`, `transport_path_mtu_bytes`, `transport_required_mtu_bytes`, `transport_local_rule_last` | | DCI network mode only: the transport's kernel parts |
+
+Plus the Go runtime and process metrics (`go_*`, `process_*`). Useful alerts:
+`open_dci_healthy == 0` for a few minutes (the partner carries the traffic meanwhile, but
+the pair has lost its redundancy), `increase(open_dci_frr_applies_total[1h]) > 0` (something
+keeps removing open-dci's lines), `increase(open_dci_filter_dropped_packets_total[5m]) > 0`
+(someone sends SRv6 into the domain from outside), and `open_dci_network_prefixes{origin="remote"}`
+dropping to 0 (a partition disappeared).
+
 ### Routes of a network
 
 `status --routes <VRF|VNI|all>` lists, after the summary, the routes of the selected
@@ -96,10 +146,10 @@ vrf3981  VNI 3981  RT 65535:1001
   EVPN TYPE-5 (6)          RD           NEXT HOP   AS PATH                                      RT                     PATHS
   in  10.0.16.10/32        10.0.0.11:4  10.0.0.11  4200000014 4200000013 4200000011 4200000015  59915:3981             2
   in  2001:db8:16::10/128  10.0.0.11:4  10.0.0.11  4200000014 4200000013 4200000011 4200000015  59915:3981             2
-  out 10.0.32.0/24         10.0.0.16:5  10.0.0.16  4200000014 4200000024 4200000026             65535:1001,59920:3981  1
-  out 10.0.48.0/24         10.0.0.16:5  10.0.0.16  4200000014 4200000034 4200000036             65535:1001,59920:3981  1
-  out 2001:db8:32::/48     10.0.0.16:5  10.0.0.16  4200000014 4200000024 4200000026             65535:1001,59920:3981  1
-  out 2001:db8:48::/48     10.0.0.16:5  10.0.0.16  4200000014 4200000034 4200000036             65535:1001,59920:3981  1
+  out 10.0.32.0/24         10.0.0.16:5  10.0.0.16  4200000014 4200000024 4200000026             59920:3981             1
+  out 10.0.48.0/24         10.0.0.16:5  10.0.0.16  4200000014 4200000034 4200000036             59920:3981             1
+  out 2001:db8:32::/48     10.0.0.16:5  10.0.0.16  4200000014 4200000024 4200000026             59920:3981             1
+  out 2001:db8:48::/48     10.0.0.16:5  10.0.0.16  4200000014 4200000034 4200000036             59920:3981             1
 ```
 
 - `LOCAL`: the tenant VRF's prefixes from the own partition, by their best path: host
@@ -113,7 +163,8 @@ vrf3981  VNI 3981  RT 65535:1001
 - `EVPN TYPE-5`: the L3VNI's type-5 routes in the global EVPN table. `in` are received from
   the fabric with one of the VRF's import RTs, or an auto-derived RT with the VNI (FRR
   imports those whatever ASN they carry); `out` are advertised by this gateway under the
-  L3VNI's RD: the remote prefixes, carrying the network's RT and the auto RT.
+  L3VNI's RD: the remote prefixes, carrying only the L3VNI's auto RT (open-dci strips the
+  network's RT and everything else the route brought from the VPN, and adds its SoO).
 - With `OPEN_DCI_OUTPUT=json`, the routes are in `Networks[].Routes`.
 
 The listing is read from FRR on every call; with many prefixes, select a single network.
@@ -210,14 +261,14 @@ router bgp 4200000016 vrf vrf3981          (one per network)
  address-family ipv4 unicast              (and ipv6 unicast)
   network 10.0.16.0/24 route-map DCI-AGG   ! networks[].aggregates with hosts from the own
                                           !   fabric (10.0.32.0/24 is partition B's: not here)
-  rd vpn export 10.0.0.16:1001
+  rd vpn export 10.0.0.16:3981
   rt vpn both 65535:1001
   route-map vpn import DCI-vrf3981-v4     (-v6 in ipv6 unicast)
   route-map vpn export DCI-vrf3981-v4
   export vpn
   import vpn
  address-family l2vpn evpn
-  advertise ipv4 unicast route-map DCI-ADV   ! without aggregates: no route-map
+  advertise ipv4 unicast route-map DCI-ADV   ! type-5 into the own fabric, see DCI-ADV
   advertise ipv6 unicast route-map DCI-ADV
 !
 router bgp 4200000016 vrf vrf104100
@@ -234,6 +285,9 @@ vrf vrf104100
 !
 ip prefix-list DCI-vrf3981-v4 seq 5 permit 10.0.16.0/24     ! networks[].aggregates (exact),
 ip prefix-list DCI-vrf3981-v4 seq 10 permit 10.0.32.0/24    !   then networks[].prefixes
+route-map DCI-vrf3981-v4 deny 5                 ! (in every filter route-map) a route with the
+ match extcommunity DCI-SOO                     !   own site of origin came back from the own
+                                                !   fabric: never into the VPN
 route-map DCI-vrf3981-v4 permit 10
  match ip address prefix-list DCI-vrf3981-v4
  set large-comm-list DCI-AGG delete             ! the aggregate mark stays on the gateway
@@ -250,7 +304,13 @@ route-map DCI-AGG permit 10                     !   marks the own aggregates ...
  set large-community 4200000016:0:1
 route-map DCI-ADV deny 10                       !   ... and keeps them out of the own
  match large-community DCI-AGG                  !   partition's type-5 (it has the hosts)
-route-map DCI-ADV permit 20
+route-map DCI-ADV permit 20                     ! type-5: drop every extended community the
+ on-match next                                  !   route brought from the VPN (DCI RT, the
+ set extended-comm-list DCI-ANY delete          !   remote partition's RTs and router MAC) ...
+route-map DCI-ADV permit 30                     !   ... then mark it with the site of origin;
+ set extcommunity soo 4200000016:10             !   FRR adds the L3VNI's RT and router MAC
+bgp extcommunity-list expanded DCI-ANY seq 5 permit .*
+bgp extcommunity-list standard DCI-SOO seq 5 permit soo 4200000016:10   ! gateway.siteOfOrigin
 bgp extcommunity-list standard DCI-RT seq 5 permit rt 65535:1001   ! one per route target
 bgp extcommunity-list standard DCI-RT seq 10 permit rt 65535:1002
 route-map DCI-PEER-IN permit 10

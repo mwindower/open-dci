@@ -31,8 +31,37 @@ func TestDefaultsAndDerived(t *testing.T) {
 	if got := c.Gateway.Loopback().String(); got != "fd00:dc1:a::1" {
 		t.Fatalf("loopback: %s", got)
 	}
-	if got := c.RDFor(c.Networks[0], "10.0.0.12"); got != "10.0.0.12:1001" {
+	if got := c.RDFor(c.Networks[0], "10.0.0.12"); got != "10.0.0.12:3981" {
 		t.Fatalf("rd: %s", got)
+	}
+	if got, err := c.SiteOfOriginFor(4200000016); err != nil || got != "4200000016:10" {
+		t.Fatalf("soo: %s, %v", got, err)
+	}
+	c.Gateway.SiteOfOrigin = "65000:7"
+	if got, _ := c.SiteOfOriginFor(4200000016); got != "65000:7" {
+		t.Fatalf("explicit soo: %s", got)
+	}
+}
+
+func TestParseCommunity(t *testing.T) {
+	for _, c := range []struct {
+		in      string
+		wantErr string
+	}{
+		{"65535:4294967295", ""},
+		{"65536:65535", ""},
+		{"65536:65536", "16 bits"},
+		{"4200000016:1001", ""},
+		{"10.0.0.1:65535", ""},
+		{"10.0.0.1:65536", "16 bits"},
+		{"65535:4294967296", "local part must be a number"},
+		{"foo:5", "admin part"},
+		{"65535", "want <asn>:<nn>"},
+	} {
+		_, err := ParseCommunity(c.in)
+		if c.wantErr == "" && err != nil || c.wantErr != "" && (err == nil || !strings.Contains(err.Error(), c.wantErr)) {
+			t.Errorf("%s: got %v, want %q", c.in, err, c.wantErr)
+		}
 	}
 }
 
@@ -47,6 +76,10 @@ func TestValidate(t *testing.T) {
 		{"peer outside block", `"fd00:dc1:b::1"`, `"2001:db8::1"`, "outside gateway.locatorBlock"},
 		{"peer without asn", "asn: 4200000022", "asn: 0", "peers[0].asn"},
 		{"bad route target", `"65535:1001"`, `"65535"`, "routeTarget"},
+		{"route target local part too wide", `"65535:1001"`, `"4200000016:65536"`, "networks[0].routeTarget"},
+		{"rd local part too wide", `routeTarget: "65535:1001"`, `routeTarget: "65535:1001", rd: "10.0.0.1:70000"`, "networks[0].rd"},
+		{"soo local part too wide", "locatorBlock: fd00:dc1::/32\n", "locatorBlock: fd00:dc1::/32\n  siteOfOrigin: \"10.0.0.1:70000\"\n", "gateway.siteOfOrigin"},
+		{"default soo too wide", "locator: fd00:dc1:a::/48", "locator: fd00:dc1:ffff:ff00::/56\n  nodeLength: 24\n  asn: 4200000016", "set gateway.siteOfOrigin"},
 		{"tenant vrf is dci vrf", "vrf: vrf3981", "vrf: vrf104100", "used twice"},
 		{"mtu too small", "vrf: vrf104100\n", "vrf: vrf104100\n  mtu: 9000\n", "transport.mtu"},
 		{"unknown field", "vrf: vrf104100\n", "vrf: vrf104100\n  typo: 1\n", "unknown field"},

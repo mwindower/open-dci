@@ -89,8 +89,8 @@ nowhere: it has no VRF for VNI 104100.
 | Type-5 prefix | Originator (RD) | RTs |
 |---|---|---|
 | 10.0.16.10/32 | leaf-a (10.0.0.11) | `59915:3981` |
-| 10.0.32.0/24 (partition B's aggregate) | gw-a1 (10.0.0.16) and gw-a2 (10.0.0.17) | `59920:3981` **+ `65535:1001`** (DCI RT leak, Phase 2) |
-| 10.0.33.0/24 | gw-a1, gw-a2 | `59920:3982` + `65535:1002` |
+| 10.0.32.0/24 (partition B's aggregate) | gw-a1 (10.0.0.16) and gw-a2 (10.0.0.17) | `59920:3981`, plus SoO `4200000016:10` (no DCI RT: `DCI-ADV` strips it) |
+| 10.0.33.0/24 | gw-a1, gw-a2 | `59920:3982`, SoO `4200000016:10` |
 | fd00:dc1:a::/48, own loopbacks | gw-a1, gw-a2 | `59920:104100` |
 | locators and loopbacks of pairs B and C, 2001:db8:c::1/128 | exit-a1 (10.0.0.14) and exit-a2 (10.0.0.18) | `59918:104100`, `59922:104100` |
 
@@ -187,9 +187,9 @@ exit-b1, then by exit-a1 or exit-a2:
 
 | RD | Originated by | Via | AS path | Notes |
 |---|---|---|---|---|
-| `10.0.1.16:1001` | gw-b1 | exit-a1 | 4200000014 4200000024 4200000026 | `RT:65535:1001`, SID `fd00:dc1:b::` + label → `fd00:dc1:b:fab::` |
-| `10.0.1.16:1001` | gw-b1 | exit-a2 | 4200000018 4200000024 4200000026 | same SID |
-| `10.0.1.17:1001` | gw-b2 | both | alike | same SID |
+| `10.0.1.16:4011` | gw-b1 | exit-a1 | 4200000014 4200000024 4200000026 | `RT:65535:1001`, SID `fd00:dc1:b::` + label → `fd00:dc1:b:fab::` |
+| `10.0.1.16:4011` | gw-b1 | exit-a2 | 4200000018 4200000024 4200000026 | same SID |
+| `10.0.1.17:4011` | gw-b2 | both | alike | same SID |
 
 The path consists of the relaying exits and gw-b1, which originates the aggregate. A route
 from `networks[].prefixes` instead keeps the AS path it learned via EVPN, through exit-b1,
@@ -204,7 +204,7 @@ differs per tenant flow.
 The opposite direction: `10.0.16.10/32` comes from leaf-a as type-5 (next hop 10.0.0.11)
 and lands in `vrf3981`. It lies in the aggregate `10.0.16.0/24`, so open-dci announces
 the /24 (from a `blackhole` route in the VRF: unused addresses end there); the export
-filter lets only the /24 through, as VPNv4 with RD `10.0.0.16:1001` and
+filter lets only the /24 through, as VPNv4 with RD `10.0.0.16:3981` and
 SID `fd00:dc1:a:f8d::`. Partitions B and C route the whole /24 to pair A.
 
 ## VPN relay between the exits

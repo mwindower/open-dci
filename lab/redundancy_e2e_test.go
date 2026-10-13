@@ -48,8 +48,8 @@ func TestBothPathsSameSID(t *testing.T) {
 		dst     machine
 		rds     []string
 	}{
-		{"gw-a1", "fd00:dc1:b::", mB, []string{"10.0.1.16:1001", "10.0.1.17:1001"}},
-		{"gw-b2", "fd00:dc1:a::", mA2, []string{"10.0.0.16:1002", "10.0.0.17:1002"}},
+		{"gw-a1", "fd00:dc1:b::", mB, []string{"10.0.1.16:4011", "10.0.1.17:4011"}},
+		{"gw-b2", "fd00:dc1:a::", mA2, []string{"10.0.0.16:3982", "10.0.0.17:3982"}},
 	} {
 		for _, rd := range c.rds {
 			t.Run(c.gw+"/"+rd, func(t *testing.T) {
@@ -91,9 +91,9 @@ func TestGatewaysPeerWithTheirExit(t *testing.T) {
 	}
 	// the exits hold the routes of every gateway (relay), but import none
 	for _, c := range []struct{ exit, rd, prefix string }{
-		{"exit-a1", "10.0.1.16:1001", mB.net4}, {"exit-a2", "10.0.0.17:1002", mA2.net4},
-		{"exit-b1", "10.0.0.16:1001", mA.net4}, {"exit-b2", "10.0.1.17:1002", mB2.net4},
-		{"exit-c1", "10.0.1.16:1001", mB.net4}, {"exit-c2", "10.0.0.17:1002", mA2.net4},
+		{"exit-a1", "10.0.1.16:4011", mB.net4}, {"exit-a2", "10.0.0.17:3982", mA2.net4},
+		{"exit-b1", "10.0.0.16:3981", mA.net4}, {"exit-b2", "10.0.1.17:4012", mB2.net4},
+		{"exit-c1", "10.0.1.16:4011", mB.net4}, {"exit-c2", "10.0.0.17:3982", mA2.net4},
 	} {
 		t.Run(c.exit+"/"+c.rd, func(t *testing.T) {
 			waitFor(t, converge, func() error {

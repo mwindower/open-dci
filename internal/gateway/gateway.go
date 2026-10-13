@@ -28,6 +28,9 @@ type Gateway struct {
 	StateFile string
 	// SkipKernel leaves the kernel alone (render/diff on a non-gateway host).
 	SkipKernel bool
+	// Monitor, if set, receives what Run does and the status after every
+	// reconcile (metrics and health endpoint).
+	Monitor *Monitor
 
 	lastReadiness Readiness
 	// gate is the debounced readiness Run renders with; nil outside Run
@@ -192,6 +195,7 @@ func (g *Gateway) Run(ctx context.Context, interval time.Duration) {
 	initial := g.readiness()
 	g.gate = &initial
 	defer func() { g.gate = nil }()
+	g.Monitor.update(func(s *Snapshot) { s.Interval = interval })
 	for {
 		res, err := g.Reconcile()
 		switch {
@@ -202,21 +206,22 @@ func (g *Gateway) Run(ctx context.Context, interval time.Duration) {
 		default:
 			g.Log.Debug("in sync")
 		}
+		state, reason := LocatorAnnounced, ""
 		if err == nil {
-			state, reason := "announced", ""
 			switch {
 			case res.Drained:
-				state = "drained"
+				state = LocatorDrained
 			case res.Withdrawn.Reason != "":
-				state, reason = "withdrawn", res.Withdrawn.Reason
+				state, reason = LocatorWithdrawn, res.Withdrawn.Reason
 			case !res.Readiness.Ready:
-				state, reason = "withheld", res.Readiness.Reason
+				state, reason = LocatorWithheld, res.Readiness.Reason
 			}
 			if state != g.lastLogged {
 				g.lastLogged = state
 				g.Log.Info("locator "+state, "reason", reason)
 			}
 		}
+		g.observe(res, err, state, reason)
 		changed := 0
 	wait:
 		for {
@@ -238,6 +243,7 @@ func (g *Gateway) Run(ctx context.Context, interval time.Duration) {
 				switch {
 				case g.withdrawn == nil && bad >= healthDown:
 					g.withdrawn = &h
+					g.Monitor.update(func(s *Snapshot) { s.Withdrawals++ })
 					break wait
 				case g.withdrawn != nil && good >= healthUp:
 					g.withdrawn = nil

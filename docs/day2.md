@@ -78,18 +78,20 @@ had applied for it (see [Operation](operation.md#frr-via-vtysh-never-touching-fr
 ## Choosing route targets
 
 Any value works as long as it is unique per stitched network and identical on all its
-members. Two constraints of the current implementation limit the choice:
+members.
 
 - **Local part vs. VNIs.** EVPN auto RTs import by the local part only
-  ([Phase 0 findings](phase0-findings.md#route-target-behaviour-frr-106-l3vni-tested-live-in-the-lab)).
-  Until Phase 2 strips the DCI RT from EVPN exports, a leaked `X:N` is imported by any
-  partition VRF whose VNI is `N`. So an RT's local part must not equal a VNI in use.
-  VNIs are 24 bit, so **local parts ≥ 2^24 (16777216) can never collide**.
+  ([Phase 0 findings](phase0-findings.md#route-target-behaviour-frr-106-l3vni-tested-live-in-the-lab)),
+  so a DCI RT `X:N` that reached a fabric would be imported by any partition VRF whose VNI
+  is `N`. The gateways strip all extended communities a VPN route brought along before
+  they announce it as type-5 (`DCI-ADV`, see [Operation](operation.md#frr-via-vtysh-never-touching-frrconf)),
+  so no DCI RT reaches a fabric. As a second line of defence, local parts ≥ 2^24 (16777216)
+  can never collide with a 24-bit VNI.
 - **Width of the local part.** A 2-byte admin ASN allows a 32-bit local part
-  (`65535:16777217`). A 4-byte ASN or an IPv4 admin part allows only 16 bits.
-- **The default RD.** It is `<routerID>:<RT local part>`, and an IPv4-based RD has a 16-bit
-  local part. RT local parts above 65535 therefore need an explicit `rd`. `validate` doesn't
-  catch this yet.
+  (`65535:16777217`). A 4-byte ASN or an IPv4 admin part allows only 16 bits; `validate`
+  rejects wider ones.
+- **The RD** is `<routerID>:<sid>` by default, independent of the RT, so any RT works
+  without an explicit `rd`.
 
 ## Deriving route targets automatically
 
@@ -116,8 +118,7 @@ For metal-stack, the name can come from metal-stack entities:
   metal-api without hashing. But the RT depends on the anchor network staying alive, and it
   is not unique across several metal-api instances. Hashing a name is preferred.
 
-The RD should then no longer be derived from the RT. For example,
-`<routerID>:<pinned SID function>` fits into 16 bits and ties in with pinned SIDs (Phase 2).
+The RD doesn't depend on the RT (`<routerID>:<sid>`), so derived RTs need no RD scheme.
 
 ## Keeping the locations in sync
 

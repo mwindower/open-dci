@@ -51,6 +51,14 @@ type Gateway struct {
 	// VTEP is the VXLAN source address of the provisioned L3VNIs. Optional:
 	// defaults to the BGP router-id.
 	VTEP string `json:"vtep,omitempty"`
+	// SiteOfOrigin (SoO, ASN:NN or IPv4:NN) marks the routes this gateway
+	// announces into its partition's fabric. The gateway never exports a route
+	// carrying it into the VPN: a remote partition's route that comes back
+	// from the own fabric (e.g. from the partner gateway) would otherwise be
+	// announced as the own partition's. It must be the same on all gateways
+	// of a partition. Default: <ASN>:<locator node>, which redundant gateways
+	// sharing ASN and locator have in common.
+	SiteOfOrigin string `json:"siteOfOrigin,omitempty"`
 }
 
 type Transport struct {
@@ -99,7 +107,8 @@ type Network struct {
 	// RouteTarget identifies the stitched network across all partitions,
 	// e.g. 65535:1001. It must be the same on all gateways of this network.
 	RouteTarget string `json:"routeTarget"`
-	// RD is the route distinguisher. Default: <routerID>:<RT local part>.
+	// RD is the route distinguisher. Default: <routerID>:<sid>, unique per
+	// gateway and network.
 	RD string `json:"rd,omitempty"`
 	// Aggregates are address ranges of the stitched network, each in exactly
 	// one partition ("10.0.16.0/24"). The gateways of the partition whose
@@ -376,6 +385,15 @@ func (c *Config) Validate() error {
 			fail("gateway.routerID: must be an IPv4 address: %q", c.Gateway.RouterID)
 		}
 	}
+	if c.Gateway.SiteOfOrigin != "" {
+		if _, err := ParseCommunity(c.Gateway.SiteOfOrigin); err != nil {
+			fail("gateway.siteOfOrigin: %v", err)
+		}
+	} else if c.Gateway.ASN != 0 && loc.IsValid() && block.IsValid() {
+		if _, err := c.SiteOfOriginFor(c.Gateway.ASN); err != nil {
+			fail("gateway.siteOfOrigin: %v", err)
+		}
+	}
 
 	if c.Transport.InVRF() && !vrfName.MatchString(c.Transport.VRF) {
 		fail("transport.vrf: invalid VRF name %q", c.Transport.VRF)
@@ -450,11 +468,11 @@ func (c *Config) Validate() error {
 			fail("networks[%d].vrf: %q used twice (or is the transport VRF)", i, n.VRF)
 		}
 		seenVRF[n.VRF] = true
-		if _, _, err := splitCommunity(n.RouteTarget); err != nil {
+		if _, err := ParseCommunity(n.RouteTarget); err != nil {
 			fail("networks[%d].routeTarget: %v", i, err)
 		}
 		if n.RD != "" {
-			if _, _, err := splitCommunity(n.RD); err != nil {
+			if _, err := ParseCommunity(n.RD); err != nil {
 				fail("networks[%d].rd: %v", i, err)
 			}
 		}
@@ -545,28 +563,76 @@ func (p Peer) Neighbor() string {
 // announced on its own.
 func (g Gateway) Anycast() bool { return g.LoopbackAddress != "" }
 
-// RDFor returns the network's route distinguisher (explicit or derived).
+// RDFor returns the network's route distinguisher: the configured one, or
+// <routerID>:<sid>. Both parts are unique (router-id per gateway, SID per
+// network), and the SID's 16 bits fit the local part of an IPv4-based RD.
 func (c *Config) RDFor(n Network, routerID string) string {
 	if n.RD != "" {
 		return n.RD
 	}
-	_, local, _ := splitCommunity(n.RouteTarget)
-	return routerID + ":" + local
+	return fmt.Sprintf("%s:%d", routerID, n.SID)
 }
 
-// splitCommunity accepts ASN:NN or IPv4:NN.
-func splitCommunity(s string) (string, string, error) {
+// LocatorNode returns the locator's node part (the bits between block and
+// locator length). The config must have been validated.
+func (g Gateway) LocatorNode() uint64 {
+	block := netip.MustParsePrefix(g.LocatorBlock)
+	loc := netip.MustParsePrefix(g.Locator)
+	a := loc.Addr().As16()
+	var node uint64
+	for bit := block.Bits(); bit < loc.Bits(); bit++ {
+		node = node<<1 | uint64(a[bit/8]>>(7-bit%8)&1)
+	}
+	return node
+}
+
+// SiteOfOriginFor returns the gateway's site of origin: the configured one,
+// or <asn>:<locator node>. The config must have been validated.
+func (c *Config) SiteOfOriginFor(asn uint32) (string, error) {
+	if c.Gateway.SiteOfOrigin != "" {
+		return c.Gateway.SiteOfOrigin, nil
+	}
+	if c.Gateway.NodeLength > 32 {
+		return "", fmt.Errorf("a %d-bit locator node doesn't fit the default <asn>:<locator node>, set gateway.siteOfOrigin", c.Gateway.NodeLength)
+	}
+	soo := fmt.Sprintf("%d:%d", asn, c.Gateway.LocatorNode())
+	if _, err := ParseCommunity(soo); err != nil {
+		return "", fmt.Errorf("the default %s (<asn>:<locator node>) doesn't fit, set gateway.siteOfOrigin", soo)
+	}
+	return soo, nil
+}
+
+// Community is a parsed route target, route distinguisher or site of origin
+// (all three share the formats).
+type Community struct {
+	Admin string // ASN or IPv4 address
+	Local uint32
+}
+
+// ParseCommunity accepts ASN:NN or IPv4:NN and checks the width of the local
+// part, which depends on the admin part (RFC 4360, 5668): 32 bits after a
+// 2-byte ASN, 16 bits after a 4-byte ASN or an IPv4 address.
+func ParseCommunity(s string) (Community, error) {
 	admin, local, ok := strings.Cut(s, ":")
 	if !ok {
-		return "", "", fmt.Errorf("%q: want <asn>:<nn> or <ipv4>:<nn>", s)
+		return Community{}, fmt.Errorf("%q: want <asn>:<nn> or <ipv4>:<nn>", s)
 	}
-	if _, err := strconv.ParseUint(local, 10, 32); err != nil {
-		return "", "", fmt.Errorf("%q: local part must be a number", s)
+	n, err := strconv.ParseUint(local, 10, 32)
+	if err != nil {
+		return Community{}, fmt.Errorf("%q: local part must be a number up to %d", s, uint32(1<<32-1))
 	}
-	if _, err := strconv.ParseUint(admin, 10, 32); err != nil {
-		if a, err := netip.ParseAddr(admin); err != nil || !a.Is4() {
-			return "", "", fmt.Errorf("%q: admin part must be an ASN or IPv4 address", s)
+	max, kind := uint64(1<<32-1), ""
+	if asn, err := strconv.ParseUint(admin, 10, 32); err == nil {
+		if asn > 1<<16-1 {
+			max, kind = 1<<16-1, "a 4-byte ASN"
 		}
+	} else if a, err := netip.ParseAddr(admin); err == nil && a.Is4() {
+		max, kind = 1<<16-1, "an IPv4 address"
+	} else {
+		return Community{}, fmt.Errorf("%q: admin part must be an ASN or IPv4 address", s)
 	}
-	return admin, local, nil
+	if n > max {
+		return Community{}, fmt.Errorf("%q: the local part after %s has 16 bits (at most %d)", s, kind, max)
+	}
+	return Community{Admin: admin, Local: uint32(n)}, nil
 }

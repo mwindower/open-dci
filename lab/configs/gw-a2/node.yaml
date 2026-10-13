@@ -14,5 +14,7 @@ vnis:
 interfaces:
   - {name: uplink0, mtu: 9216}
   - {name: uplink1, mtu: 9216}
+# open-dci reconciles continuously; --listen serves Prometheus metrics (/metrics)
+# and the health (/healthz) on port 9469
 sidecars:
-  - [/usr/local/bin/open-dci, run, -c, /etc/open-dci/config.yaml]
+  - [/usr/local/bin/open-dci, run, -c, /etc/open-dci/config.yaml, --listen, ":9469"]
