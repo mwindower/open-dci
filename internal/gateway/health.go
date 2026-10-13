@@ -111,7 +111,7 @@ func (g *Gateway) checkHealth(routerID string) Health {
 			return Health{Reason: fmt.Sprintf("%s: SID %s not installed in the kernel", n.VRF, sid)}
 		}
 		for _, afi := range []string{"ipv4", "ipv6"} {
-			if _, _, stuck := g.countRoutes(n.VRF, afi); stuck > 0 {
+			if _, _, stuck := tallyRoutes(g.vrfTable(n.VRF, afi)); stuck > 0 {
 				return Health{Reason: fmt.Sprintf("%s: %d %s prefix(es) without best path", n.VRF, stuck, afi)}
 			}
 		}

@@ -32,7 +32,10 @@ Usage:
   open-dci diff     -c FILE              show what is missing in the running FRR
   open-dci apply    -c FILE              reconcile kernel and FRR once
   open-dci run      -c FILE [-i 10s]     reconcile continuously
-  open-dci status   -c FILE              show sessions, SIDs, prefixes and drift
+  open-dci status   -c FILE [--routes all|VRF|VNI]
+                                         show sessions, SIDs, prefixes and drift;
+                                         --routes lists the networks' local and
+                                         remote prefixes and EVPN type-5 routes
   open-dci drain    -c FILE              withdraw locator and routes (maintenance)
   open-dci undrain  -c FILE              announce again
   open-dci version
@@ -62,6 +65,7 @@ func main() {
 	interval := fs.Duration("i", 10*time.Second, "reconcile interval (run)")
 	asn := fs.Uint("asn", 0, "BGP ASN (render without FRR)")
 	routerID := fs.String("router-id", "", "BGP router-id (render without FRR)")
+	routes := fs.String("routes", "", "list the routes of a network: VRF, VNI or all (status)")
 	verbose := fs.Bool("v", false, "debug logging")
 	_ = fs.Parse(os.Args[2:])
 
@@ -96,7 +100,7 @@ func main() {
 		log.Info("open-dci started", "version", version, "config", *cfgPath, "interval", *interval, "loopback", cfg.Gateway.Loopback())
 		gw.Run(ctx, *interval)
 	case "status":
-		err = status(os.Stdout, gw)
+		err = status(os.Stdout, gw, *routes)
 	case "drain", "undrain":
 		if err = gw.SetDrained(cmd == "drain"); err == nil {
 			_, err = gw.Reconcile()

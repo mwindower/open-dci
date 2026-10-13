@@ -2,9 +2,11 @@ package gateway
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/vishvananda/netlink"
 
+	"github.com/mwindower/open-dci/internal/config"
 	"github.com/mwindower/open-dci/internal/frr"
 	"github.com/mwindower/open-dci/internal/kernel"
 )
@@ -62,10 +64,17 @@ type NetworkStatus struct {
 	// installs nothing for them (seen after an frr-reload re-created the
 	// VRF's BGP instance), a silent black hole
 	NoBestPath int
+	// Routes lists the prefixes (status --routes)
+	Routes *Routes `json:",omitempty"`
 }
 
 // Status collects the gateway's operational state from FRR and the kernel.
-func (g *Gateway) Status() (*Status, error) {
+// For the networks routes selects (see SelectNetworks) it lists the routes.
+func (g *Gateway) Status(routes string) (*Status, error) {
+	withRoutes, err := SelectNetworks(g.Config, routes)
+	if err != nil {
+		return nil, err
+	}
 	_, plan, err := g.Plan()
 	if err != nil {
 		return nil, err
@@ -114,6 +123,10 @@ func (g *Gateway) Status() (*Status, error) {
 		} `json:"context"`
 	}
 	_ = g.FRR.ShowJSON("show segment-routing srv6 sid", &sids)
+	var evpn evpnTable
+	if len(withRoutes) > 0 {
+		evpn = g.fetchEVPN()
+	}
 
 	for _, n := range g.Config.Networks {
 		ns := NetworkStatus{VRF: n.VRF, RouteTarget: n.RouteTarget, RD: g.Config.RDFor(n, st.RouterID)}
@@ -123,10 +136,14 @@ func (g *Gateway) Status() (*Status, error) {
 			}
 		}
 		ns.VNI, ns.L3VNIState = n.VNI, g.l3vniState(n.VNI, st.RouterID)
+		bgp := map[string]vrfTable{"ipv4": g.vrfTable(n.VRF, "ipv4"), "ipv6": g.vrfTable(n.VRF, "ipv6")}
 		var stuck4, stuck6 int
-		ns.LocalV4, ns.RemoteV4, stuck4 = g.countRoutes(n.VRF, "ipv4")
-		ns.LocalV6, ns.RemoteV6, stuck6 = g.countRoutes(n.VRF, "ipv6")
+		ns.LocalV4, ns.RemoteV4, stuck4 = tallyRoutes(bgp["ipv4"])
+		ns.LocalV6, ns.RemoteV6, stuck6 = tallyRoutes(bgp["ipv6"])
 		ns.NoBestPath = stuck4 + stuck6
+		if slices.ContainsFunc(withRoutes, func(w config.Network) bool { return w.VRF == n.VRF }) {
+			ns.Routes = g.routes(n, ns.RD, bgp, evpn)
+		}
 		st.Networks = append(st.Networks, ns)
 	}
 	return st, nil
@@ -154,23 +171,27 @@ type vrfPath struct {
 	Valid     bool   `json:"valid"`
 	Best      bool   `json:"bestpath"`
 	NHVrfName string `json:"nhVrfName"`
+	ASPath    string `json:"path"`
+	Nexthops  []struct {
+		IP string `json:"ip"`
+	} `json:"nexthops"`
 }
 
-// countRoutes counts best paths in a VRF (see tallyRoutes).
-func (g *Gateway) countRoutes(vrf, afi string) (local, remote, noBest int) {
+// vrfTable reads a VRF's BGP table; nil if FRR can't be asked.
+func (g *Gateway) vrfTable(vrf, afi string) vrfTable {
 	var t struct {
-		Routes map[string][]vrfPath `json:"routes"`
+		Routes vrfTable `json:"routes"`
 	}
 	if err := g.FRR.ShowJSON(fmt.Sprintf("show bgp vrf %s %s unicast", vrf, afi), &t); err != nil {
-		return 0, 0, 0
+		return nil
 	}
-	return tallyRoutes(t.Routes)
+	return t.Routes
 }
 
 // tallyRoutes counts best paths: routes imported from the VPN carry the VRF
 // their next hop is resolved in (nhVrfName), local ones do not. noBest counts
 // prefixes that have valid paths but no best path.
-func tallyRoutes(routes map[string][]vrfPath) (local, remote, noBest int) {
+func tallyRoutes(routes vrfTable) (local, remote, noBest int) {
 	for _, paths := range routes {
 		valid, best := false, false
 		for _, p := range paths {
