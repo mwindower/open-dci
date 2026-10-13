@@ -332,6 +332,7 @@ open-dci status   -c /etc/open-dci/config.yaml
 | [Failure measurements](docs/performance.md) | packet loss and TCP stalls when a gateway or an exit fails |
 | [Routing tables](docs/lab-routing.md) | which node knows which routes, in both modes |
 | [Development](docs/development.md) | layout, tests, CI, releases, roadmap |
+| [Alternatives](docs/alternatives.md) | other products and Cilium for EVPN ↔ SRv6 stitching |
 | Design findings (history) | [Phase 0](docs/phase0-findings.md): EVPN ↔ SRv6 feasibility, RT behaviour · [Phase 0b](docs/phase0b-findings.md): the DCI network design, from the dropped firewall placement |
 
 ## License
