@@ -83,7 +83,7 @@ Requirements:
   3. starts sidecars
   4. execs FRR
 
-Routing tables of every node: [Routing tables](routing-tables.md).
+Routing tables of every node: [Routing tables](lab-routing.md).
 
 ## e2e tests
 
@@ -132,7 +132,7 @@ suite: it fails gw-b2 and the exit spine-b forwards leaf-b's traffic through (li
 or silently dropping everything) while pings
 and iperf3 TCP streams run between the partitions, and logs the packet loss on failure and
 recovery and the longest TCP stall. It fails only if a TCP connection breaks or a flow
-doesn't recover. Results: [Operation](../operation/health-and-failover.md#failure-semantics).
+doesn't recover. Results: [Operation](internals.md#failure-semantics).
 
 Debugging:
 

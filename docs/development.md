@@ -11,7 +11,8 @@ internal/gateway/    reconcile loop, pre-flight checks, status, Monitor (what ru
 internal/metrics/    /metrics (Prometheus) and /healthz from the Monitor
 internal/source/     network sources: metalstack (metal-apiserver API v2: mapping, polling, cache; fakeapi for tests and the lab)
 lab/                 containerlab lab: topology, configs/<node>/, e2e tests, labnode, fakeapi
-website/            this website (Docusaurus): docs/ (all documentation), static/img/ (drawings)
+website/            the website (Docusaurus): docs/ (user documentation), static/img/ (drawings)
+docs/                developer documentation (this file, internals, measurements, lab, history)
 tools/packetflow/    generator of the drawings logical-view.svg and packet-flow.svg (make docs-svg)
 deploy/systemd/      systemd unit
 Dockerfile           container image (FRR base for vtysh)
@@ -33,8 +34,9 @@ make website       # build this website; make website-serve to preview it
 - **Canonical form:** `testdata/gw-a1.running.conf` is a real FRR running-config. Every
   rendered line must appear in it verbatim, otherwise drift detection re-applies forever.
 - **Lab:** a change counts as verified once `make lab-redeploy` passes from a clean deploy.
-- **Website:** the build fails on any broken link or anchor, so moving or renaming a page
-  or heading shows up there.
+- **Docs:** the website's build fails on any broken link or anchor; `go test
+  ./tools/doclinks` (part of `make test`) checks the links of `docs/`, the READMEs, and
+  between them and the website.
 
 ## CI and releases
 
@@ -43,5 +45,5 @@ make website       # build this website; make website-serve to preview it
 - **`release.yaml`:** a `v*` tag runs goreleaser, which produces static linux/amd64+arm64
   binaries (with the systemd unit) and a multi-arch image
   `ghcr.io/<owner>/open-dci:<version>`.
-- **`pages.yaml`:** builds this website on every push to `main` that touches it, and
+- **`pages.yaml`:** builds the website on every push to `main` that touches it, and
   publishes it to GitHub Pages.

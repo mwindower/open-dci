@@ -35,7 +35,7 @@ tenant's networks from independent fabrics into one.
 - **Fails gracefully, maintains losslessly.** Anycast gateway pairs, dual-attached to two
   exits, with BFD: losing a gateway or an exit costs well under a second. `open-dci drain`
   takes a gateway out without losing a single packet, and a gateway that can't forward
-  withdraws itself ([measured](https://mwindower.github.io/open-dci/docs/operation/failure-measurements)).
+  withdraws itself ([measured](docs/performance.md)).
 - **Safe by default.** Prefix allowlists per network, route-target filters and prefix
   limits per peer, no DCI route target in any fabric, and an SRv6 domain closed at its edge.
 - **Hands-off.** One YAML file per gateway. open-dci reconciles continuously, survives
@@ -52,7 +52,7 @@ tenant's networks from independent fabrics into one.
 > [!WARNING]
 > **Alpha.** open-dci is at an alpha stage: configuration and behaviour may still change
 > incompatibly, and it is not ready for production. It is tested end to end in a
-> [containerlab lab](https://mwindower.github.io/open-dci/docs/lab/overview) that runs in CI.
+> [containerlab lab](docs/lab.md) that runs in CI.
 >
 > **L3 stitching only.** Tenant IP prefixes are routed between partitions (EVPN type-5 ↔
 > VPNv4/v6). **L2 is not supported**: no stretched subnets, no MAC/IP (type-2) routes, no
@@ -79,18 +79,19 @@ mixed freely:
 
 ## Documentation
 
-**[mwindower.github.io/open-dci](https://mwindower.github.io/open-dci/)**: the website with
-the full documentation (sources in [`website/docs`](website/docs)).
+**User documentation:** [mwindower.github.io/open-dci](https://mwindower.github.io/open-dci/)
+(sources in [`website/docs`](website/docs)).
 
 | | |
 |---|---|
-| [Introduction](https://mwindower.github.io/open-dci/docs/introduction/what-is-open-dci) | what open-dci is, how it works, design decisions, capabilities and limits, alternatives |
-| [Getting started](https://mwindower.github.io/open-dci/docs/getting-started/requirements) | requirements on the environment, installation, quick start |
+| [Introduction](https://mwindower.github.io/open-dci/docs/introduction/what-is-open-dci) | what open-dci is, how it works, design decisions, capabilities and limits |
+| [Getting started](https://mwindower.github.io/open-dci/docs/getting-started/requirements) | requirements, installation, quick start, trying it in the lab |
 | [Configuration](https://mwindower.github.io/open-dci/docs/configuration/overview) | every field, route targets, networks from metal-apiserver |
-| [Operation](https://mwindower.github.io/open-dci/docs/operation/commands) | commands, status, metrics, health and failover, maintenance, the SRv6 domain's edge, adding partitions, failure measurements |
-| [metal-stack](https://mwindower.github.io/open-dci/docs/metal-stack/overview) | open-dci in metal-stack, and the integration proposal |
-| [Lab](https://mwindower.github.io/open-dci/docs/lab/overview) | the containerlab lab, its e2e tests and routing tables |
-| [Development](https://mwindower.github.io/open-dci/docs/development/overview) | layout, tests, CI, releases, roadmap, design history |
+| [Operation](https://mwindower.github.io/open-dci/docs/operation/commands) | commands, status, metrics, health and failover, maintenance, the SRv6 domain's edge, adding partitions |
+| [metal-stack](https://mwindower.github.io/open-dci/docs/metal-stack/overview) | open-dci in metal-stack |
+
+**Developer documentation:** [`docs/`](docs/README.md): how it works inside, measurements,
+the lab and its routing tables, development and roadmap, design history.
 
 Quick look at a gateway (details: [Quick start](https://mwindower.github.io/open-dci/docs/getting-started/quick-start)):
 

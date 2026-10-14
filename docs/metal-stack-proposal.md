@@ -1,10 +1,15 @@
 # Integration proposal
 
 How open-dci could become part of [metal-stack](https://metal-stack.io) itself. Today the
-gateway needs no metal-stack changes ([open-dci in metal-stack](overview.md)): it's an
+gateway needs no metal-stack changes ([open-dci in metal-stack](https://mwindower.github.io/open-dci/docs/metal-stack/overview)): it's an
 FRR box at the exits whose `open-dci.yaml` is written by hand, or whose tenant networks
-open-dci reads from metal-apiserver ([Networks from metal-apiserver](overview.md#networks-from-metal-apiserver-implemented)).
+open-dci reads from metal-apiserver ([Networks from metal-apiserver](https://mwindower.github.io/open-dci/docs/configuration/metal-apiserver)).
 This page is a design proposal for the next steps and is not implemented.
+
+> [!NOTE]
+> Statements about metal-stack internals (metal-api, metal-core, metal-networker,
+> metal-roles) reflect the general architecture of metal-stack, not a review of its code.
+> Check them against the version in use before building on them.
 
 ## Who does what
 
@@ -50,7 +55,7 @@ So the proposal separates the machine from the intent.
 **The intent: a network stitch in metal-api.**
 - It names the private networks, one per partition, that form one tenant network. It is
   scoped to a project; stitching across projects isn't possible by default.
-- Its route target is derived from its ID ([Route targets](../configuration/route-targets.md#deriving-route-targets-automatically)).
+- Its route target is derived from its ID ([Route targets](metal-apiserver-source.md#deriving-route-targets)).
 - This is the real new base entity. The gateways only execute it.
 
 **The glue: a `dci-controller`**, in the spirit of the firewall-controller:
@@ -75,7 +80,7 @@ A cloud API (e.g. a cluster spanning partitions) requests a stitch the same way.
 
 - **metal-core** manages the leaf switches' machine ports at runtime: VRF and VLAN per
   allocated machine. That's tenant-driven and dynamic.
-- **What open-dci needs from the exits is static** ([Configuration](../getting-started/requirements.md)):
+- **What open-dci needs from the exits is static** ([Configuration](https://mwindower.github.io/open-dci/docs/getting-started/requirements)):
   - VPN address families towards the gateways, with `allowas-in 1`
   - the relay between the exits (a ladder or route servers)
   - the DCI VRF or IPv6 towards the core
@@ -106,7 +111,7 @@ the partition's static network.
 - Gateways at the exits, as in the lab, remain the bandwidth-optimal variant.
 
 **On the leaf switches themselves: no**, for the reasons in the design decisions
-([Why not on the switches?](../introduction/design-decisions.md)):
+([Why not on the switches?](https://mwindower.github.io/open-dci/docs/introduction/design-decisions)):
 - SRv6 VPN support in switch ASICs and SONiC is limited.
 - VRF, next-hop and tunnel tables are fixed in size.
 - Per-tenant DCI state would live in every leaf.
@@ -115,12 +120,12 @@ the partition's static network.
 ## Rollout
 
 1. **Today:** a static `open-dci.yaml` per gateway, written by hand
-   ([open-dci in metal-stack](overview.md)).
+   ([open-dci in metal-stack](https://mwindower.github.io/open-dci/docs/metal-stack/overview)).
 2. **Networks from metal-apiserver** (implemented): the gateways derive their tenant
    networks from labelled private networks
-   ([open-dci in metal-stack](overview.md#networks-from-metal-apiserver-implemented)).
+   ([open-dci in metal-stack](https://mwindower.github.io/open-dci/docs/configuration/metal-apiserver)).
 3. **A shared inventory file** distributed to all gateways
-   ([Adding partitions and networks](../operation/adding-partitions-and-networks.md#keeping-the-locations-in-sync)), or the `dci-controller`, which
+   ([Adding partitions and networks](roadmap.md#keeping-the-locations-in-sync)), or the `dci-controller`, which
    renders the configs from the network stitch entity.
 4. **The gateway role** in metal-api and metal-networker, and the exit role in metal-roles.
 
@@ -134,4 +139,4 @@ the partition's static network.
 - **Several metal-api instances:** route targets must be unique across them, e.g. by hashing
   `<instance>/<project>/<stitch>`.
 - **Capacity:** placing tenants on gateway groups (sharding) when one pair isn't enough
-  ([Capabilities](../introduction/capabilities.md#scaling-bandwidth)).
+  ([Capabilities](scaling.md#scaling-bandwidth)).

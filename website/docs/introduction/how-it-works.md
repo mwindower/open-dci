@@ -25,4 +25,4 @@ IP 10.0.0.16 > 10.0.0.14.4789: VXLAN vni 104100                   ← gw-a1 → 
     IP 10.0.16.10 > 10.0.32.10: ICMP echo request                  ← tenant packet
 ```
 
-Which node knows which routes, for both modes: [Routing tables](../lab/routing-tables.md).
+Which node knows which routes, for both modes: [Routing tables](https://github.com/mwindower/open-dci/blob/main/docs/lab-routing.md).

@@ -28,7 +28,7 @@ tenant's networks from independent fabrics into one.
 - **Fails gracefully, maintains losslessly.** Anycast gateway pairs, dual-attached to two
   exits, with BFD: losing a gateway or an exit costs well under a second. `open-dci drain`
   takes a gateway out without losing a single packet, and a gateway that can't forward
-  withdraws itself ([measured](../operation/failure-measurements.md)).
+  withdraws itself ([measured](https://github.com/mwindower/open-dci/blob/main/docs/performance.md)).
 - **Safe by default.** Prefix allowlists per network, route-target filters and prefix
   limits per peer, no DCI route target in any fabric, and an SRv6 domain closed at its edge.
 - **Hands-off.** One YAML file per gateway. open-dci reconciles continuously, survives
@@ -42,11 +42,12 @@ tenant's networks from independent fabrics into one.
 - Fabrics with different VNI, route-target or ASN plans joined without renumbering, e.g. during a migration.
 - Many isolated tenants over one shared IPv6 core.
 
-> [!WARNING]
-> **Alpha.** open-dci is at an alpha stage: configuration and behaviour may still change
-> incompatibly, and it is not ready for production. It is tested end to end in a
-> [containerlab lab](../lab/overview.md) that runs in CI.
->
-> **L3 stitching only.** Tenant IP prefixes are routed between partitions (EVPN type-5 ↔
-> VPNv4/v6). **L2 is not supported**: no stretched subnets, no MAC/IP (type-2) routes, no
-> L2VNIs across partitions.
+:::warning
+**Alpha.** open-dci is at an alpha stage: configuration and behaviour may still change
+incompatibly, and it is not ready for production. It is tested end to end in a
+[containerlab lab](../getting-started/try-the-lab.md) that runs in CI.
+
+**L3 stitching only.** Tenant IP prefixes are routed between partitions (EVPN type-5 ↔
+VPNv4/v6). **L2 is not supported**: no stretched subnets, no MAC/IP (type-2) routes, no
+L2VNIs across partitions.
+:::

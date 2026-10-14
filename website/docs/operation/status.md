@@ -19,33 +19,27 @@ vrf3981                     65535:1001        10.0.0.16:3981  fd00:dc1:a:f8d:: (
 vrf3982 (tenant-2/main)     65535:26782482    10.0.0.16:3982  fd00:dc1:a:f8e:: (End.DT46)  3982 Up  1/1          1/1
 ```
 
-- `locator` is `announced`, or `WITHHELD` with the reason (see
-  [Announcing the locator](health-and-failover.md#announcing-the-locator)).
+- `locator` is `announced`, `WITHHELD` with the reason while the gateway isn't ready, or
+  `DRAINED` (see [Health and failover](health-and-failover.md)).
 - `filter` shows the ingress filter's rules with their drop counters (see [The SRv6 domain and its edge](srv6-domain-edge.md)).
-- `L3VNI` shows each network's VNI with zebra's state of it.
-- `source` (only with a [network source](../configuration/metal-apiserver.md)):
-  how many networks it adds, when it last answered, failed polls and skipped groups, followed
-  by a line per warning (stale, skipped). Networks from the source show their group after the
+- `L3VNI` shows each network's VNI and whether it is up.
+- `source` (only with [networks from metal-apiserver](../configuration/metal-apiserver.md)):
+  how many networks it adds, when it last answered, failed polls and networks it can't
+  stitch, each with a warning line. Those networks show their stitched network after the
   VRF (here tenant 2: project `tenant-2`, label value `main`).
-- The only peers are the sessions to the two exits (`peers[].interface`); `AS` comes from
-  FRR.
-  `RCVD` counts the remote gateways' routes (2 tenants × 2 gateways of pair B). `SENT`
-  includes the relayed routes a gateway passes back to its exit. The exit keeps them as
-  longer, never-best paths, and the other exits and the partner gateway would drop them
-  anyway (own ASN in the path): noise, not loops.
-
+- `PEER` lists the sessions to the exits with the VPN routes received and sent.
 - A gateway in default-VRF mode shows `transport default VRF` instead.
 - `OPEN_DCI_OUTPUT=json open-dci status` prints the same as JSON.
 - The exit code is non-zero unless all of these hold:
   - there is no drift
   - the locator is announced
-  - the health checks pass (see [Health and failover](health-and-failover.md#withdrawing-an-unhealthy-gateway))
+  - the health checks pass (see [Health and failover](health-and-failover.md#an-unhealthy-gateway-withdraws-itself))
   - the kernel parts are in place
   - every peer is Established
   - every network has a SID
   - every network's L3VNI is `Up`
-  - no prefix in a tenant VRF has valid paths but no best path (FRR installs nothing for
-    it; seen rarely after `frr-reload.py`, fixed by a BGP session reset)
+  - every route in the tenant VRFs is installed (a route FRR never selected is a silent
+    black hole; a BGP session reset fixes it)
   - the ingress filter is installed
 
 ## Routes of a network
@@ -77,19 +71,14 @@ vrf3981  VNI 3981  RT 65535:1001
   out 2001:db8:48::/48     10.0.0.16:5  10.0.0.16  4200000014 4200000034 4200000036             59920:3981             1
 ```
 
-- `LOCAL`: the tenant VRF's prefixes from the own partition, by their best path: host
-  routes from EVPN with the VTEP as next hop, and the own aggregates. `VPN` says whether
-  the prefix is exported under the network's RD (host routes inside an aggregate are not).
-  `KERNEL` says whether zebra installed a route for it (for an aggregate, the blackhole).
-  A prefix with valid paths but no best path shows up here as `NO BEST PATH`.
-- `REMOTE`: prefixes imported from other partitions via the VPN, with the SID the kernel
-  route encapsulates to (from zebra), the AS path (its last AS is the remote gateway
-  pair's), and the number of VPN paths (both exits × both remote gateways).
-- `EVPN TYPE-5`: the L3VNI's type-5 routes in the global EVPN table. `in` are received from
-  the fabric with one of the VRF's import RTs, or an auto-derived RT with the VNI (FRR
-  imports those whatever ASN they carry); `out` are advertised by this gateway under the
-  L3VNI's RD: the remote prefixes, carrying only the L3VNI's auto RT (open-dci strips the
-  network's RT and everything else the route brought from the VPN, and adds its SoO).
+- `LOCAL`: the network's prefixes in the own partition: the machines' host routes and the
+  own aggregates. `VPN` says whether a prefix is sent to the other partitions (host routes
+  inside an aggregate are not, the aggregate is). `KERNEL` says whether it is installed;
+  `NO BEST PATH` marks a silent black hole.
+- `REMOTE`: prefixes from the other partitions, with the SID they are sent to and the
+  number of paths (both exits × both remote gateways).
+- `EVPN TYPE-5`: the routes exchanged with the own fabric: `in` from the fabric, `out` the
+  remote prefixes the gateway announces into it.
 - With `OPEN_DCI_OUTPUT=json`, the routes are in `Networks[].Routes`.
 
 The listing is read from FRR on every call; with many prefixes, select a single network.

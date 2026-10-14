@@ -89,7 +89,8 @@ const config: Config = {
           items: [
             {label: 'GitHub', href: repo},
             {label: 'Releases', href: `${repo}/releases`},
-            {label: 'Roadmap', to: '/docs/development/roadmap'},
+            {label: 'Roadmap', href: `${repo}/blob/main/docs/roadmap.md`},
+            {label: 'Developer docs', href: `${repo}/tree/main/docs`},
           ],
         },
         {

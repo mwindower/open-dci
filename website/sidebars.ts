@@ -1,7 +1,9 @@
 import type {SidebarsConfig} from '@docusaurus/plugin-content-docs';
 
-// The docs, in reading order: what it is, getting it running, configuring
-// it, running it, then metal-stack, the lab and development.
+// The user documentation, in reading order: what it is, getting it running,
+// configuring it, running it, metal-stack. Developer documentation (internals,
+// measurements, the lab in detail, design history) lives in the repository's
+// docs/ directory.
 const category = (label: string, dir: string, items: string[], collapsed = false) => ({
   type: 'category' as const,
   label,
@@ -12,14 +14,8 @@ const category = (label: string, dir: string, items: string[], collapsed = false
 
 const sidebars: SidebarsConfig = {
   docs: [
-    category('Introduction', 'introduction', [
-      'what-is-open-dci',
-      'how-it-works',
-      'design-decisions',
-      'capabilities',
-      'alternatives',
-    ]),
-    category('Getting started', 'getting-started', ['requirements', 'installation', 'quick-start']),
+    category('Introduction', 'introduction', ['what-is-open-dci', 'how-it-works', 'design-decisions', 'capabilities']),
+    category('Getting started', 'getting-started', ['requirements', 'installation', 'quick-start', 'try-the-lab']),
     category('Configuration', 'configuration', [
       'overview',
       'gateway',
@@ -37,12 +33,8 @@ const sidebars: SidebarsConfig = {
       'maintenance',
       'srv6-domain-edge',
       'adding-partitions-and-networks',
-      'what-open-dci-changes',
-      'failure-measurements',
     ]),
-    category('metal-stack', 'metal-stack', ['overview', 'integration-proposal'], true),
-    category('Lab', 'lab', ['overview', 'routing-tables'], true),
-    category('Development', 'development', ['overview', 'roadmap', 'phase0-findings', 'phase0b-findings'], true),
+    'metal-stack/overview',
   ],
 };
 

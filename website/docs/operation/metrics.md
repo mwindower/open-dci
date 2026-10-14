@@ -26,7 +26,7 @@ groups that can't be stitched.
 | `info` | `version`, `asn`, `router_id`, `loopback`, `locator` | always 1 |
 | `healthy` | | 1 if `/healthz` answers 200 |
 | `locator_state` | `state` | 1 for the current state: `announced`, `withheld` (waiting for the fabric), `withdrawn` (unhealthy), `drained` |
-| `dataplane_healthy` | | 1 if the [health checks](health-and-failover.md#withdrawing-an-unhealthy-gateway) pass |
+| `dataplane_healthy` | | 1 if the [health checks](health-and-failover.md#an-unhealthy-gateway-withdraws-itself) pass |
 | `frr_missing_lines` | | drift: rendered lines missing in FRR |
 | `reconciles_total`, `reconcile_errors_total` | | reconciles since start, failed ones |
 | `frr_applies_total`, `frr_removals_total` | | reconciles that repaired drift or removed stale lines |
@@ -47,11 +47,16 @@ groups that can't be stitched.
 | `source_errors_total` | | failed polls |
 | `source_skipped` | `group`, `reason` | 1 per group the source can't stitch (e.g. two networks in one partition) |
 
-Plus the Go runtime and process metrics (`go_*`, `process_*`). Useful alerts:
-`open_dci_healthy == 0` for a few minutes (the partner carries the traffic meanwhile, but
-the pair has lost its redundancy), `increase(open_dci_frr_applies_total[1h]) > 0` (something
-keeps removing open-dci's lines), `increase(open_dci_filter_dropped_packets_total[5m]) > 0`
-(someone sends SRv6 into the domain from outside), `open_dci_network_prefixes{origin="remote"}`
-dropping to 0 (a partition disappeared), and with a network source `open_dci_source_stale == 1`
-(metal-apiserver unreachable, changes don't arrive) and `open_dci_source_skipped == 1` (a
-tenant's network isn't stitched).
+Plus the Go runtime and process metrics (`go_*`, `process_*`).
+
+Useful alerts:
+- `open_dci_healthy == 0` for a few minutes: the partner carries the traffic, but the pair
+  has lost its redundancy.
+- `increase(open_dci_frr_applies_total[1h]) > 0`: something keeps removing open-dci's
+  configuration.
+- `increase(open_dci_filter_dropped_packets_total[5m]) > 0`: someone sends SRv6 into the
+  domain from outside.
+- `open_dci_network_prefixes{origin="remote"}` dropping to 0: a partition disappeared.
+- With networks from metal-apiserver: `open_dci_source_stale == 1` (metal-apiserver
+  unreachable, changes don't arrive) and `open_dci_source_skipped == 1` (a tenant's network
+  can't be stitched).

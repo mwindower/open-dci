@@ -133,7 +133,7 @@ unreachable default metric 4278198272
 The exits' edge filter (`edgeFilter` in their `node.yaml`) keeps the block
 `fd00:dc1::/32` unreachable from the fabric side and from the default-VRF core link
 (`swp5`), and drops packets from the core into the block with a source outside it (see
-[Operation](../operation/srv6-domain-edge.md)).
+[Operation](https://mwindower.github.io/open-dci/docs/operation/srv6-domain-edge)).
 
 ## Gateway `gw-a1`
 

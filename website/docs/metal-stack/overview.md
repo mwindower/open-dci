@@ -1,50 +1,28 @@
 # open-dci in metal-stack
 
-The gateway needs no metal-stack changes. It peers EVPN with the exit like any fabric
-member, and open-dci provisions the tenant VRFs from its config: each tenant's VNI in that
-partition (the VRF ID of the tenant's metal-stack private network) as `networks[].vni`.
-- The fabric must pass these VNIs' type-5 routes between leaves and gateway.
-- **The exits** route the DCI network, or the IPv6 underlay in default-VRF mode, to the
-  other partitions.
+open-dci works with metal-stack as it is: no changes to metal-stack are needed.
 
-Instead of writing `networks` by hand, the gateways can read them from metal-apiserver
-([`source.metalStack`](../configuration/metal-apiserver.md)): give each
-gateway its partition, the network label that marks networks to stitch, and a read-only API
-token (admin viewer) in `tokenFile`. `run` caches the
-last answer in its state directory (`/var/lib/open-dci/`), so keep that directory
-persistent.
+- **Gateways** are dedicated servers at the exits of each partition. They peer EVPN with
+  the exits like any fabric member. Each tenant's VNI in a partition is the VRF ID of the
+  tenant's private network there.
+- **The fabric** passes these VNIs' routes between leaves and gateways, as it does for any
+  VTEP.
+- **The exits** connect the partitions: they route the gateways' transport (the DCI
+  network, or the IPv6 underlay in default-VRF mode) to the other partitions, and relay
+  the VPN routes. See the [requirements](../getting-started/requirements.md).
 
-The [lab](../lab/overview.md) reproduces this setup. How open-dci could become part of
-metal-stack itself (a gateway role, a network stitch entity in metal-api, a controller):
-[Integration proposal](integration-proposal.md).
+## Stitching driven by metal-apiserver
 
-## Networks from metal-apiserver (implemented)
+The gateways can read the networks to stitch from metal-apiserver instead of a config
+file: tenants label their private networks (e.g. `open-dci.io/stitch: prod`), and the
+gateways of every partition with such a network stitch them together. Labels can be
+added and removed at any time, without interrupting the other networks. Setup and
+behaviour: [Networks from metal-apiserver](../configuration/metal-apiserver.md).
 
-This needs no change to metal-stack at all: open-dci can read the networks it stitches from
-metal-apiserver itself ([`source.metalStack`](../configuration/metal-apiserver.md)).
-It's optional; without it, the config file's `networks` are all there is. Only what
-metal-apiserver already has is used: private networks with project, partition, VRF ID,
-prefixes and labels. What belongs together is said by a label: only labelled networks are
-stitched, and a project's networks with the same value (e.g. `open-dci.io/stitch: prod`)
-form one stitched network. Tenants opt in themselves, a project can have several stitched
-networks, and nothing is stitched across projects (the project is part of the group). Labels
-can come and go while traffic flows: a change only touches the network whose label changed
-([Label changes](../configuration/metal-apiserver.md#label-changes)).
+Compared to a metal-stack-native integration, this has limits: stitching never spans
+projects, there are no quotas or permissions beyond who may label a network, and
+conflicts (two networks with the same value in one partition) are reported rather than
+rejected when they are created.
 
-Each gateway polls metal-apiserver with a read-only token and derives its own tenant
-VRFs: the VRF ID of the network in its partition is the VNI, the prefixes of all the group's
-networks are the aggregates, and the route target is hashed from the group's name. The
-static config (gateway, transport, peers) stays a file. The limits compared to the full
-[integration proposal](integration-proposal.md):
-- no stitching across projects, and no quotas or permissions of its own: whoever may label
-  a network may stitch it;
-- a group with two networks with the same value in one partition is skipped;
-- the global checks (RT collisions, overlapping prefixes) happen on every gateway, which
-  reports and skips what doesn't fit, instead of rejecting it when it is created;
-- renaming a label value gives the stitched network a new route target (a short
-  interruption).
-
-> [!NOTE]
-> Statements about metal-stack internals (metal-api, metal-core, metal-networker,
-> metal-roles) reflect the general architecture of metal-stack, not a review of its code.
-> Check them against the version in use before building on them.
+How open-dci could become part of metal-stack itself (a gateway role, a network stitch
+entity, a controller): [Integration proposal](https://github.com/mwindower/open-dci/blob/main/docs/metal-stack-proposal.md).

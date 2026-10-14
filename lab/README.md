@@ -38,6 +38,5 @@ Requirements:
 - Go ≥ 1.27
 - the image `quay.io/frrouting/frr:10.4.1`
 
-What the lab models, every e2e test, and the routing tables of all nodes:
-[Lab](https://mwindower.github.io/open-dci/docs/lab/overview) on the website (source:
-[`website/docs/lab`](../website/docs/lab)).
+What the lab models and every e2e test: [docs/lab.md](../docs/lab.md); the routing tables
+of all nodes: [docs/lab-routing.md](../docs/lab-routing.md).

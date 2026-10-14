@@ -28,7 +28,7 @@ const properties: {title: string; body: ReactNode; to: string}[] = [
   {
     title: 'Fails gracefully, maintains losslessly',
     body: 'Anycast gateway pairs with BFD: losing a gateway or an exit costs well under a second, and open-dci drain takes a gateway out without losing a packet.',
-    to: '/docs/operation/failure-measurements',
+    to: '/docs/operation/health-and-failover',
   },
   {
     title: 'Safe by default',

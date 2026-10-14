@@ -73,4 +73,4 @@ At runtime, `apply`/`run`/`diff`/`status` also check the system:
 - ASN and router-id match the config, if they are set there
 - `advertise-all-vni` in the default instance
 - a network's devices, if they exist, were created by open-dci (see
-  [Operation](../operation/what-open-dci-changes.md#provisioned-networks)); it never takes over other devices
+  [Operation](https://github.com/mwindower/open-dci/blob/main/docs/internals.md#provisioned-networks)); it never takes over other devices
