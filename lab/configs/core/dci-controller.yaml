@@ -1,0 +1,19 @@
+# dci-controller in the lab (a sidecar of the core): it reads the fake
+# metal-apiserver every 2 s and sets every gateway the stitched networks of its
+# partition. Tenants label their private networks open-dci.io/stitch=<value>; a
+# project's networks with the same value form one stitched network (tenant 2:
+# tenant-2/main, see metal-api.yaml).
+metalStack:
+  url: http://core:8080             # the fake metal-apiserver (lab/cmd/fakeapi)
+  label: open-dci.io/stitch         # the label tenants set on their networks
+  routeTargetASN: 65535             # namespace of the derived route targets
+interval: 2s                        # lab: react quickly (default 30s)
+listen: ":9471"                     # /metrics and /healthz
+gatewayTokenFile: /etc/dci-controller/gateway-token   # the gateways' API token (lab only)
+gateways:                           # every gateway: its partition and its API
+  - {name: gw-a1, partition: a, endpoint: "http://gw-a1:9470"}
+  - {name: gw-a2, partition: a, endpoint: "http://gw-a2:9470"}
+  - {name: gw-b1, partition: b, endpoint: "http://gw-b1:9470"}
+  - {name: gw-b2, partition: b, endpoint: "http://gw-b2:9470"}
+  - {name: gw-c1, partition: c, endpoint: "http://gw-c1:9470"}
+  - {name: gw-c2, partition: c, endpoint: "http://gw-c2:9470"}

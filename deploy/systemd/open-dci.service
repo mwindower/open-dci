@@ -12,6 +12,9 @@ Wants=network-online.target frr.service
 [Service]
 # --listen: Prometheus metrics (/metrics) and health (/healthz), here on
 # localhost only; pick a management address to scrape it from elsewhere.
+# To let dci-controller (or others) set networks, add the API, e.g.
+#   --api-listen <mgmt-ip>:9470 --api-token-file /etc/open-dci/api-token
+#   [--api-tls-cert /etc/open-dci/tls.crt --api-tls-key /etc/open-dci/tls.key]
 ExecStart=/usr/local/bin/open-dci run -c /etc/open-dci/config.yaml --listen 127.0.0.1:9469
 Restart=always
 RestartSec=5

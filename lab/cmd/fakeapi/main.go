@@ -11,7 +11,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/mwindower/open-dci/internal/source/metalstack/fakeapi"
+	"github.com/mwindower/open-dci/internal/metalstack/fakeapi"
 )
 
 func main() {

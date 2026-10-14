@@ -61,7 +61,7 @@ func TestRefusesForeignVRF(t *testing.T) {
 		`sed '/^networks:/a\  - {vrf: vrf`+vni+`, vni: `+vni+`, routeTarget: "65535:1098", prefixes: [10.99.98.0/24 le 32]}' /etc/open-dci/config.yaml > /tmp/foreign.yaml`); err != nil {
 		t.Fatal(err)
 	}
-	out, err := lab.Exec(node, "sh", "-c", "/usr/local/bin/open-dci apply -c /tmp/foreign.yaml --state /tmp/foreign.state --refresh 2>&1")
+	out, err := lab.Exec(node, "sh", "-c", "/usr/local/bin/open-dci apply -c /tmp/foreign.yaml --state /tmp/foreign.state --api-networks /var/lib/open-dci/api-networks.json 2>&1")
 	if err == nil || !strings.Contains(out, "not created by open-dci") {
 		t.Fatalf("want refusal, got err=%v:\n%s", err, out)
 	}

@@ -10,7 +10,7 @@ The user documentation is the website, [mwindower.github.io/open-dci](https://mw
 | [Requirements in detail](requirements.md) | the reasons behind the requirements, exit topologies, per-mode details |
 | [Design decisions in detail](design-decisions.md) | the full reasoning, incl. why not on the switches |
 | [Scaling](scaling.md) | scale limits and how bandwidth grows |
-| [The metal-apiserver source](metal-apiserver-source.md) | how networks, SIDs and route targets are derived, label changes in detail |
+| [dci-controller](metal-stack-controller.md) | the controller round, how networks, SIDs and route targets are derived, label changes in detail |
 | [Failure measurements](performance.md) | packet loss and TCP stalls when a gateway or an exit fails, BFD intervals |
 | [Lab](lab.md) | what the containerlab lab models, and every e2e test |
 | [Routing tables](lab-routing.md) | which node knows which routes, in both modes |

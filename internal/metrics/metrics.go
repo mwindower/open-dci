@@ -40,7 +40,8 @@ type Health struct {
 	Locator  string   `json:"locator,omitempty"`
 	Reason   string   `json:"reason,omitempty"`
 	Problems []string `json:"problems,omitempty"`
-	// Warnings don't make the gateway unhealthy (e.g. a stale source).
+	// Warnings don't make the gateway unhealthy (e.g. an API network that
+	// can't be applied).
 	Warnings []string `json:"warnings,omitempty"`
 	// Updated is when the status was collected.
 	Updated time.Time `json:"updated,omitzero"`
@@ -95,11 +96,9 @@ var (
 	pathMTUDesc    = desc("transport_path_mtu_bytes", "Smallest MTU on the transport VRF's devices (DCI network mode).")
 	reqMTUDesc     = desc("transport_required_mtu_bytes", "MTU the transport needs (tenant MTU + SRv6).")
 	ruleDesc       = desc("transport_local_rule_last", "1 if the local ip rule is behind l3mdev (DCI network mode).")
-	srcSyncDesc    = desc("source_sync_timestamp_seconds", "When the network source last answered (0: never).")
-	srcErrDesc     = desc("source_errors_total", "Failed polls of the network source.")
-	srcNetsDesc    = desc("source_networks", "Networks the source adds.")
-	srcSkipDesc    = desc("source_skipped", "1 for each group of the source that isn't stitched.", "group", "reason")
-	srcStaleDesc   = desc("source_stale", "1 if the source hasn't answered for three intervals (its last answer stays in place).")
+	apiNetsDesc    = desc("api_networks", "Networks applied from the API.")
+	apiChangeDesc  = desc("api_last_change_timestamp_seconds", "When the API networks last changed (0: never).")
+	apiSkipDesc    = desc("api_skipped", "1 for each API network that isn't applied.", "vrf", "group", "reason")
 )
 
 type collector struct {
@@ -172,17 +171,15 @@ func (c *collector) Collect(ch chan<- prometheus.Metric) {
 		gauge(noBestDesc, float64(n.NoBestPath), n.VRF)
 	}
 
-	if src := st.Source; src != nil {
-		var synced float64
-		if !src.Synced.IsZero() {
-			synced = float64(src.Synced.Unix())
+	if api := st.API; api != nil {
+		gauge(apiNetsDesc, float64(api.Networks))
+		var changed float64
+		if !api.LastChange.IsZero() {
+			changed = float64(api.LastChange.Unix())
 		}
-		gauge(srcSyncDesc, synced)
-		counter(srcErrDesc, float64(src.Errors))
-		gauge(srcNetsDesc, float64(src.Networks))
-		gauge(srcStaleDesc, b2f(src.Stale(now)))
-		for _, sk := range src.Skipped {
-			gauge(srcSkipDesc, 1, sk.Group, sk.Reason)
+		gauge(apiChangeDesc, changed)
+		for _, sk := range api.Skipped {
+			gauge(apiSkipDesc, 1, sk.VRF, sk.Group, sk.Reason)
 		}
 	}
 

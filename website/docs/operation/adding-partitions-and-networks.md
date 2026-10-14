@@ -2,7 +2,7 @@
 
 What has to change where when the DCI grows, and how the gateways' configs relate to each
 other. With hand-written configs, nothing checks consistency *between* gateways, so follow
-the rules below. With [networks from metal-apiserver](../configuration/metal-apiserver.md),
+the rules below. With [dci-controller](../metal-stack/controller.md),
 adding a stitched network needs no config change at all.
 
 ## Global and local parts of the config

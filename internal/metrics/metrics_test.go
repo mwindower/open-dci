@@ -105,23 +105,21 @@ func TestHealthz(t *testing.T) {
 	}
 }
 
-func TestSourceMetrics(t *testing.T) {
+func TestAPIMetrics(t *testing.T) {
 	mon := &gateway.Monitor{}
 	now := time.Now()
 	st := healthyStatus()
-	st.Source = &gateway.SourceStatus{
-		Synced: now.Add(-time.Hour), Interval: 30 * time.Second, Networks: 3, Errors: 4, LastError: "connection refused",
-		Skipped: []config.Skipped{{Group: "label/p1/dup", Reason: "2 networks in partition a"}},
+	st.API = &gateway.APIStatus{
+		Known: true, Networks: 3, LastChange: now.Add(-time.Hour),
+		Skipped: []config.Skipped{{VRF: "vrf9", Group: "p1/dup", Reason: "vni: 3981 used twice"}},
 	}
 	mon.Publish(gateway.Snapshot{Status: st, StatusTime: now, Interval: 10 * time.Second, Locator: gateway.LocatorAnnounced})
 	h := Handler(mon, "v1")
 	_, body := get(t, h, "/metrics")
 	for _, s := range []string{
-		"open_dci_source_networks 3",
-		"open_dci_source_errors_total 4",
-		"open_dci_source_stale 1",
-		`open_dci_source_skipped{group="label/p1/dup",reason="2 networks in partition a"} 1`,
-		"open_dci_healthy 1", // a stale source doesn't make the gateway unhealthy
+		"open_dci_api_networks 3",
+		`open_dci_api_skipped{group="p1/dup",reason="vni: 3981 used twice",vrf="vrf9"} 1`,
+		"open_dci_healthy 1", // a skipped API network doesn't make the gateway unhealthy
 	} {
 		if !strings.Contains(body, s+"\n") {
 			t.Errorf("missing %q", s)
@@ -132,7 +130,7 @@ func TestSourceMetrics(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &health); err != nil {
 		t.Fatal(err)
 	}
-	if code != http.StatusOK || len(health.Warnings) != 2 || !strings.Contains(health.Warnings[0], "connection refused") {
+	if code != http.StatusOK || len(health.Warnings) != 1 || !strings.Contains(health.Warnings[0], "vrf9") {
 		t.Fatalf("/healthz %d %+v", code, health)
 	}
 }

@@ -23,18 +23,18 @@ const sidebars: SidebarsConfig = {
       'peers',
       'networks',
       'route-targets',
-      'metal-apiserver',
     ]),
     category('Operation', 'operation', [
       'commands',
       'status',
       'metrics',
+      'api',
       'health-and-failover',
       'maintenance',
       'srv6-domain-edge',
       'adding-partitions-and-networks',
     ]),
-    'metal-stack/overview',
+    category('metal-stack', 'metal-stack', ['overview', 'controller']),
   ],
 };
 

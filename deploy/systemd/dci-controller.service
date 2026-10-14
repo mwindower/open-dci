@@ -1,0 +1,19 @@
+# dci-controller: reconciles metal-apiserver's labelled private networks with the
+# open-dci gateways (through their API). One instance for all gateways, e.g. on a
+# management host. Install: binary to /usr/local/bin, config to
+# /etc/dci-controller/config.yaml (example: deploy/dci-controller.yaml), then
+#   systemctl daemon-reload && systemctl enable --now dci-controller
+[Unit]
+Description=dci-controller: metal-apiserver networks to open-dci gateways
+Documentation=https://mwindower.github.io/open-dci/docs/metal-stack/controller
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/dci-controller -c /etc/dci-controller/config.yaml
+Restart=always
+RestartSec=5
+DynamicUser=yes
+
+[Install]
+WantedBy=multi-user.target

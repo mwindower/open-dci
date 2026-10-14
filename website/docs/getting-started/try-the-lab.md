@@ -29,8 +29,8 @@ make lab-down
 ```
 
 The gateways' configs are in `lab/configs/gw-*/open-dci.yaml`, a good starting point for
-your own. Tenant 2 comes from a fake metal-apiserver, as
-[networks from metal-apiserver](../configuration/metal-apiserver.md) would.
+your own. Tenant 2 comes from a fake metal-apiserver through
+[dci-controller](../metal-stack/controller.md), which runs on the core.
 
 What the lab models, all its tests and every node's routing table:
 [the lab](https://github.com/mwindower/open-dci/blob/main/docs/lab.md) in the repository.

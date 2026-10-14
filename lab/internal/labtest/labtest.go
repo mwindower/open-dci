@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -130,7 +132,45 @@ func Eventually(t *testing.T, timeout time.Duration, fn func() error) {
 		if time.Now().After(deadline) {
 			t.Fatalf("not reached within %s: %v", timeout, err)
 		}
-		time.Sleep(time.Second)
+		time.Sleep(poll)
+	}
+}
+
+// poll is the interval of Eventually: short, since most conditions are a
+// docker exec away and converge within a second or two.
+const poll = 250 * time.Millisecond
+
+// EventuallyAll is Eventually for several independent conditions at once:
+// they are polled in parallel, and the test fails if any isn't reached.
+func EventuallyAll(t *testing.T, timeout time.Duration, fns map[string]func() error) {
+	t.Helper()
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var failed []string
+	for name, fn := range fns {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			deadline := time.Now().Add(timeout)
+			for {
+				err := fn()
+				if err == nil {
+					return
+				}
+				if time.Now().After(deadline) {
+					mu.Lock()
+					failed = append(failed, fmt.Sprintf("%s: %v", name, err))
+					mu.Unlock()
+					return
+				}
+				time.Sleep(poll)
+			}
+		}()
+	}
+	wg.Wait()
+	if len(failed) > 0 {
+		slices.Sort(failed)
+		t.Fatalf("not reached within %s:\n  %s", timeout, strings.Join(failed, "\n  "))
 	}
 }
 

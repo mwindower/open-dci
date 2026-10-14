@@ -4,10 +4,11 @@ BIN     := lab/bin
 CLAB    ?= containerlab   # CI: CLAB="sudo containerlab"
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: build test lint labnode docs-svg website website-serve lab-up lab-check lab-perf lab-down lab-redeploy lab-capture
+.PHONY: build test lint labnode lab-image proto proto-check docs-svg website website-serve lab-up lab-check lab-check-quick lab-perf lab-down lab-redeploy lab-redeploy-quick lab-capture
 
-build:            ## open-dci binary (static)
+build:            ## open-dci and dci-controller binaries (static)
 	CGO_ENABLED=0 go build -trimpath -ldflags "-X main.version=$(VERSION)" -o $(BIN)/open-dci ./cmd/open-dci
+	CGO_ENABLED=0 go build -trimpath -ldflags "-X main.version=$(VERSION)" -o $(BIN)/dci-controller ./cmd/dci-controller
 
 test:             ## unit tests (config, rendering, golden files, lab specs)
 	go test ./...
@@ -17,6 +18,15 @@ lint:             ## what CI checks besides tests
 	go vet ./...
 	go vet -tags e2e ./lab/...
 	go vet -tags 'e2e perf' ./lab/...
+
+BUF := go run github.com/bufbuild/buf/cmd/buf@v1.73.0
+
+proto:            ## regenerate the Go code of the gRPC API (api/) and lint it
+	$(BUF) lint
+	$(BUF) generate
+
+proto-check: proto ## CI: the committed generated code must be up to date
+	@git diff --exit-code -- api || { echo "api/: generated code is stale, run make proto"; exit 1; }
 
 docs-svg:         ## regenerate the drawings website/static/img/{packet-flow,logical-view}.svg
 	go run ./tools/packetflow

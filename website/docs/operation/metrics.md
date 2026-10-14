@@ -15,9 +15,8 @@ code of `status` (a drained gateway is healthy), `503` otherwise. The body says 
 
 A status older than three intervals plus 30 s counts as unhealthy (`run` is stuck), as
 does one that could not be collected yet. `warnings` lists what needs attention without
-making the gateway unhealthy: a [network source](../configuration/metal-apiserver.md)
-that hasn't answered for three of its intervals (its last answer stays in place), and its
-groups that can't be stitched.
+making the gateway unhealthy: networks set through the [API](api.md) that can't be
+applied (e.g. a conflict with the config file).
 
 **`GET /metrics`** (Prometheus), all prefixed `open_dci_`:
 
@@ -42,10 +41,9 @@ groups that can't be stitched.
 | `filter_dropped_packets_total` | `rule` | packets dropped by the [ingress filter](srv6-domain-edge.md) |
 | `filter_rules`, `filter_rules_required` | | rules installed / wanted |
 | `transport_veth_up`, `transport_path_mtu_bytes`, `transport_required_mtu_bytes`, `transport_local_rule_last` | | DCI network mode only: the transport's kernel parts |
-| `source_networks` | | with a network source: the networks it adds |
-| `source_sync_timestamp_seconds`, `source_stale` | | when it last answered; 1 if not for three intervals |
-| `source_errors_total` | | failed polls |
-| `source_skipped` | `group`, `reason` | 1 per group the source can't stitch (e.g. two networks in one partition) |
+| `api_networks` | | with the [API](api.md) enabled: the networks applied from it |
+| `api_last_change_timestamp_seconds` | | when the API networks last changed |
+| `api_skipped` | `vrf`, `group`, `reason` | 1 per API network that isn't applied |
 
 Plus the Go runtime and process metrics (`go_*`, `process_*`).
 
@@ -57,6 +55,7 @@ Useful alerts:
 - `increase(open_dci_filter_dropped_packets_total[5m]) > 0`: someone sends SRv6 into the
   domain from outside.
 - `open_dci_network_prefixes{origin="remote"}` dropping to 0: a partition disappeared.
-- With networks from metal-apiserver: `open_dci_source_stale == 1` (metal-apiserver
-  unreachable, changes don't arrive) and `open_dci_source_skipped == 1` (a tenant's network
-  can't be stitched).
+- With the API: `open_dci_api_skipped == 1` (a network set through the API can't be
+  applied). Alerts for metal-apiserver and the stitched networks belong to
+  [dci-controller](../metal-stack/controller.md#operation) (`dci_controller_healthy == 0`,
+  `dci_controller_skipped == 1`, `dci_controller_gateway_up == 0`).

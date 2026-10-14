@@ -1,13 +1,34 @@
-# The metal-apiserver source in detail
+# dci-controller in detail
 
-How open-dci derives networks from metal-apiserver, and why. The user's view:
-[Networks from metal-apiserver](https://mwindower.github.io/open-dci/docs/configuration/metal-apiserver) on the website.
-Code: `internal/source/metalstack`.
+How dci-controller derives the gateways' networks from metal-apiserver, how it hands them
+over, and why. The user's view: [dci-controller](https://mwindower.github.io/open-dci/docs/metal-stack/controller)
+on the website. Code: `internal/metalstack` (mapping, client, fake API),
+`internal/controller` and `cmd/dci-controller`; the gateway side is the API
+(`api/opendci/v1`, `internal/api`, `internal/gateway/apistore.go`).
+
+## The round
+
+Every `interval` the controller lists all private networks once (admin API), maps them per
+partition and calls `SetNetworks` (owner `dci-controller`) on every gateway of that
+partition. `SetNetworks` is declarative and idempotent: an unchanged set changes nothing on
+the gateway, a changed one makes it reconcile at once.
+
+- metal-apiserver fails: nothing is pushed, the gateways keep their networks.
+- A gateway fails: it is retried next round; the others are pushed anyway.
+- The gateways persist their API networks (`/var/lib/open-dci/api-networks.json`), so a
+  restart of a gateway or the controller changes nothing. Only a successful answer
+  without a network (or without its label) removes it.
+- A gateway with the API enabled that has never received a write doesn't reconcile at all,
+  so it never removes networks it merely doesn't know about yet (e.g. after losing the
+  file). The controller's first round fills it.
+- Global checks, once per round: route-target collisions and crowded groups (skipped
+  everywhere), and stitched groups with networks in partitions without gateways
+  (`unserved`).
 
 ## Mapping
 
-How the networks are derived. Both gateways of a pair compute the same result, and every
-gateway the same route targets:
+How the networks are derived. The controller computes the same result for both gateways
+of a pair, and every gateway gets the same route targets:
 - **Groups:** `<project>/<label value>`.
 - **One network per partition:** a group with two networks with the same value in one
   partition is stitched nowhere (reported as skipped) until one of them loses the label.
@@ -18,32 +39,25 @@ gateway the same route targets:
 - `routeTarget`: `<routeTargetASN>:<2^24 + fnv32a(group) mod (2^32 − 2^24)>`, as in
   [below](#deriving-route-targets). It is outside the VNI range, so it
   can't collide with an EVPN auto RT. Groups whose route targets collide are skipped.
-- `sid`: the VNI if it fits 16 bits and is free. metal-stack's VRF IDs go up to 131072 by
-  default, so larger ones get a SID hashed from the VNI. Networks are served oldest first
-  (`created_at`), so a new network never moves an existing SID; only deleting a network can
-  move a younger one that collided with it (rare: it needs a hash collision). Wider SID
-  functions would avoid hashing, but FRR 10.4.1 encodes functions beyond 16 bits wrongly
-  into the VPN routes.
-- Static `networks` win: a derived network that conflicts with one (VRF, VNI, SID, table,
-  route target) or is invalid is skipped and reported; the others are stitched anyway.
-
-What it means in operation:
-- open-dci polls every `interval`. A change takes effect at the next reconcile, right after
-  the poll.
-- A failed poll changes nothing. open-dci keeps the last good answer, also across
-  restarts: `run` caches it next to the state file
-  (`/var/lib/open-dci/metal-stack-networks.json`). Only a successful answer without a
-  network (or without its label) removes it.
-- Without any answer and without a cache, open-dci doesn't reconcile at all, so it never
-  removes networks it merely doesn't know about yet.
-- `render`, `diff`, `apply` and `status` use the cache; `--refresh` polls first.
-- `status` and the metrics show the source's state: [Metrics and health](https://mwindower.github.io/open-dci/docs/operation/metrics).
+- `created`: the metal-stack network's `created_at`, passed on to the gateway.
+- `sid`: assigned by the gateway (`config.AssignSIDs`), not the controller, because only the
+  gateway knows its static networks: the VNI if it fits 16 bits and is free. metal-stack's
+  VRF IDs go up to 131072 by default, so larger ones get a SID hashed from the VNI.
+  Networks are served oldest first (`created`), so a new network never moves an existing
+  SID; only deleting a network can move a younger one that collided with it (rare: it
+  needs a hash collision). Both gateways of a pair compute the same SIDs from the same
+  input. Wider SID functions would avoid hashing, but FRR 10.4.1 encodes functions beyond
+  16 bits wrongly into the VPN routes.
+- On the gateway, static `networks` win: an API network that conflicts with one (VRF, VNI,
+  SID, table, route target) or is invalid is skipped and reported (`SetNetworks` response,
+  `open_dci_api_skipped`, `dci_controller_gateway_skipped`); the others are applied. Between
+  API networks of different owners, the older one wins.
 
 
 ## Label changes in detail
 
 Labels come and go while traffic flows. What each change touches (e2e
-`TestSourceLabelChanges`, with continuous pings between the untouched members):
+`TestLabelChanges`, with continuous pings between the untouched members):
 
 | Change | Effect |
 |---|---|
@@ -72,10 +86,10 @@ RT = <admin ASN2> : 2^24 + (fnv32a(name) mod (2^32 − 2^24))
 - The admin part is a 2-byte namespace (`routeTargetASN`), independent of the gateways'
   ASNs: after a 4-byte ASN the local part only has 16 bits, too few for hashing.
 - Hash collisions between two names are unlikely but possible. Only a component with a
-  global view can detect them. The source sees all groups, so every gateway skips the
-  colliding ones, and reports them.
+  global view can detect them. The controller sees all groups, so it skips the colliding
+  ones everywhere, and reports them.
 
-The source takes the name from a label on the private networks (`source.metalStack.label`,
+The controller takes the name from a label on the private networks (`metalStack.label`,
 e.g. `open-dci.io/stitch: prod`). Label values are only unique within a project, so the
 name is `<projectID>/<value>`: nothing is stitched across projects, a project can have
 several stitched networks, and stitching is an explicit opt-in by the tenant. Stitching all

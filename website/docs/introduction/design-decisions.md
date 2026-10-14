@@ -20,6 +20,6 @@
   tenant VRFs it stitches, and puts its parts back when the base system reloads.
 - **Independent of metal-stack.** metal-stack is the first target, not a dependency: any
   FRR-based EVPN fabric works. Optionally, the gateways read the networks to stitch from
-  [metal-apiserver](../configuration/metal-apiserver.md).
+  metal-apiserver ([dci-controller](../metal-stack/controller.md)).
 
 The reasoning in full: [Design decisions in detail](https://github.com/mwindower/open-dci/blob/main/docs/design-decisions.md).

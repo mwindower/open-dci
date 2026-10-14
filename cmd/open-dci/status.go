@@ -78,12 +78,12 @@ func printStatus(w io.Writer, st *gateway.Status) {
 		fmt.Fprintf(w, "          %s\n", k.Err)
 	}
 
-	if src := st.Source; src != nil {
-		synced := "never"
-		if !src.Synced.IsZero() {
-			synced = src.Synced.Format(time.RFC3339)
+	if a := st.API; a != nil {
+		changed := "never"
+		if !a.LastChange.IsZero() {
+			changed = a.LastChange.Format(time.RFC3339)
 		}
-		fmt.Fprintf(w, "source    %d network(s), answered %s, %d error(s), %d skipped\n", src.Networks, synced, src.Errors, len(src.Skipped))
+		fmt.Fprintf(w, "api       %d network(s), last change %s, %d not applied\n", a.Networks, changed, len(a.Skipped))
 		for _, warn := range st.Warnings(time.Now()) {
 			fmt.Fprintf(w, "          %s\n", warn)
 		}

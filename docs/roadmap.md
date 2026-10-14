@@ -15,7 +15,8 @@
 | 2.1 | Safety net: per-network prefix allowlists (`prefixes`), inbound route-target filter and `maxPrefixes` per peer | done |
 | 3.2 | Dedicated gateways: provisioned tenant L3VNIs (`networks[].vni`), lab gateways at the exits; the firewall placement removed | done |
 | 3.3 | Scale test for dedicated gateways: number of provisioned VRFs, packets per second | |
-| 4 | metal-stack integration, step 1: networks from metal-apiserver (`source.metalStack`: labelled networks, RTs derived from project and label value, cached last answer, label changes without interruption), no new metal-stack entities; fake API in the lab | done |
+| 4 | metal-stack integration, step 1: networks from metal-apiserver (labelled networks, RTs derived from project and label value, label changes without interruption), no new metal-stack entities; fake API in the lab | done |
+| 4.0.1 | Gateway API (gRPC: networks per owner, persisted) and `dci-controller`, which reconciles metal-apiserver with all gateways; open-dci itself without metal-stack code | done |
 | 4.1 | metal-stack integration, step 2: a network stitch entity, `dci-controller` and gateway role ([proposal](metal-stack-proposal.md)) | |
 
 ## Keeping the locations in sync
@@ -36,11 +37,12 @@ These options build on each other; the second and the networks of the third are 
    and the exits relay the VPN routes, in the lab in a ladder. Among many exits, two route
    servers (accepting every exit with `bgp listen range`) could replace the ladder, so a
    new partition's exits need no change on the others.
-3. **Config from metal-api** (Phase 4). The networks are implemented: with
-   [`source.metalStack`](https://mwindower.github.io/open-dci/docs/configuration/metal-apiserver), each gateway
-   reads the private networks (project, partition, VRF ID, labels) from metal-apiserver;
-   labelled networks become stitched networks, and their VRF IDs the gateways' `vni`s. The rest of the config (gateway, transport, peers) is still a file per gateway.
+3. **Config from metal-api** (Phase 4). The networks are implemented:
+   [dci-controller](https://mwindower.github.io/open-dci/docs/metal-stack/controller) reads the private networks
+   (project, partition, VRF ID, labels) from metal-apiserver and sets every gateway its
+   partition's networks through the gateway API; labelled networks become stitched
+   networks, and their VRF IDs the gateways' `vni`s. The rest of the config (gateway,
+   transport, peers) is still a file per gateway.
 
    Still open: a stitch entity of its own (across projects, with quotas and permissions)
-   and generating the rest of the config. A proposal (a `dci-controller` and a network
-   stitch entity in metal-api): [Integration proposal](metal-stack-proposal.md).
+   and generating the rest of the config. A proposal: [Integration proposal](metal-stack-proposal.md).

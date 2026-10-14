@@ -9,7 +9,6 @@ rejected. `open-dci validate -c FILE` checks a file without touching the system.
 | [`transport`](transport.md) | where the SRv6 transport runs: a DCI network (EVPN VRF) or the default VRF |
 | [`peers`](peers.md) | the sessions that carry the VPN routes |
 | [`networks`](networks.md) | the tenant VRFs to stitch, with their allowlists, aggregates and default route |
-| [`source`](metal-apiserver.md) | optional: further networks from metal-apiserver |
 
 How to pick route targets for `networks`: [Route targets](route-targets.md).
 
@@ -44,8 +43,9 @@ networks:
 ```
 
 For the default VRF as transport, leave out the `transport` section (see the lab's gw-b1).
-In the lab itself, tenant 2 doesn't come from `networks` but from metal-apiserver
-([`source`](metal-apiserver.md)).
+Networks can also come through the gateway's [API](../operation/api.md), e.g. from
+[dci-controller](../metal-stack/controller.md) (in the lab: tenant 2); then `networks` may be
+empty.
 
 ## Validation
 
@@ -65,8 +65,6 @@ Besides syntax, `validate` (and every other command) rejects:
   set, `ge`/`le` out of range, `ge` > `le`) or duplicates, also of an aggregate; a
   `defaultRoute` other than `export`/`import`, or together with a prefix matching the
   default route; and a `maxPrefixes` below 1
-- no `networks` without a `source`; a `source.metalStack` without `url`, `partition` or
-  `label`, or with a `routeTargetASN` that isn't 2-byte; an `interval` below 1 s
 
 At runtime, `apply`/`run`/`diff`/`status` also check the system:
 - the transport VRF (if any) exists in the kernel, with a BGP instance

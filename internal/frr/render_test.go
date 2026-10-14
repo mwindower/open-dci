@@ -6,10 +6,11 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mwindower/open-dci/internal/config"
-	"github.com/mwindower/open-dci/internal/source/metalstack"
-	"github.com/mwindower/open-dci/internal/source/metalstack/fakeapi"
+	"github.com/mwindower/open-dci/internal/metalstack"
+	"github.com/mwindower/open-dci/internal/metalstack/fakeapi"
 )
 
 var update = flag.Bool("update", false, "rewrite golden files")
@@ -48,22 +49,26 @@ func active(keys ...string) map[string]bool {
 	return m
 }
 
-// labConfig loads a lab gateway's config with the networks its source gets
-// from the lab's fake metal-apiserver.
+// labConfig loads a lab gateway's config with the networks the lab's
+// dci-controller pushes it through the API: those of the fake
+// metal-apiserver, mapped for the gateway's partition (the letter in gw-a1).
 func labConfig(t *testing.T, node string) *config.Config {
 	t.Helper()
 	cfg, err := config.Load("../../lab/configs/" + node + "/open-dci.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Source == nil {
-		return cfg
-	}
 	api, err := fakeapi.Load("../../lab/configs/core/metal-api.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	nets, skipped := metalstack.Map(api, cfg.Source.MetalStack, cfg.Networks)
+	mapped, skipped := metalstack.Map(api, metalstack.Options{Label: "open-dci.io/stitch", RouteTargetASN: 65535}, node[3:4])
+	var nets []config.Network
+	var ages []time.Time
+	for _, n := range mapped {
+		nets, ages = append(nets, n.Network), append(ages, n.Created)
+	}
+	config.AssignSIDs(nets, ages, cfg.Networks)
 	cfg, more := cfg.WithNetworks(nets)
 	if len(skipped)+len(more) > 0 {
 		t.Fatalf("%s: skipped %+v %+v", node, skipped, more)

@@ -1,0 +1,133 @@
+syntax = "proto3";
+
+// The open-dci gateway API, served by "open-dci run --api-listen" (gRPC,
+// gRPC-Web and Connect). Every call needs the bearer token
+// (--api-token-file).
+//
+// Networks come from two places: the gateway's config file ("config") and
+// this API. Every API network belongs to an owner, a name chosen by the
+// writer (e.g. "dci-controller", or an operator's), so that several writers
+// don't overwrite each other. Networks from the config file always win a
+// conflict.
+package opendci.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/mwindower/open-dci/api/opendci/v1;opendciv1";
+
+service GatewayService {
+  // GetInfo returns the gateway's identity and health.
+  rpc GetInfo(GetInfoRequest) returns (GetInfoResponse);
+  // ListNetworks returns every network: from the config file and from the
+  // API, with their state.
+  rpc ListNetworks(ListNetworksRequest) returns (ListNetworksResponse);
+  // SetNetworks replaces all networks of one owner. It is declarative and
+  // idempotent: networks that conflict with others or are invalid are
+  // skipped and reported, the rest is applied.
+  rpc SetNetworks(SetNetworksRequest) returns (SetNetworksResponse);
+  // PutNetwork adds or replaces one network of an owner, keyed by its VRF.
+  // A network that conflicts with another one or is invalid is refused.
+  rpc PutNetwork(PutNetworkRequest) returns (PutNetworkResponse);
+  // DeleteNetwork removes one network of an owner.
+  rpc DeleteNetwork(DeleteNetworkRequest) returns (DeleteNetworkResponse);
+}
+
+// Network is a stitched network on this gateway: a tenant VRF provisioned
+// with the tenant's VNI in this partition and exported with the network's
+// route target. The fields are those of networks[] in the config file.
+message Network {
+  // vrf is the tenant VRF open-dci creates, e.g. vrf3981; the key of the
+  // network on this gateway.
+  string vrf = 1;
+  // vni is the tenant's L3VNI in this partition.
+  uint32 vni = 2;
+  // route_target identifies the stitched network across all partitions.
+  string route_target = 3;
+  // aggregates and prefixes form the allowlist (see the config file).
+  repeated string aggregates = 4;
+  repeated string prefixes = 5;
+  // default_route: "", "export" or "import".
+  string default_route = 6;
+  // sid is the function part of the End.DT46 SID; 0: open-dci assigns it
+  // (the VNI if it fits 16 bits and is free, otherwise a hash, oldest
+  // network first).
+  uint32 sid = 7;
+  // created orders networks by age: for the SID assignment and when two
+  // API networks conflict (the older one wins).
+  google.protobuf.Timestamp created = 8;
+  // group is the writer's name for the stitched network (informational,
+  // e.g. "<project>/<label value>").
+  string group = 9;
+}
+
+// Skipped is a network that isn't applied, and why.
+message Skipped {
+  string vrf = 1;
+  string group = 2;
+  string reason = 3;
+}
+
+message GetInfoRequest {}
+
+message GetInfoResponse {
+  string version = 1;
+  uint32 asn = 2;
+  string router_id = 3;
+  string loopback = 4;
+  string locator = 5;
+  // healthy: as "open-dci status" (and /healthz).
+  bool healthy = 6;
+  // locator_state: announced, withheld, withdrawn or drained.
+  string locator_state = 7;
+  repeated string problems = 8;
+}
+
+message ListNetworksRequest {}
+
+message NetworkState {
+  Network network = 1;
+  // origin: "config" or "api".
+  string origin = 2;
+  // owner of an API network.
+  string owner = 3;
+  // the SID (address) and whether the L3VNI is up
+  string sid_address = 4;
+  bool l3vni_up = 5;
+  // best paths in the tenant VRF: from the own partition, from the VPN
+  uint32 local_prefixes = 6;
+  uint32 remote_prefixes = 7;
+}
+
+message ListNetworksResponse {
+  repeated NetworkState networks = 1;
+  // API networks that aren't applied (e.g. a conflict with the config file)
+  repeated Skipped skipped = 2;
+}
+
+message SetNetworksRequest {
+  string owner = 1;
+  repeated Network networks = 2;
+}
+
+message SetNetworksResponse {
+  // changed: the owner's networks differ from before (the gateway
+  // reconciles right away).
+  bool changed = 1;
+  repeated Skipped skipped = 2;
+}
+
+message PutNetworkRequest {
+  string owner = 1;
+  Network network = 2;
+}
+
+message PutNetworkResponse {
+  bool changed = 1;
+}
+
+message DeleteNetworkRequest {
+  string owner = 1;
+  string vrf = 2;
+}
+
+message DeleteNetworkResponse {}

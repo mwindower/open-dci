@@ -1,0 +1,11 @@
+# Generates the Go code of api/ next to the .proto files (make proto). The
+# plugins run via "go run", so nothing has to be installed; keep their versions
+# in line with go.mod (google.golang.org/protobuf, connectrpc.com/connect).
+version: v2
+plugins:
+  - local: ["go", "run", "google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.12"]
+    out: api
+    opt: paths=source_relative
+  - local: ["go", "run", "connectrpc.com/connect/cmd/protoc-gen-connect-go@v1.20.0"]
+    out: api
+    opt: [paths=source_relative, simple]

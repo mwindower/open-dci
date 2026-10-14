@@ -247,6 +247,23 @@ func waitFor(t *testing.T, d time.Duration, fn func() error) {
 	labtest.Eventually(t, d, fn)
 }
 
+// pingFlows waits until every stitched flow works, in the given families
+// ("v4", "v6"), all in parallel.
+func pingFlows(t *testing.T, families ...string) {
+	t.Helper()
+	fns := map[string]func() error{}
+	for _, f := range flows {
+		for _, fam := range families {
+			dst := f[1].v4
+			if fam == "v6" {
+				dst = f[1].v6
+			}
+			fns[f[0].name+"->"+dst] = func() error { return lab.Ping(f[0].name, dst, 0) }
+		}
+	}
+	labtest.EventuallyAll(t, converge, fns)
+}
+
 func containsAll(s string, subs ...string) bool {
 	for _, sub := range subs {
 		if !strings.Contains(s, sub) {

@@ -8,7 +8,7 @@ frr       in sync
 locator   announced
 transport vrf vrf104100  veth up: yes  path MTU: 9166 (need 9166)  local rule last: yes  vrf strict_mode: 1
 filter    dropped: tenant-to-transport 0, locator-from-outside 0, loopback-from-outside 0
-source    1 network(s), answered 2026-10-13T21:06:35Z, 0 error(s), 0 skipped
+api       1 network(s), last change 2026-10-14T09:12:35Z, 0 not applied
 
 PEER     AS          STATE        UP        VPNv4 RCVD/SENT  VPNv6 RCVD/SENT
 uplink0  4200000014  Established  00:00:29  4/6              4/6
@@ -23,10 +23,10 @@ vrf3982 (tenant-2/main)     65535:26782482    10.0.0.16:3982  fd00:dc1:a:f8e:: (
   `DRAINED` (see [Health and failover](health-and-failover.md)).
 - `filter` shows the ingress filter's rules with their drop counters (see [The SRv6 domain and its edge](srv6-domain-edge.md)).
 - `L3VNI` shows each network's VNI and whether it is up.
-- `source` (only with [networks from metal-apiserver](../configuration/metal-apiserver.md)):
-  how many networks it adds, when it last answered, failed polls and networks it can't
-  stitch, each with a warning line. Those networks show their stitched network after the
-  VRF (here tenant 2: project `tenant-2`, label value `main`).
+- `api` (only with the [API](api.md) enabled): how many networks it adds, when they last
+  changed, and networks that can't be applied, each with a warning line. Those networks
+  show their stitched network after the VRF (here tenant 2, from
+  [dci-controller](../metal-stack/controller.md): project `tenant-2`, label value `main`).
 - `PEER` lists the sessions to the exits with the VPN routes received and sent.
 - A gateway in default-VRF mode shows `transport default VRF` instead.
 - `OPEN_DCI_OUTPUT=json open-dci status` prints the same as JSON.

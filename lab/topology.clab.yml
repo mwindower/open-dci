@@ -48,7 +48,7 @@ topology:
     spine-a: { binds: [configs/spine-a/node.yaml:/etc/labnode/node.yaml:ro, configs/spine-a/frr.conf:/etc/frr/frr.conf] }
     exit-a1: { binds: [configs/exit-a1/node.yaml:/etc/labnode/node.yaml:ro, configs/exit-a1/frr.conf:/etc/frr/frr.conf] }
     exit-a2: { binds: [configs/exit-a2/node.yaml:/etc/labnode/node.yaml:ro, configs/exit-a2/frr.conf:/etc/frr/frr.conf] }
-    core:    { binds: [configs/core/node.yaml:/etc/labnode/node.yaml:ro, configs/core/frr.conf:/etc/frr/frr.conf, bin/fakeapi:/usr/local/bin/fakeapi:ro, configs/core/metal-api.yaml:/etc/fakeapi/networks.yaml:ro] }
+    core:    { binds: [configs/core/node.yaml:/etc/labnode/node.yaml:ro, configs/core/frr.conf:/etc/frr/frr.conf, bin/fakeapi:/usr/local/bin/fakeapi:ro, configs/core/metal-api.yaml:/etc/fakeapi/networks.yaml:ro, bin/dci-controller:/usr/local/bin/dci-controller:ro, configs/core/dci-controller.yaml:/etc/dci-controller/config.yaml:ro, configs/api-token:/etc/dci-controller/gateway-token:ro] }
     exit-b1: { binds: [configs/exit-b1/node.yaml:/etc/labnode/node.yaml:ro, configs/exit-b1/frr.conf:/etc/frr/frr.conf] }
     exit-b2: { binds: [configs/exit-b2/node.yaml:/etc/labnode/node.yaml:ro, configs/exit-b2/frr.conf:/etc/frr/frr.conf] }
     spine-b: { binds: [configs/spine-b/node.yaml:/etc/labnode/node.yaml:ro, configs/spine-b/frr.conf:/etc/frr/frr.conf] }
@@ -56,18 +56,18 @@ topology:
     m-b:     { binds: [configs/m-b/node.yaml:/etc/labnode/node.yaml:ro, configs/m-b/frr.conf:/etc/frr/frr.conf] }
     m-a2:    { binds: [configs/m-a2/node.yaml:/etc/labnode/node.yaml:ro, configs/m-a2/frr.conf:/etc/frr/frr.conf] }
     m-b2:    { binds: [configs/m-b2/node.yaml:/etc/labnode/node.yaml:ro, configs/m-b2/frr.conf:/etc/frr/frr.conf] }
-    gw-a1:    { binds: [configs/gw-a1/node.yaml:/etc/labnode/node.yaml:ro, configs/gw-a1/frr.conf:/etc/frr/frr.conf, bin/open-dci:/usr/local/bin/open-dci:ro, configs/gw-a1/open-dci.yaml:/etc/open-dci/config.yaml:ro] }
-    gw-a2:    { binds: [configs/gw-a2/node.yaml:/etc/labnode/node.yaml:ro, configs/gw-a2/frr.conf:/etc/frr/frr.conf, bin/open-dci:/usr/local/bin/open-dci:ro, configs/gw-a2/open-dci.yaml:/etc/open-dci/config.yaml:ro] }
-    gw-b1:    { binds: [configs/gw-b1/node.yaml:/etc/labnode/node.yaml:ro, configs/gw-b1/frr.conf:/etc/frr/frr.conf, bin/open-dci:/usr/local/bin/open-dci:ro, configs/gw-b1/open-dci.yaml:/etc/open-dci/config.yaml:ro] }
-    gw-b2:    { binds: [configs/gw-b2/node.yaml:/etc/labnode/node.yaml:ro, configs/gw-b2/frr.conf:/etc/frr/frr.conf, bin/open-dci:/usr/local/bin/open-dci:ro, configs/gw-b2/open-dci.yaml:/etc/open-dci/config.yaml:ro] }
+    gw-a1:    { binds: [configs/gw-a1/node.yaml:/etc/labnode/node.yaml:ro, configs/gw-a1/frr.conf:/etc/frr/frr.conf, bin/open-dci:/usr/local/bin/open-dci:ro, configs/gw-a1/open-dci.yaml:/etc/open-dci/config.yaml:ro, configs/api-token:/etc/open-dci/api-token:ro] }
+    gw-a2:    { binds: [configs/gw-a2/node.yaml:/etc/labnode/node.yaml:ro, configs/gw-a2/frr.conf:/etc/frr/frr.conf, bin/open-dci:/usr/local/bin/open-dci:ro, configs/gw-a2/open-dci.yaml:/etc/open-dci/config.yaml:ro, configs/api-token:/etc/open-dci/api-token:ro] }
+    gw-b1:    { binds: [configs/gw-b1/node.yaml:/etc/labnode/node.yaml:ro, configs/gw-b1/frr.conf:/etc/frr/frr.conf, bin/open-dci:/usr/local/bin/open-dci:ro, configs/gw-b1/open-dci.yaml:/etc/open-dci/config.yaml:ro, configs/api-token:/etc/open-dci/api-token:ro] }
+    gw-b2:    { binds: [configs/gw-b2/node.yaml:/etc/labnode/node.yaml:ro, configs/gw-b2/frr.conf:/etc/frr/frr.conf, bin/open-dci:/usr/local/bin/open-dci:ro, configs/gw-b2/open-dci.yaml:/etc/open-dci/config.yaml:ro, configs/api-token:/etc/open-dci/api-token:ro] }
     m-c:     { binds: [configs/m-c/node.yaml:/etc/labnode/node.yaml:ro, configs/m-c/frr.conf:/etc/frr/frr.conf] }
     m-c2:    { binds: [configs/m-c2/node.yaml:/etc/labnode/node.yaml:ro, configs/m-c2/frr.conf:/etc/frr/frr.conf] }
     leaf-c:  { binds: [configs/leaf-c/node.yaml:/etc/labnode/node.yaml:ro, configs/leaf-c/frr.conf:/etc/frr/frr.conf] }
     spine-c: { binds: [configs/spine-c/node.yaml:/etc/labnode/node.yaml:ro, configs/spine-c/frr.conf:/etc/frr/frr.conf] }
     exit-c1: { binds: [configs/exit-c1/node.yaml:/etc/labnode/node.yaml:ro, configs/exit-c1/frr.conf:/etc/frr/frr.conf] }
     exit-c2: { binds: [configs/exit-c2/node.yaml:/etc/labnode/node.yaml:ro, configs/exit-c2/frr.conf:/etc/frr/frr.conf] }
-    gw-c1:   { binds: [configs/gw-c1/node.yaml:/etc/labnode/node.yaml:ro, configs/gw-c1/frr.conf:/etc/frr/frr.conf, bin/open-dci:/usr/local/bin/open-dci:ro, configs/gw-c1/open-dci.yaml:/etc/open-dci/config.yaml:ro] }
-    gw-c2:   { binds: [configs/gw-c2/node.yaml:/etc/labnode/node.yaml:ro, configs/gw-c2/frr.conf:/etc/frr/frr.conf, bin/open-dci:/usr/local/bin/open-dci:ro, configs/gw-c2/open-dci.yaml:/etc/open-dci/config.yaml:ro] }
+    gw-c1:   { binds: [configs/gw-c1/node.yaml:/etc/labnode/node.yaml:ro, configs/gw-c1/frr.conf:/etc/frr/frr.conf, bin/open-dci:/usr/local/bin/open-dci:ro, configs/gw-c1/open-dci.yaml:/etc/open-dci/config.yaml:ro, configs/api-token:/etc/open-dci/api-token:ro] }
+    gw-c2:   { binds: [configs/gw-c2/node.yaml:/etc/labnode/node.yaml:ro, configs/gw-c2/frr.conf:/etc/frr/frr.conf, bin/open-dci:/usr/local/bin/open-dci:ro, configs/gw-c2/open-dci.yaml:/etc/open-dci/config.yaml:ro, configs/api-token:/etc/open-dci/api-token:ro] }
   links:
     # tenants
     - endpoints: ["m-a:lan0", "leaf-a:swp1"]
