@@ -1,8 +1,8 @@
 # Failure measurements
 
 What tenant traffic experiences when a gateway or an exit fails, measured in the
-[lab](../lab/README.md) with `make lab-perf` (`lab/perf_test.go`). For the reasoning behind
-the behaviour, see [Operation](operation.md#failure-semantics).
+[lab](../lab/overview.md) with `make lab-perf` (`lab/perf_test.go`). For the reasoning behind
+the behaviour, see [Operation](health-and-failover.md#failure-semantics).
 
 ## Method
 
@@ -26,7 +26,7 @@ the behaviour, see [Operation](operation.md#failure-semantics).
   - **drained:** planned maintenance, `open-dci drain` 3 s before the links go down.
   - **gray:** BGP and BFD are fine, but the gateway can't forward. Kernel `unreachable`
     routes hide every remote locator from it. Only open-dci's health check notices
-    ([Operation](operation.md#withdrawing-an-unhealthy-gateway)).
+    ([Operation](health-and-failover.md#withdrawing-an-unhealthy-gateway)).
 - Timers: the sessions between gateways and exits, and between exits and spines, use
   metal-stack's `timers 2 8` (keepalive 2 s, hold 8 s). All other sessions use FRR's
   `datacenter` defaults (3 s, 9 s).
@@ -36,11 +36,11 @@ the behaviour, see [Operation](operation.md#failure-semantics).
      in ≤ 0.9 s)
   3. **BFD on every session of gateways and exits**: setup 2 plus exit ↔ spine
   4. **plus clean returns**: open-dci withholds the locator until the gateway is ready
-     ([Operation](operation.md#announcing-the-locator)), and the FRR nodes run without
+     ([Operation](health-and-failover.md#announcing-the-locator)), and the FRR nodes run without
      kernel nexthop groups (`no zebra nexthop kernel enable`, see below). This is the lab's
      configuration.
 - FRR: setups 1–3 ran on 10.6.0, setup 4 on 10.4.1, which the lab pins (10.5–10.7 don't
-  withdraw leaked routes, see [Configuration](configuration.md#requirements-on-the-environment)).
+  withdraw leaked routes, see [Configuration](../getting-started/requirements.md)).
   10.4.1 ignores BFD on the core's sessions to the exits, so the core uses a 3 s hold time
   there (`timers 1 3`) as a fallback.
 - The failed exit is the one spine-b forwards leaf-b's VXLAN traffic through, so every

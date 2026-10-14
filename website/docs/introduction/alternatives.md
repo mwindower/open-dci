@@ -2,7 +2,7 @@
 
 Which other products and projects can stitch tenant VRFs across EVPN/VXLAN fabrics with
 SRv6 L3VPN (EVPN type-5 ↔ VPNv4/v6 with an SRv6 SID), and whether Cilium can. Why open-dci
-looks the way it does: [README](../README.md#design-decisions).
+looks the way it does: [Design decisions](design-decisions.md).
 
 State as of October 2026, taken from vendor documentation. None of it has been tested in
 the lab.
@@ -25,14 +25,14 @@ None of these is a turnkey gateway.
 
 - **FRR and the Linux kernel, configured by hand.** This is what open-dci automates. FRR has
   SRv6 L3VPN since 8.2; the re-origination itself works out of the box
-  ([Phase 0](phase0-findings.md)). What open-dci adds is everything around it: the VRF and
+  ([Phase 0](../development/phase0-findings.md)). What open-dci adds is everything around it: the VRF and
   VXLAN device chain, pinned SIDs, route-target hygiene, aggregates, the locator gate, the
   edge filter, health checks and the workarounds for FRR bugs (see
-  [Operation](operation.md)).
+  [Operation](../operation/commands.md)).
 - **SONiC.** Uses FRR, has SRv6 uSID (SAI and FRR) since release 202305 and EVPN-VXLAN. A
   candidate for the same gateway on a switch; whether an ASIC does VXLAN decapsulation and
   SRv6 encapsulation in one pass depends on the platform and is unverified. Why open-dci
-  doesn't run on switches: [README](../README.md#design-decisions) ("Why not on the
+  doesn't run on switches: [Design decisions](design-decisions.md) ("Why not on the
   switches?").
 - **VPP (fd.io).** A fast data plane with SRv6 and VXLAN; the control plane (e.g. linux-cp
   plus FRR) is up to you.
@@ -53,7 +53,7 @@ Cilium can't do this stitching.
 
 Both make the host an endpoint of one fabric (EVPN VTEP or SRv6 PE), not a gateway between
 independent fabrics. That is the host-as-gateway approach open-dci dropped
-([Phase 0b](phase0b-findings.md)), and metal-stack's firewalls aren't Kubernetes nodes
+([Phase 0b](../development/phase0b-findings.md)), and metal-stack's firewalls aren't Kubernetes nodes
 anyway. Cilium is complementary: a cluster running Cilium's SRv6 L3VPN could import the
 VPN routes the open-dci gateways export, if route targets and SID format match.
 OVN-Kubernetes has a similar proposal for EVPN on the nodes (OKEP-5088).

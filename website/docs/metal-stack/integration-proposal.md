@@ -1,41 +1,10 @@
-# open-dci in metal-stack
+# Integration proposal
 
 How open-dci could become part of [metal-stack](https://metal-stack.io) itself. Today the
-gateway needs no metal-stack changes ([Installation](installation.md#metal-stack)): it's an
+gateway needs no metal-stack changes ([open-dci in metal-stack](overview.md)): it's an
 FRR box at the exits whose `open-dci.yaml` is written by hand, or whose tenant networks
-open-dci reads from metal-apiserver ([below](#networks-from-metal-apiserver-implemented)).
-The rest of this page is a design proposal for the next steps and is not implemented.
-
-## Networks from metal-apiserver (implemented)
-
-The first step needs no change to metal-stack at all: open-dci can read the networks it
-stitches from metal-apiserver itself ([`source.metalStack`](configuration.md#source-networks-from-metal-apiserver)).
-It's optional; without it, the config file's `networks` are all there is. Only what
-metal-apiserver already has is used: private networks with project, partition, VRF ID,
-prefixes and labels. What belongs together is said by a label: only labelled networks are
-stitched, and a project's networks with the same value (e.g. `open-dci.io/stitch: prod`)
-form one stitched network. Tenants opt in themselves, a project can have several stitched
-networks, and nothing is stitched across projects (the project is part of the group). Labels
-can come and go while traffic flows: a change only touches the network whose label changed
-([Label changes](configuration.md#label-changes)).
-
-Each gateway polls metal-apiserver with a read-only token and derives its own tenant
-VRFs: the VRF ID of the network in its partition is the VNI, the prefixes of all the group's
-networks are the aggregates, and the route target is hashed from the group's name. The
-static config (gateway, transport, peers) stays a file. The limits compared to the full
-proposal below:
-- no stitching across projects, and no quotas or permissions of its own: whoever may label
-  a network may stitch it;
-- a group with two networks with the same value in one partition is skipped;
-- the global checks (RT collisions, overlapping prefixes) happen on every gateway, which
-  reports and skips what doesn't fit, instead of rejecting it when it is created;
-- renaming a label value gives the stitched network a new route target (a short
-  interruption).
-
-> [!NOTE]
-> Statements about metal-stack internals (metal-api, metal-core, metal-networker,
-> metal-roles) reflect the general architecture of metal-stack, not a review of its code.
-> Check them against the version in use before building on them.
+open-dci reads from metal-apiserver ([Networks from metal-apiserver](overview.md#networks-from-metal-apiserver-implemented)).
+This page is a design proposal for the next steps and is not implemented.
 
 ## Who does what
 
@@ -81,7 +50,7 @@ So the proposal separates the machine from the intent.
 **The intent: a network stitch in metal-api.**
 - It names the private networks, one per partition, that form one tenant network. It is
   scoped to a project; stitching across projects isn't possible by default.
-- Its route target is derived from its ID ([day2.md](day2.md#deriving-route-targets-automatically)).
+- Its route target is derived from its ID ([Route targets](../configuration/route-targets.md#deriving-route-targets-automatically)).
 - This is the real new base entity. The gateways only execute it.
 
 **The glue: a `dci-controller`**, in the spirit of the firewall-controller:
@@ -106,7 +75,7 @@ A cloud API (e.g. a cluster spanning partitions) requests a stitch the same way.
 
 - **metal-core** manages the leaf switches' machine ports at runtime: VRF and VLAN per
   allocated machine. That's tenant-driven and dynamic.
-- **What open-dci needs from the exits is static** ([Configuration](configuration.md#requirements-on-the-environment)):
+- **What open-dci needs from the exits is static** ([Configuration](../getting-started/requirements.md)):
   - VPN address families towards the gateways, with `allowas-in 1`
   - the relay between the exits (a ladder or route servers)
   - the DCI VRF or IPv6 towards the core
@@ -136,8 +105,8 @@ the partition's static network.
   the same cabling and provisioning as firewalls.
 - Gateways at the exits, as in the lab, remain the bandwidth-optimal variant.
 
-**On the leaf switches themselves: no**, for the reasons in the README
-([Why not on the switches?](../README.md#design-decisions)):
+**On the leaf switches themselves: no**, for the reasons in the design decisions
+([Why not on the switches?](../introduction/design-decisions.md)):
 - SRv6 VPN support in switch ASICs and SONiC is limited.
 - VRF, next-hop and tunnel tables are fixed in size.
 - Per-tenant DCI state would live in every leaf.
@@ -146,12 +115,12 @@ the partition's static network.
 ## Rollout
 
 1. **Today:** a static `open-dci.yaml` per gateway, written by hand
-   ([Installation](installation.md#metal-stack)).
+   ([open-dci in metal-stack](overview.md)).
 2. **Networks from metal-apiserver** (implemented): the gateways derive their tenant
    networks from labelled private networks
-   ([above](#networks-from-metal-apiserver-implemented)).
+   ([open-dci in metal-stack](overview.md#networks-from-metal-apiserver-implemented)).
 3. **A shared inventory file** distributed to all gateways
-   ([day2.md](day2.md#keeping-the-locations-in-sync)), or the `dci-controller`, which
+   ([Adding partitions and networks](../operation/adding-partitions-and-networks.md#keeping-the-locations-in-sync)), or the `dci-controller`, which
    renders the configs from the network stitch entity.
 4. **The gateway role** in metal-api and metal-networker, and the exit role in metal-roles.
 
@@ -165,4 +134,4 @@ the partition's static network.
 - **Several metal-api instances:** route targets must be unique across them, e.g. by hashing
   `<instance>/<project>/<stitch>`.
 - **Capacity:** placing tenants on gateway groups (sharding) when one pair isn't enough
-  ([Capabilities](capabilities.md#scaling-bandwidth)).
+  ([Capabilities](../introduction/capabilities.md#scaling-bandwidth)).

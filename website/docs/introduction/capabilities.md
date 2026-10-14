@@ -1,7 +1,7 @@
 # Capabilities and limits
 
 What open-dci can stitch, where its limits are, and how a setup grows in bandwidth. The
-design behind it: [README](../README.md#design-decisions).
+design behind it: [Design decisions](design-decisions.md).
 
 ## What can be stitched
 
@@ -25,13 +25,13 @@ design behind it: [README](../README.md#design-decisions).
 
 Hard limits come from the design; everything else is bounded by the gateway's CPU, memory
 and FRR, and has **not been measured yet** (the lab runs 2 tenants on 2 pairs; a scale test
-is on the [roadmap](development.md#roadmap)).
+is on the [roadmap](../development/roadmap.md)).
 
 | What | Limit | Where it comes from |
 |---|---|---|
 | Stitched networks (tenant VRFs) per gateway | 65535 by design; practically far less, untested | 16 function bits per locator give one End.DT46 SID per network (`networks[].sid`). Each network costs a VRF, a bridge and a VXLAN device, an FRR VRF with its own BGP instance, prefix-lists and route-maps. |
 | Partitions (gateway pairs) | 65536 with the default `/32` block and 16 node bits | One locator (`/48`) per pair, shared by both gateways. |
-| BGP sessions per gateway | 1 per exit it is attached to (the lab: 2) | Gateways only peer with their exits; the exits relay the VPN routes between the partitions (a ladder in the lab; mesh or route servers, see [Configuration](configuration.md#requirements-on-the-environment)). A full mesh between gateways (`peers[].address`) is still possible. |
+| BGP sessions per gateway | 1 per exit it is attached to (the lab: 2) | Gateways only peer with their exits; the exits relay the VPN routes between the partitions (a ladder in the lab; mesh or route servers, see [Configuration](../getting-started/requirements.md)). A full mesh between gateways (`peers[].address`) is still possible. |
 | VNIs | 24 bit | VXLAN. VNIs are local to a partition, so they don't add up. |
 | VPN prefixes per peer | `maxPrefixes`, default 10000 per address family | Safety net; exceeding it tears the session down. With `aggregates`, a partition announces one route per range instead of one per machine. |
 | Throughput | CPU-bound, not measured | Encap and decap are done by the Linux kernel in software (no XDP, no offload); see [scaling bandwidth](#scaling-bandwidth). |
@@ -72,5 +72,5 @@ switches' hash settings). Without it, everything between two gateways takes one 
 single flow is never split: it is limited by one path and one core.
 
 None of this is measured yet. The scale test on the
-[roadmap](development.md#roadmap) should measure packets per second per core, per
+[roadmap](../development/roadmap.md) should measure packets per second per core, per
 gateway and per pair.

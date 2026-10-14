@@ -1,0 +1,47 @@
+# Development
+
+## Repository layout
+
+```
+cmd/open-dci/        CLI (validate, render, diff, apply, run, status, version)
+internal/config/     config schema, defaults, validation
+internal/frr/        rendering (dci.conf.tpl), running-config parser, drift/removals, vtysh client
+internal/kernel/     netlink primitives: veth, MTU path discovery, ip rules, sysctls
+internal/gateway/    reconcile loop, pre-flight checks, status, Monitor (what run publishes)
+internal/metrics/    /metrics (Prometheus) and /healthz from the Monitor
+internal/source/     network sources: metalstack (metal-apiserver API v2: mapping, polling, cache; fakeapi for tests and the lab)
+lab/                 containerlab lab: topology, configs/<node>/, e2e tests, labnode, fakeapi
+website/            this website (Docusaurus): docs/ (all documentation), static/img/ (drawings)
+tools/packetflow/    generator of the drawings logical-view.svg and packet-flow.svg (make docs-svg)
+deploy/systemd/      systemd unit
+Dockerfile           container image (FRR base for vtysh)
+.github/workflows/   ci (unit + lab e2e), release (goreleaser), pages (the website)
+```
+
+## Tests
+
+```sh
+make test          # unit tests: config, rendering, parser, lab specs
+make lint          # gofmt + go vet (incl. e2e code)
+make lab-redeploy  # lab down + up + e2e tests (see the lab docs)
+make website       # build this website; make website-serve to preview it
+```
+
+- **Golden files:** `internal/frr/testdata/gw-{a1,b1}.golden` hold the rendered FRR lines for
+  the lab's gateways. Regenerate them with `go test ./internal/frr -update`, and review the
+  diff.
+- **Canonical form:** `testdata/gw-a1.running.conf` is a real FRR running-config. Every
+  rendered line must appear in it verbatim, otherwise drift detection re-applies forever.
+- **Lab:** a change counts as verified once `make lab-redeploy` passes from a clean deploy.
+- **Website:** the build fails on any broken link or anchor, so moving or renaming a page
+  or heading shows up there.
+
+## CI and releases
+
+- **`ci.yaml`:** gofmt, vet and unit tests, then the whole lab on a GitHub runner
+  (containerlab and FRR pinned there) with diagnostics on failure.
+- **`release.yaml`:** a `v*` tag runs goreleaser, which produces static linux/amd64+arm64
+  binaries (with the systemd unit) and a multi-arch image
+  `ghcr.io/<owner>/open-dci:<version>`.
+- **`pages.yaml`:** builds this website on every push to `main` that touches it, and
+  publishes it to GitHub Pages.

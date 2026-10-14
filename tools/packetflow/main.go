@@ -1,6 +1,7 @@
-// packetflow renders the README drawings: docs/packet-flow.svg, the animation
-// of a tenant packet through the redundant gateway pairs at the exits, and
-// docs/logical-view.svg (logical.go). It is plain SVG + SMIL,
+// packetflow renders the drawings of the README and the website:
+// website/static/img/packet-flow.svg, the animation of a tenant packet through
+// the redundant gateway pairs at the exits, and
+// website/static/img/logical-view.svg (logical.go). It is plain SVG + SMIL,
 // no scripts, because GitHub renders it via <img>.
 //
 // Usage (from the repository root): make docs-svg
@@ -81,7 +82,7 @@ type animation struct {
 
 var animations = []animation{
 	{
-		file:  "docs/packet-flow.svg",
+		file:  "website/static/img/packet-flow.svg",
 		title: "Tenant VRFs stitched across the DCI network by redundant gateway pairs",
 		aria:  "Animated packet flow across three partitions joined by the DCI network, an IPv6-only core. Each partition shows its two exits, its redundant gateway pair (attached to both exits) and its fabric (spines, leaves, machines) as one box each. A tenant packet comes from partition A's fabric over VXLAN with VNI 3981 via either exit to either gateway of pair A, which provisioned the tenant VRF. The gateway encapsulates it in SRv6 to partition B's anycast SID and sends it in partition A's EVPN VRF for the transport (VNI 104100) to either exit, into the DCI network. Partition B's exits deliver it to either gateway of pair B, which decapsulates it (End.DT46) and forwards it with partition B's VNI 4011 via the exits into partition B's fabric. Partition C works alike.",
 		hops: []hop{

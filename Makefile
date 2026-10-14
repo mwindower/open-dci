@@ -4,7 +4,7 @@ BIN     := lab/bin
 CLAB    ?= containerlab   # CI: CLAB="sudo containerlab"
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: build test lint labnode docs-svg lab-up lab-check lab-perf lab-down lab-redeploy lab-capture
+.PHONY: build test lint labnode docs-svg website website-serve lab-up lab-check lab-perf lab-down lab-redeploy lab-capture
 
 build:            ## open-dci binary (static)
 	CGO_ENABLED=0 go build -trimpath -ldflags "-X main.version=$(VERSION)" -o $(BIN)/open-dci ./cmd/open-dci
@@ -18,8 +18,14 @@ lint:             ## what CI checks besides tests
 	go vet -tags e2e ./lab/...
 	go vet -tags 'e2e perf' ./lab/...
 
-docs-svg:         ## regenerate the README drawings docs/packet-flow.svg, docs/logical-view.svg
-	go run ./docs/packetflow
+docs-svg:         ## regenerate the drawings website/static/img/{packet-flow,logical-view}.svg
+	go run ./tools/packetflow
+
+website:          ## build the website (website/build); needs Node and npm
+	cd website && npm ci && npm run build
+
+website-serve:    ## serve the website locally with live reload
+	cd website && npm ci && npm start
 
 labnode:          ## static container entrypoint used by all lab nodes, and the fake metal-apiserver
 	CGO_ENABLED=0 go build -o $(BIN)/labnode ./lab/cmd/labnode
