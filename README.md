@@ -139,6 +139,9 @@ mixed freely:
   (tagged as its own), and reconciles continuously instead of owning `frr.conf`.
 - **Independent of metal-stack.** metal-stack is the first target, not a dependency: the
   code assumes no device names or metal-stack APIs, so any FRR-based EVPN fabric works.
+  Optionally, the gateways read the networks to stitch from metal-apiserver (labelled networks,
+  no new metal-stack entities;
+  [Configuration](docs/configuration.md#source-networks-from-metal-apiserver)).
 
 ## Requirements on the environment
 
@@ -327,7 +330,7 @@ open-dci status   -c /etc/open-dci/config.yaml
 | [Configuration](docs/configuration.md) | all fields, validation, requirements per mode |
 | [Operation](docs/operation.md) | commands, `status`, what exactly is changed in kernel and FRR, failure semantics |
 | [Capabilities and limits](docs/capabilities.md) | what can be stitched, scale limits, scaling bandwidth |
-| [metal-stack integration](docs/metal-stack.md) | proposal: gateway role, network stitch entity, controller, exits via metal-roles |
+| [metal-stack integration](docs/metal-stack.md) | networks from metal-apiserver; proposal: gateway role, network stitch entity, controller, exits via metal-roles |
 | [Adding partitions and networks](docs/day2.md) | what changes where, route targets, keeping locations in sync |
 | [Lab](lab/README.md) | the containerlab lab and its e2e tests |
 | [Failure measurements](docs/performance.md) | packet loss and TCP stalls when a gateway or an exit fails |

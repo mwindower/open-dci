@@ -3,6 +3,7 @@ package frr
 import (
 	_ "embed"
 	"fmt"
+	"hash/fnv"
 	"net/netip"
 	"slices"
 	"strings"
@@ -83,10 +84,45 @@ func DefaultList(family string) string { return "DCI-DEFAULT-" + family }
 const DefaultImportLocalPref = 50
 
 // filter is one prefix-list plus route-map; no entries means deny all.
+// listEntry is an entry of a permit-only list (prefix-list, extcommunity-list)
+// with its sequence number.
+type listEntry struct {
+	Seq  uint32
+	Text string
+}
+
+// stableSeqs numbers the entries of a permit-only list by their content
+// (1 + fnv32a mod 2^32-2), not by their position: adding or removing an entry
+// never renumbers the others. Renumbering would remove and re-add their lines,
+// briefly dropping routes that have nothing to do with the change (e.g. another
+// tenant's route target). The order of a permit-only list doesn't matter. On a
+// collision, the entries are served in sorted order and probe upwards.
+func stableSeqs(entries []string) []listEntry {
+	const max = 1<<32 - 1 // FRR: seq 1-4294967295
+	sorted := slices.Clone(entries)
+	slices.Sort(sorted)
+	used := map[uint32]bool{}
+	seqs := map[string]uint32{}
+	for _, e := range sorted {
+		h := fnv.New32a()
+		h.Write([]byte(e))
+		seq := uint32(uint64(h.Sum32())%(max-1)) + 1
+		for used[seq] {
+			seq = seq%(max-1) + 1
+		}
+		used[seq], seqs[e] = true, seq
+	}
+	out := make([]listEntry, len(entries))
+	for i, e := range entries {
+		out[i] = listEntry{Seq: seqs[e], Text: e}
+	}
+	return out
+}
+
 type filter struct {
 	Name       string
 	PrefixList string // "ip" or "ipv6"
-	Entries    []string
+	Entries    []listEntry
 	// DeleteMarker strips the aggregate marker on VPN export.
 	DeleteMarker bool
 	// Default ("export", "import") adds the route-map DefaultName, which
@@ -121,9 +157,9 @@ type renderData struct {
 	// single-hop eBGP it requires that to be connected, which a SID never is.
 	InterfacePeers  bool
 	Filters         []filter
-	RTs             []string // all route targets, for the peers' inbound filter
-	Aggregating     bool     // some network has aggregates
-	DefaultFamilies []string // families with a default prefix-list ("v4", "v6")
+	RTs             []listEntry // all route targets, for the peers' inbound filter
+	Aggregating     bool        // some network has aggregates
+	DefaultFamilies []string    // families with a default prefix-list ("v4", "v6")
 	SiteOfOrigin    string
 	active          map[string]bool
 }
@@ -220,6 +256,7 @@ func Render(cfg *config.Config, id Identity) (string, error) {
 		active:         id.Aggregates,
 	}
 	seenRT := map[string]bool{}
+	var rts []string
 	for _, n := range cfg.Networks {
 		v4, v6 := n.PrefixRules()
 		for _, f := range []struct {
@@ -228,9 +265,11 @@ func Render(cfg *config.Config, id Identity) (string, error) {
 		}{{"v4", "ip", v4}, {"v6", "ipv6", v6}} {
 			flt := filter{Name: FilterName(n.VRF, f.family), PrefixList: f.list, DeleteMarker: len(n.Aggregates) > 0,
 				Default: n.DefaultRoute, DefaultName: DefaultFilterName(n.VRF, f.family), DefaultList: DefaultList(f.family)}
+			var entries []string
 			for _, r := range f.rules {
-				flt.Entries = append(flt.Entries, r.String())
+				entries = append(entries, r.String())
 			}
+			flt.Entries = stableSeqs(entries)
 			d.Filters = append(d.Filters, flt)
 		}
 		if len(n.Aggregates) > 0 {
@@ -241,12 +280,12 @@ func Render(cfg *config.Config, id Identity) (string, error) {
 		}
 		if !seenRT[n.RouteTarget] {
 			seenRT[n.RouteTarget] = true
-			d.RTs = append(d.RTs, n.RouteTarget)
+			rts = append(rts, n.RouteTarget)
 		}
 	}
+	d.RTs = stableSeqs(rts)
 	tpl, err := template.New("dci").Funcs(template.FuncMap{
 		"list":        func(s ...string) []string { return s },
-		"seq":         func(i int) int { return (i + 1) * 5 },
 		"peerIn":      func() string { return PeerInRouteMap },
 		"rtList":      func() string { return RTList },
 		"aggMap":      func() string { return AggregateRouteMap },

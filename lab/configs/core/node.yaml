@@ -15,3 +15,7 @@ interfaces:
   - {name: swp6, mtu: 9216}
   - {name: swp7, mtu: 9216}
   - {name: swp8, mtu: 9216}
+# the fake metal-apiserver for the gateways' network source (http://core:8080 on
+# the management network)
+sidecars:
+  - [/usr/local/bin/fakeapi, -listen, ":8080", -f, /etc/fakeapi/networks.yaml]

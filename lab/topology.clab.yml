@@ -48,7 +48,7 @@ topology:
     spine-a: { binds: [configs/spine-a/node.yaml:/etc/labnode/node.yaml:ro, configs/spine-a/frr.conf:/etc/frr/frr.conf] }
     exit-a1: { binds: [configs/exit-a1/node.yaml:/etc/labnode/node.yaml:ro, configs/exit-a1/frr.conf:/etc/frr/frr.conf] }
     exit-a2: { binds: [configs/exit-a2/node.yaml:/etc/labnode/node.yaml:ro, configs/exit-a2/frr.conf:/etc/frr/frr.conf] }
-    core:    { binds: [configs/core/node.yaml:/etc/labnode/node.yaml:ro, configs/core/frr.conf:/etc/frr/frr.conf] }
+    core:    { binds: [configs/core/node.yaml:/etc/labnode/node.yaml:ro, configs/core/frr.conf:/etc/frr/frr.conf, bin/fakeapi:/usr/local/bin/fakeapi:ro, configs/core/metal-api.yaml:/etc/fakeapi/networks.yaml:ro] }
     exit-b1: { binds: [configs/exit-b1/node.yaml:/etc/labnode/node.yaml:ro, configs/exit-b1/frr.conf:/etc/frr/frr.conf] }
     exit-b2: { binds: [configs/exit-b2/node.yaml:/etc/labnode/node.yaml:ro, configs/exit-b2/frr.conf:/etc/frr/frr.conf] }
     spine-b: { binds: [configs/spine-b/node.yaml:/etc/labnode/node.yaml:ro, configs/spine-b/frr.conf:/etc/frr/frr.conf] }

@@ -90,6 +90,14 @@ func (s Snapshot) Problems(now time.Time) []string {
 	return s.Status.Problems()
 }
 
+// Warnings: see Status.Warnings.
+func (s Snapshot) Warnings(now time.Time) []string {
+	if s.Status == nil {
+		return nil
+	}
+	return s.Status.Warnings(now)
+}
+
 // observe records one reconcile and collects the status.
 func (g *Gateway) observe(res Result, err error, state, reason string) {
 	if g.Monitor == nil {

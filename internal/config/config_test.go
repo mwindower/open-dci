@@ -219,3 +219,79 @@ func TestInterfacePeer(t *testing.T) {
 		t.Fatalf("want duplicate interface error, got %v", err)
 	}
 }
+
+const withSource = `
+gateway:
+  locator: fd00:dc1:a::/48
+  locatorBlock: fd00:dc1::/32
+peers:
+  - {interface: uplink0}
+networks: []
+source:
+  metalStack:
+    url: https://api.example.com
+    partition: a
+    routeTargetASN: 65535
+    label: open-dci.io/stitch
+`
+
+func TestSource(t *testing.T) {
+	c, err := Parse([]byte(withSource))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Source.MetalStack.Interval.Duration != DefaultSourceInterval {
+		t.Fatalf("interval default: %s", c.Source.MetalStack.Interval)
+	}
+	if c, err := Parse([]byte(strings.Replace(withSource, "label: open-dci.io/stitch", "label: open-dci.io/stitch\n    interval: 2m", 1))); err != nil || c.Source.MetalStack.Interval.Minutes() != 2 {
+		t.Fatalf("interval: %v", err)
+	}
+	for _, tc := range []struct{ name, from, to, wantErr string }{
+		{"no source, no networks", "source:", "unused:", "unknown field"},
+		{"4-byte rt asn", "routeTargetASN: 65535", "routeTargetASN: 4200000016", "want a 2-byte value"},
+		{"no label", "label: open-dci.io/stitch", "", "metalStack.label: required"},
+		{"projects mode is gone", "label: open-dci.io/stitch", "label: open-dci.io/stitch\n    projects: [p1]", "unknown field"},
+		{"bad url", "https://api.example.com", "api.example.com", "metalStack.url"},
+		{"no partition", "partition: a", "", "metalStack.partition"},
+		{"bad interval", "label: open-dci.io/stitch", "label: open-dci.io/stitch\n    interval: 5", "duration"},
+		{"short interval", "label: open-dci.io/stitch", "label: open-dci.io/stitch\n    interval: 1ms", "too short"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := strings.Replace(withSource, tc.from, tc.to, 1)
+			if _, err := Parse([]byte(raw)); err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("want error containing %q, got %v", tc.wantErr, err)
+			}
+		})
+	}
+	if _, err := Parse([]byte(strings.Replace(withSource, "source:\n  metalStack:\n    url: https://api.example.com\n    partition: a\n    routeTargetASN: 65535\n    label: open-dci.io/stitch\n", "", 1))); err == nil || !strings.Contains(err.Error(), "or a source") {
+		t.Fatalf("no networks without a source: %v", err)
+	}
+}
+
+func TestWithNetworks(t *testing.T) {
+	c, err := Parse([]byte(valid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := []Network{
+		{Group: "ok", VRF: "vrf4000", VNI: 4000, SID: 4000, RouteTarget: "65535:20000000", Aggregates: []string{"10.1.0.0/24"}},
+		{Group: "vni", VRF: "vrf9", VNI: 3981, SID: 9, RouteTarget: "65535:20000001", Aggregates: []string{"10.2.0.0/24"}},
+		{Group: "rt", VRF: "vrf4001", VNI: 4001, SID: 4001, RouteTarget: "65535:1001", Aggregates: []string{"10.3.0.0/24"}},
+		{Group: "rt2", VRF: "vrf4002", VNI: 4002, SID: 4002, RouteTarget: "65535:20000000", Aggregates: []string{"10.4.0.0/24"}},
+		{Group: "bad", VRF: "vrf4003", VNI: 4003, SID: 4003, RouteTarget: "65535:20000003", Aggregates: []string{"10.5.0.0/32"}},
+	}
+	merged, skipped := c.WithNetworks(src)
+	if len(merged.Networks) != 2 || merged.Networks[1].Group != "ok" || len(c.Networks) != 1 {
+		t.Fatalf("merged: %+v (static %+v)", merged.Networks, c.Networks)
+	}
+	var groups []string
+	for _, s := range skipped {
+		groups = append(groups, s.Group)
+	}
+	if strings.Join(groups, " ") != "vni rt rt2 bad" {
+		t.Fatalf("skipped: %+v", skipped)
+	}
+	if err := merged.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}

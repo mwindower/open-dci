@@ -21,8 +21,9 @@ lint:             ## what CI checks besides tests
 docs-svg:         ## regenerate the README drawings docs/packet-flow.svg, docs/logical-view.svg
 	go run ./docs/packetflow
 
-labnode:          ## static container entrypoint used by all lab nodes
+labnode:          ## static container entrypoint used by all lab nodes, and the fake metal-apiserver
 	CGO_ENABLED=0 go build -o $(BIN)/labnode ./lab/cmd/labnode
+	CGO_ENABLED=0 go build -o $(BIN)/fakeapi ./lab/cmd/fakeapi
 
 lab-up: build labnode   ## deploy the lab; the gateways run open-dci as sidecar
 	$(CLAB) deploy -t $(TOPO)

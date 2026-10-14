@@ -95,34 +95,38 @@ members.
 
 ## Deriving route targets automatically
 
-This is not implemented yet. The idea: if every stitched network has a stable **name**,
-its RT can be computed instead of allocated:
+Implemented for the [metal-apiserver source](configuration.md#source-networks-from-metal-apiserver).
+If every stitched network has a stable **name**, its RT can be computed instead of
+allocated:
 
 ```
-RT = <admin ASN2> : 2^24 + (fnv32(name) mod (2^32 − 2^24))
+RT = <admin ASN2> : 2^24 + (fnv32a(name) mod (2^32 − 2^24))
 ```
 
 - The RT is deterministic, and no registry is needed.
-- It can't collide with a VNI.
+- It can't collide with a VNI (auto RTs on the EVPN side).
+- The admin part is a 2-byte namespace (`routeTargetASN`), independent of the gateways'
+  ASNs: after a 4-byte ASN the local part only has 16 bits, too few for hashing.
 - Hash collisions between two names are unlikely but possible. Only a component with a
-  global view (the inventory file or metal-api, see below) can detect them, so that component
-  must reject them.
+  global view can detect them. The source sees all groups, so every gateway skips the
+  colliding ones, and reports them.
 
-For metal-stack, the name can come from metal-stack entities:
-- **A label on the private networks**, e.g. `dci.metal-stack.io/group: prod`. Labels are
-  scoped to the project, so the name is `<projectID>/<group>`. This allows several stitched
-  networks per project, and it makes stitching an explicit opt-in.
-- **The project itself** (name = project ID) when "stitch all private networks of the
-  project" is the intent and the project has one private network per partition.
-- **The VRF ID of a designated anchor network** as the RT local part. It is unique within one
-  metal-api without hashing. But the RT depends on the anchor network staying alive, and it
-  is not unique across several metal-api instances. Hashing a name is preferred.
+The source takes the name from a label on the private networks (`source.metalStack.label`,
+e.g. `open-dci.io/stitch: prod`). Label values are only unique within a project, so the
+name is `<projectID>/<value>`: nothing is stitched across projects, a project can have
+several stitched networks, and stitching is an explicit opt-in by the tenant. Stitching all
+private networks of a project automatically was implemented once and dropped: a project's
+networks in one partition are usually separate on purpose.
+
+The VRF ID of a designated anchor network as the RT local part was considered and dropped:
+it is unique within one metal-api without hashing, but the RT depends on the anchor network
+staying alive, and it isn't unique across several metal-api instances.
 
 The RD doesn't depend on the RT (`<routerID>:<sid>`), so derived RTs need no RD scheme.
 
 ## Keeping the locations in sync
 
-These options build on each other and are not implemented yet:
+These options build on each other; the second and the networks of the third are implemented:
 
 1. **One shared inventory file.** It is identical on every gateway and distributed via
    GitOps or configuration management. It contains the gateways
@@ -138,10 +142,11 @@ These options build on each other and are not implemented yet:
    and the exits relay the VPN routes, in the lab in a ladder. Among many exits, two route
    servers (accepting every exit with `bgp listen range`) could replace the ladder, so a
    new partition's exits need no change on the others.
-3. **Config from metal-api** (Phase 4). The inventory, or each gateway's config, is
-   generated from metal-api: labelled private networks (project, partition, VRF ID) become
-   stitched networks, and their VRF IDs the gateways' `vni`s.
+3. **Config from metal-api** (Phase 4). The networks are implemented: with
+   [`source.metalStack`](configuration.md#source-networks-from-metal-apiserver), each gateway
+   reads the private networks (project, partition, VRF ID, labels) from metal-apiserver;
+   labelled networks become stitched networks, and their VRF IDs the gateways' `vni`s. The rest of the config (gateway, transport, peers) is still a file per gateway.
 
-   Still open: where this generator runs. It stays outside open-dci itself, which keeps
-   discovering everything else from kernel and FRR. A proposal (a `dci-controller` and a
-   network stitch entity in metal-api): [metal-stack.md](metal-stack.md).
+   Still open: a stitch entity of its own (across projects, with quotas and permissions)
+   and generating the rest of the config. A proposal (a `dci-controller` and a network
+   stitch entity in metal-api): [metal-stack.md](metal-stack.md).

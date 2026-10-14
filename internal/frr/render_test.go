@@ -2,11 +2,14 @@ package frr
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
 
 	"github.com/mwindower/open-dci/internal/config"
+	"github.com/mwindower/open-dci/internal/source/metalstack"
+	"github.com/mwindower/open-dci/internal/source/metalstack/fakeapi"
 )
 
 var update = flag.Bool("update", false, "rewrite golden files")
@@ -20,6 +23,23 @@ var (
 		Aggregates: active("vrf4011 10.0.32.0/24", "vrf4011 2001:db8:32::/48", "vrf4012 10.0.33.0/24", "vrf4012 2001:db8:33::/48")}
 )
 
+// list renders the lines of a permit-only list with its stable seq numbers;
+// entries of the RT list include the "rt " keyword.
+func list(prefix string, entries ...string) string {
+	var b strings.Builder
+	texts := entries
+	if strings.HasSuffix(prefix, "DCI-RT") {
+		texts = nil
+		for _, e := range entries {
+			texts = append(texts, strings.TrimPrefix(e, "rt "))
+		}
+	}
+	for i, e := range stableSeqs(texts) {
+		fmt.Fprintf(&b, "%s seq %d permit %s\n", prefix, e.Seq, entries[i])
+	}
+	return b.String()
+}
+
 func active(keys ...string) map[string]bool {
 	m := map[string]bool{}
 	for _, k := range keys {
@@ -28,13 +48,32 @@ func active(keys ...string) map[string]bool {
 	return m
 }
 
-func renderLab(t *testing.T, node string, id Identity) string {
+// labConfig loads a lab gateway's config with the networks its source gets
+// from the lab's fake metal-apiserver.
+func labConfig(t *testing.T, node string) *config.Config {
 	t.Helper()
 	cfg, err := config.Load("../../lab/configs/" + node + "/open-dci.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := Render(cfg, id)
+	if cfg.Source == nil {
+		return cfg
+	}
+	api, err := fakeapi.Load("../../lab/configs/core/metal-api.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	nets, skipped := metalstack.Map(api, cfg.Source.MetalStack, cfg.Networks)
+	cfg, more := cfg.WithNetworks(nets)
+	if len(skipped)+len(more) > 0 {
+		t.Fatalf("%s: skipped %+v %+v", node, skipped, more)
+	}
+	return cfg
+}
+
+func renderLab(t *testing.T, node string, id Identity) string {
+	t.Helper()
+	out, err := Render(labConfig(t, node), id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -354,19 +393,19 @@ networks:
 		t.Fatal(err)
 	}
 	for _, s := range []string{
-		"ip prefix-list DCI-t1-v4 seq 5 permit 10.0.16.0/24 le 32\nip prefix-list DCI-t1-v4 seq 10 permit 10.0.32.0/24 le 32\nroute-map DCI-t1-v4 permit 10\n match ip address prefix-list DCI-t1-v4\nexit\n",
+		list("ip prefix-list DCI-t1-v4", "10.0.16.0/24 le 32", "10.0.32.0/24 le 32") + "route-map DCI-t1-v4 permit 10\n match ip address prefix-list DCI-t1-v4\nexit\n",
 		"route-map DCI-t1-v6 deny 10\nexit\n",
-		"ipv6 prefix-list DCI-t2-v6 seq 5 permit 2001:db8::/32 ge 48 le 64\nroute-map DCI-t2-v6 permit 10\n match ipv6 address prefix-list DCI-t2-v6\nexit\n",
+		list("ipv6 prefix-list DCI-t2-v6", "2001:db8::/32 ge 48 le 64") + "route-map DCI-t2-v6 permit 10\n match ipv6 address prefix-list DCI-t2-v6\nexit\n",
 		"route-map DCI-t2-v4 deny 10\nexit\n",
 		" address-family ipv4 unicast\n  rd vpn export 10.0.0.1:1\n  rt vpn both 65535:1\n  route-map vpn import DCI-t1-v4\n  route-map vpn export DCI-t1-v4\n",
 		"  neighbor fd00:dc1:b::1 activate\n  neighbor fd00:dc1:b::1 route-map DCI-PEER-IN in\n  neighbor fd00:dc1:b::1 maximum-prefix 500\n",
-		"bgp extcommunity-list standard DCI-RT seq 5 permit rt 65535:1\nroute-map DCI-PEER-IN permit 10\n match extcommunity DCI-RT\nexit\n",
+		list("bgp extcommunity-list standard DCI-RT", "rt 65535:1") + "route-map DCI-PEER-IN permit 10\n match extcommunity DCI-RT\nexit\n",
 	} {
 		if !strings.Contains(got, s) {
 			t.Errorf("missing %q in:\n%s", s, got)
 		}
 	}
-	if strings.Count(got, "maximum-prefix 500") != 2 || strings.Contains(got, "seq 10 permit rt") {
+	if strings.Count(got, "maximum-prefix 500") != 2 || strings.Count(got, "DCI-RT seq") != 1 {
 		t.Errorf("max-prefix per VPN family, and each RT once:\n%s", got)
 	}
 }
@@ -393,8 +432,8 @@ networks:
 		"vrf t1\n vni 1\n ip route 10.0.16.0/24 blackhole\n ipv6 route 2001:db8:16::/48 blackhole\nexit-vrf\n",
 		" address-family ipv4 unicast\n  network 10.0.16.0/24 route-map DCI-AGG\n  rd vpn export",
 		" address-family ipv6 unicast\n  network 2001:db8:16::/48 route-map DCI-AGG\n  rd vpn export",
-		"ip prefix-list DCI-t1-v4 seq 5 permit 10.0.16.0/24\nip prefix-list DCI-t1-v4 seq 10 permit 10.0.32.0/24\nip prefix-list DCI-t1-v4 seq 15 permit 10.99.0.0/16 le 32\n",
-		"ipv6 prefix-list DCI-t1-v6 seq 5 permit 2001:db8:16::/48\n",
+		list("ip prefix-list DCI-t1-v4", "10.0.16.0/24", "10.0.32.0/24", "10.99.0.0/16 le 32"),
+		list("ipv6 prefix-list DCI-t1-v6", "2001:db8:16::/48"),
 		// the own aggregates stay out of the own partition's type-5 ...
 		"  advertise ipv4 unicast route-map DCI-ADV\n  advertise ipv6 unicast route-map DCI-ADV\n",
 		"bgp large-community-list standard DCI-AGG seq 5 permit 4200000016:0:1\nroute-map DCI-AGG permit 10\n set large-community 4200000016:0:1\nexit\n",
@@ -632,5 +671,58 @@ func TestRenderDrain(t *testing.T) {
 	}
 	if strings.Contains(got, "no address-family") || strings.Contains(got, "no router bgp") {
 		t.Errorf("removals must not remove block headers:\n%s", got)
+	}
+}
+
+// Adding or removing a network or an aggregate adds or removes only its own
+// lines: no other line (e.g. another network's prefix-list entry or route
+// target) is renumbered, which would briefly drop its routes on reconcile.
+func TestRenderStableSeqs(t *testing.T) {
+	base := labConfig(t, "gw-a1")
+	render := func(c *config.Config) map[string]bool {
+		out, err := Render(c, gwA1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lines := map[string]bool{}
+		for _, l := range strings.Split(out, "\n") {
+			lines[l] = true
+		}
+		return lines
+	}
+	before := render(base)
+
+	more := *base
+	more.Networks = append([]config.Network{{VRF: "vrf3000", VNI: 3000, SID: 3000, Table: 3000, RouteTarget: "65535:1000", Aggregates: []string{"10.0.0.0/24"}}}, base.Networks...)
+	more.Networks[1].Aggregates = append([]string{"10.0.0.0/25"}, base.Networks[0].Aggregates...) // also in front
+	after := render(&more)
+	for l := range before {
+		if strings.Contains(l, " seq ") && !after[l] {
+			t.Errorf("renumbered or lost: %q", l)
+		}
+	}
+	// and back: removing them leaves the others' lines alone
+	for l := range after {
+		if strings.Contains(l, " seq ") && !before[l] && !strings.Contains(l, "10.0.0.0/2") && !strings.Contains(l, "65535:1000") {
+			t.Errorf("changed besides the new entries: %q", l)
+		}
+	}
+}
+
+func TestStableSeqs(t *testing.T) {
+	got := stableSeqs([]string{"b", "a", "c"})
+	again := stableSeqs([]string{"c", "a", "b"})
+	seen := map[uint32]bool{}
+	for i, e := range got {
+		if e.Seq == 0 || seen[e.Seq] {
+			t.Fatalf("seq %d of %q", e.Seq, e.Text)
+		}
+		seen[e.Seq] = true
+		for _, f := range again {
+			if f.Text == e.Text && f.Seq != e.Seq {
+				t.Fatalf("%q: %d vs %d (order-dependent)", e.Text, e.Seq, f.Seq)
+			}
+		}
+		_ = i
 	}
 }

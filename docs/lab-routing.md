@@ -22,7 +22,8 @@ default route in the fabric, `TestDefaultRoute` lets m-c announce one for a whil
 
 All pairs provision two tenants: tenant 1 (m-a 10.0.16.10, m-b 10.0.32.10, m-c 10.0.48.10;
 VNIs 3981/4011/5011, RT `65535:1001`) and tenant 2 (m-a2 10.0.17.10, m-b2 10.0.33.10, m-c2
-10.0.49.10; VNIs 3982/4012/5012, RT `65535:1002`). Tenant 1 between A and B is shown; tenant
+10.0.49.10; VNIs 3982/4012/5012, RT `65535:26782482`, derived by the gateways' network
+source from the fake metal-apiserver's project `tenant-2`, label value `main`). Tenant 1 between A and B is shown; tenant
 2 is the same with its own VRF, VNI and SID, and C the same as B. The SIDs are pinned to the
 VNI: `fd00:dc1:a:f8d::` (3981), `fd00:dc1:a:f8e::` (3982), `fd00:dc1:b:fab::` (4011),
 `fd00:dc1:b:fac::` (4012), `fd00:dc1:c:1393::` (5011), `fd00:dc1:c:1394::` (5012).

@@ -22,6 +22,7 @@ Common flags:
 |---|---|
 | `--vtysh` | `vtysh` |
 | `--state` | `/var/lib/open-dci/applied.conf` |
+| `--refresh` | off: with a [network source](configuration.md#source-networks-from-metal-apiserver), `render`, `diff`, `apply` and `status` use its last answer (cached by `run`); `--refresh` polls it first |
 | `-v` | off (debug logging) |
 
 `run` is meant to run permanently, as a service or as a sidecar next to FRR. It retries until
@@ -39,20 +40,25 @@ frr       in sync
 locator   announced
 transport vrf vrf104100  veth up: yes  path MTU: 9166 (need 9166)  local rule last: yes  vrf strict_mode: 1
 filter    dropped: tenant-to-transport 0, locator-from-outside 0, loopback-from-outside 0
+source    1 network(s), answered 2026-10-13T21:06:35Z, 0 error(s), 0 skipped
 
 PEER     AS          STATE        UP        VPNv4 RCVD/SENT  VPNv6 RCVD/SENT
 uplink0  4200000014  Established  00:00:29  4/6              4/6
 uplink1  4200000018  Established  00:00:29  4/6              4/6
 
-VRF      RT          RD              SID                          L3VNI    LOCAL v4/v6  REMOTE v4/v6
-vrf3981  65535:1001  10.0.0.16:3981  fd00:dc1:a:f8d:: (End.DT46)  3981 Up  1/1          1/1
-vrf3982  65535:1002  10.0.0.16:3982  fd00:dc1:a:f8e:: (End.DT46)  3982 Up  1/1          1/1
+VRF                         RT                RD              SID                          L3VNI    LOCAL v4/v6  REMOTE v4/v6
+vrf3981                     65535:1001        10.0.0.16:3981  fd00:dc1:a:f8d:: (End.DT46)  3981 Up  1/1          1/1
+vrf3982 (tenant-2/main)     65535:26782482    10.0.0.16:3982  fd00:dc1:a:f8e:: (End.DT46)  3982 Up  1/1          1/1
 ```
 
 - `locator` is `announced`, or `WITHHELD` with the reason (see
   [Announcing the locator](#announcing-the-locator)).
 - `filter` shows the ingress filter's rules with their drop counters (see below).
 - `L3VNI` shows each network's VNI with zebra's state of it.
+- `source` (only with a [network source](configuration.md#source-networks-from-metal-apiserver)):
+  how many networks it adds, when it last answered, failed polls and skipped groups, followed
+  by a line per warning (stale, skipped). Networks from the source show their group after the
+  VRF (here tenant 2: project `tenant-2`, label value `main`).
 - The only peers are the sessions to the two exits (`peers[].interface`); `AS` comes from
   FRR.
   `RCVD` counts the remote gateways' routes (2 tenants × 2 gateways of pair B). `SENT`
@@ -90,7 +96,10 @@ code of `status` (a drained gateway is healthy), `503` otherwise. The body says 
 ```
 
 A status older than three intervals plus 30 s counts as unhealthy (`run` is stuck), as
-does one that could not be collected yet.
+does one that could not be collected yet. `warnings` lists what needs attention without
+making the gateway unhealthy: a [network source](configuration.md#source-networks-from-metal-apiserver)
+that hasn't answered for three of its intervals (its last answer stays in place), and its
+groups that can't be stitched.
 
 **`GET /metrics`** (Prometheus), all prefixed `open_dci_`:
 
@@ -115,13 +124,19 @@ does one that could not be collected yet.
 | `filter_dropped_packets_total` | `rule` | packets dropped by the [ingress filter](#the-srv6-domain-and-its-edge) |
 | `filter_rules`, `filter_rules_required` | | rules installed / wanted |
 | `transport_veth_up`, `transport_path_mtu_bytes`, `transport_required_mtu_bytes`, `transport_local_rule_last` | | DCI network mode only: the transport's kernel parts |
+| `source_networks` | | with a network source: the networks it adds |
+| `source_sync_timestamp_seconds`, `source_stale` | | when it last answered; 1 if not for three intervals |
+| `source_errors_total` | | failed polls |
+| `source_skipped` | `group`, `reason` | 1 per group the source can't stitch (e.g. two networks in one partition) |
 
 Plus the Go runtime and process metrics (`go_*`, `process_*`). Useful alerts:
 `open_dci_healthy == 0` for a few minutes (the partner carries the traffic meanwhile, but
 the pair has lost its redundancy), `increase(open_dci_frr_applies_total[1h]) > 0` (something
 keeps removing open-dci's lines), `increase(open_dci_filter_dropped_packets_total[5m]) > 0`
-(someone sends SRv6 into the domain from outside), and `open_dci_network_prefixes{origin="remote"}`
-dropping to 0 (a partition disappeared).
+(someone sends SRv6 into the domain from outside), `open_dci_network_prefixes{origin="remote"}`
+dropping to 0 (a partition disappeared), and with a network source `open_dci_source_stale == 1`
+(metal-apiserver unreachable, changes don't arrive) and `open_dci_source_skipped == 1` (a
+tenant's network isn't stitched).
 
 ### Routes of a network
 
@@ -283,8 +298,9 @@ vrf vrf104100
  ipv6 route fd00:dc1:a::/48 fe80::1 dci1       ! own locator → default VRF (SIDs)
  ipv6 route fd00:dc1:ff::a1/128 fe80::1 dci1   ! own loopback, if outside the locator
 !
-ip prefix-list DCI-vrf3981-v4 seq 5 permit 10.0.16.0/24     ! networks[].aggregates (exact),
-ip prefix-list DCI-vrf3981-v4 seq 10 permit 10.0.32.0/24    !   then networks[].prefixes
+ip prefix-list DCI-vrf3981-v4 seq 663923921 permit 10.0.16.0/24   ! networks[].aggregates (exact) and
+ip prefix-list DCI-vrf3981-v4 seq 438889611 permit 10.0.32.0/24   !   networks[].prefixes; seq from the
+                                                                  !   entry's content, not its position
 route-map DCI-vrf3981-v4 deny 5                 ! (in every filter route-map) a route with the
  match extcommunity DCI-SOO                     !   own site of origin came back from the own
                                                 !   fabric: never into the VPN
@@ -311,8 +327,8 @@ route-map DCI-ADV permit 30                     !   ... then mark it with the si
  set extcommunity soo 4200000016:10             !   FRR adds the L3VNI's RT and router MAC
 bgp extcommunity-list expanded DCI-ANY seq 5 permit .*
 bgp extcommunity-list standard DCI-SOO seq 5 permit soo 4200000016:10   ! gateway.siteOfOrigin
-bgp extcommunity-list standard DCI-RT seq 5 permit rt 65535:1001   ! one per route target
-bgp extcommunity-list standard DCI-RT seq 10 permit rt 65535:1002
+bgp extcommunity-list standard DCI-RT seq 1872273698 permit rt 65535:1001   ! one per route target,
+bgp extcommunity-list standard DCI-RT seq 3319327117 permit rt 65535:26782482   !   seq from its content
 route-map DCI-PEER-IN permit 10
  match extcommunity DCI-RT
 ```
@@ -367,7 +383,14 @@ routes, and its anycast partner carries everything. After three good checks it a
 again. `status` shows `health UNHEALTHY: <reason>` and exits non-zero; the log has
 `locator withdrawn reason=...`.
 
-`apply` and `status` run the checks too, but only `run` withdraws.
+A network counts for the withdrawal only once it has passed the checks: a network that is
+still being provisioned fails them for its first seconds (L3VNI not up yet, no SID yet), and
+both gateways of a pair provision a new network at the same time. Withdrawing for that would
+take the partition down whenever a network is added; `status` shows the problem instead. A
+network that leaves the config and comes back starts over.
+
+`apply` and `status` run the checks too (every network counts there), but only `run`
+withdraws.
 
 ### Announcing the locator
 

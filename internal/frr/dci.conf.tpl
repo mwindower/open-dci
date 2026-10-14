@@ -138,8 +138,8 @@ route-map {{ $f.Name }} deny 5
  match extcommunity {{ sooList }}
 exit
 !
-{{- range $i, $e := $f.Entries }}
-{{ $f.PrefixList }} prefix-list {{ $f.Name }} seq {{ seq $i }} permit {{ $e }}
+{{- range $f.Entries }}
+{{ $f.PrefixList }} prefix-list {{ $f.Name }} seq {{ .Seq }} permit {{ .Text }}
 {{- end }}
 {{- if $f.Entries }}
 route-map {{ $f.Name }} permit 10
@@ -207,8 +207,8 @@ exit
 bgp extcommunity-list expanded {{ anyList }} seq 5 permit .*
 bgp extcommunity-list standard {{ sooList }} seq 5 permit soo {{ .SiteOfOrigin }}
 {{- /* Peers: only routes with a configured route target are accepted. */}}
-{{- range $i, $rt := .RTs }}
-bgp extcommunity-list standard {{ rtList }} seq {{ seq $i }} permit rt {{ $rt }}
+{{- range .RTs }}
+bgp extcommunity-list standard {{ rtList }} seq {{ .Seq }} permit rt {{ .Text }}
 {{- end }}
 route-map {{ peerIn }} permit 10
  match extcommunity {{ rtList }}
