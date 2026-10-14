@@ -3,7 +3,17 @@ version: 2
 project_name: open-dci
 
 builds:
-  - main: ./cmd/open-dci
+  - id: open-dci
+    main: ./cmd/open-dci
+    binary: open-dci
+    env: [CGO_ENABLED=0]
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags: ["-s -w -X main.version={{ .Version }}"]
+  - id: dci-controller
+    main: ./cmd/dci-controller
+    binary: dci-controller
     env: [CGO_ENABLED=0]
     goos: [linux]
     goarch: [amd64, arm64]
@@ -12,17 +22,19 @@ builds:
 
 archives:
   - formats: [tar.gz]
-    files: [LICENSE, README.md, deploy/systemd/open-dci.service]
+    files: [LICENSE, README.md, deploy/systemd/*.service, deploy/dci-controller.yaml]
 
 checksum:
   name_template: checksums.txt
 
 dockers:
   - image_templates: ["ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/open-dci:{{ .Version }}-amd64"]
+    ids: [open-dci]
     dockerfile: Dockerfile
     use: buildx
     build_flag_templates: [--platform=linux/amd64]
   - image_templates: ["ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/open-dci:{{ .Version }}-arm64"]
+    ids: [open-dci]
     dockerfile: Dockerfile
     use: buildx
     goarch: arm64

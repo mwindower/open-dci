@@ -118,13 +118,11 @@ func TestDrain(t *testing.T) {
 	waitFor(t, converge, healthzSays(gw, 200, "drained"))
 	waitFor(t, converge, metricsContain(gw, "open_dci_healthy 1", `open_dci_locator_state{state="drained"} 1`, `open_dci_locator_state{state="announced"} 0`))
 	// the sidecar keeps it drained across reconciles
-	time.Sleep(12 * time.Second)
+	waitReconciles(t, gw, 1)
 	if err := usesGW(false)(); err != nil {
 		t.Fatalf("drain reverted: %v", err)
 	}
-	for _, f := range flows {
-		waitFor(t, converge, func() error { return lab.Ping(f[0].name, f[1].v4, 0) })
-	}
+	pingFlows(t, "v4")
 
 	if err := opendci(gw, "undrain"); err != nil {
 		t.Fatal(err)

@@ -4,17 +4,21 @@
 
 ```
 cmd/open-dci/        CLI (validate, render, diff, apply, run, status, version)
+cmd/dci-controller/  the metal-stack controller (metal-apiserver → gateway API)
+api/opendci/v1/      the gateway API (gateway.proto + generated Go code; make proto)
 internal/config/     config schema, defaults, validation
 internal/frr/        rendering (dci.conf.tpl), running-config parser, drift/removals, vtysh client
 internal/kernel/     netlink primitives: veth, MTU path discovery, ip rules, sysctls
 internal/gateway/    reconcile loop, pre-flight checks, status, Monitor (what run publishes)
 internal/metrics/    /metrics (Prometheus) and /healthz from the Monitor
-internal/source/     network sources: metalstack (metal-apiserver API v2: mapping, polling, cache; fakeapi for tests and the lab)
+internal/api/        the gateway API server (run --api-listen)
+internal/controller/ dci-controller: rounds, pushes, metrics
+internal/metalstack/ metal-apiserver: mapping (labels → networks), client, fakeapi for tests and the lab
 lab/                 containerlab lab: topology, configs/<node>/, e2e tests, labnode, fakeapi
 website/            the website (Docusaurus): docs/ (user documentation), static/img/ (drawings)
 docs/                developer documentation (this file, internals, measurements, lab, history)
 tools/packetflow/    generator of the drawings logical-view.svg and packet-flow.svg (make docs-svg)
-deploy/systemd/      systemd unit
+deploy/              systemd units, dci-controller example config
 Dockerfile           container image (FRR base for vtysh)
 .github/workflows/   ci (unit + lab e2e), release (goreleaser), pages (the website)
 ```
@@ -24,8 +28,10 @@ Dockerfile           container image (FRR base for vtysh)
 ```sh
 make test          # unit tests: config, rendering, parser, lab specs
 make lint          # gofmt + go vet (incl. e2e code)
-make lab-redeploy  # lab down + up + e2e tests (see the lab docs)
+make lab-redeploy  # lab down + up + all e2e tests (see the lab docs)
+make lab-redeploy-quick  # ... with the quick subset only (CI on pull requests)
 make website       # build this website; make website-serve to preview it
+make proto         # regenerate the API code after changing api/**/*.proto
 ```
 
 - **Golden files:** `internal/frr/testdata/gw-{a1,b1}.golden` hold the rendered FRR lines for

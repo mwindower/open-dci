@@ -12,5 +12,5 @@ network.
 - The route distinguisher is derived automatically (`<router-id>:<sid>`); you don't need
   to set `rd`.
 
-With [networks from metal-apiserver](metal-apiserver.md), open-dci derives the route
-targets itself.
+With [dci-controller](../metal-stack/controller.md), the route targets are derived
+automatically.

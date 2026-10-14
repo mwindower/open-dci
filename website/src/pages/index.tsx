@@ -37,7 +37,7 @@ const properties: {title: string; body: ReactNode; to: string}[] = [
   },
   {
     title: 'Hands-off',
-    body: 'One YAML file per gateway, or the networks straight from metal-apiserver. open-dci reconciles continuously and reports its health as Prometheus metrics.',
+    body: 'One YAML file per gateway, or the networks set through its gRPC API, e.g. by the dci-controller from metal-apiserver. open-dci reconciles continuously and reports its health as Prometheus metrics.',
     to: '/docs/operation/metrics',
   },
 ];

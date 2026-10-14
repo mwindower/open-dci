@@ -13,11 +13,11 @@ open-dci works with metal-stack as it is: no changes to metal-stack are needed.
 
 ## Stitching driven by metal-apiserver
 
-The gateways can read the networks to stitch from metal-apiserver instead of a config
-file: tenants label their private networks (e.g. `open-dci.io/stitch: prod`), and the
-gateways of every partition with such a network stitch them together. Labels can be
-added and removed at any time, without interrupting the other networks. Setup and
-behaviour: [Networks from metal-apiserver](../configuration/metal-apiserver.md).
+[dci-controller](controller.md) sets the gateways their networks from metal-apiserver, so
+no config file needs to list them: tenants label their private networks (e.g.
+`open-dci.io/stitch: prod`), and the gateways of every partition with such a network
+stitch them together. Labels can be added and removed at any time, without interrupting
+the other networks.
 
 Compared to a metal-stack-native integration, this has limits: stitching never spans
 projects, there are no quotas or permissions beyond who may label a network, and
@@ -25,4 +25,4 @@ conflicts (two networks with the same value in one partition) are reported rathe
 rejected when they are created.
 
 How open-dci could become part of metal-stack itself (a gateway role, a network stitch
-entity, a controller): [Integration proposal](https://github.com/mwindower/open-dci/blob/main/docs/metal-stack-proposal.md).
+entity): [Integration proposal](https://github.com/mwindower/open-dci/blob/main/docs/metal-stack-proposal.md).

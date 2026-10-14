@@ -25,13 +25,15 @@ type Status struct {
 	WithheldReason string `json:",omitempty"`
 	// Drained: withdrawn on purpose (open-dci drain), counts as healthy
 	Drained bool
+	// Withdrawn: why open-dci run withdrew the gateway (unhealthy)
+	Withdrawn string `json:",omitempty"`
 	// Health: the data-plane checks open-dci run withdraws on
 	Health   Health
 	Kernel   KernelStatus
 	Peers    []PeerStatus
 	Networks []NetworkStatus
-	// Source: the network source, if one is configured
-	Source *SourceStatus `json:",omitempty"`
+	// API: the networks set through the API, if it is enabled
+	API *APIStatus `json:",omitempty"`
 }
 
 type KernelStatus struct {
@@ -93,13 +95,14 @@ func (g *Gateway) Status(routes string) (*Status, error) {
 		Announced:      plan.Readiness.Ready,
 		WithheldReason: plan.Readiness.Reason,
 		Drained:        plan.Drained,
+		Withdrawn:      plan.Withdrawn.Reason,
 		Health:         g.checkHealth(plan.Identity.RouterID, true),
 		Kernel:         g.kernelStatus(),
 	}
 
-	if g.Source != nil {
-		src := g.source
-		st.Source = &src
+	if g.api != nil {
+		api := g.apiStatus
+		st.API = &api
 	}
 	for _, p := range g.Config.Peers {
 		ps := PeerStatus{Address: p.Neighbor(), ASN: p.ASN, State: "unknown"}
@@ -245,23 +248,14 @@ func (g *Gateway) kernelStatus() KernelStatus {
 func (s *Status) Healthy() bool { return len(s.Problems()) == 0 }
 
 // Warnings lists what needs attention but doesn't make the gateway
-// unhealthy: a stale network source (its last answer stays in place) and
-// groups it can't stitch.
+// unhealthy: API networks that can't be applied.
 func (s *Status) Warnings(now time.Time) []string {
-	src := s.Source
-	if src == nil {
+	if s.API == nil {
 		return nil
 	}
 	var out []string
-	if src.Stale(now) {
-		last := "never"
-		if !src.Synced.IsZero() {
-			last = src.Synced.UTC().Format(time.RFC3339)
-		}
-		out = append(out, fmt.Sprintf("source: no answer since %s, keeping the last one: %s", last, src.LastError))
-	}
-	for _, sk := range src.Skipped {
-		out = append(out, fmt.Sprintf("source: %s not stitched: %s", sk.Group, sk.Reason))
+	for _, sk := range s.API.Skipped {
+		out = append(out, fmt.Sprintf("api: %s (%s) not applied: %s", sk.VRF, sk.Group, sk.Reason))
 	}
 	return out
 }

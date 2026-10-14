@@ -15,7 +15,9 @@ interfaces:
   - {name: swp6, mtu: 9216}
   - {name: swp7, mtu: 9216}
   - {name: swp8, mtu: 9216}
-# the fake metal-apiserver for the gateways' network source (http://core:8080 on
-# the management network)
+# metal-stack's side of the lab, on the management network: the fake
+# metal-apiserver (http://core:8080) and dci-controller, which sets the gateways
+# their networks through their API (configs/core/dci-controller.yaml)
 sidecars:
   - [/usr/local/bin/fakeapi, -listen, ":8080", -f, /etc/fakeapi/networks.yaml]
+  - [/usr/local/bin/dci-controller, -c, /etc/dci-controller/config.yaml]

@@ -62,6 +62,7 @@ The long form of [Design decisions](https://mwindower.github.io/open-dci/docs/in
   (tagged as its own), and reconciles continuously instead of owning `frr.conf`.
 - **Independent of metal-stack.** metal-stack is the first target, not a dependency: the
   code assumes no device names or metal-stack APIs, so any FRR-based EVPN fabric works.
-  Optionally, the gateways read the networks to stitch from metal-apiserver (labelled networks,
-  no new metal-stack entities;
-  [Configuration](https://mwindower.github.io/open-dci/docs/configuration/metal-apiserver)).
+  The metal-stack integration is a separate program,
+  [dci-controller](https://mwindower.github.io/open-dci/docs/metal-stack/controller), which sets the gateways their networks
+  from metal-apiserver through the gateway API (labelled networks, no new metal-stack
+  entities).

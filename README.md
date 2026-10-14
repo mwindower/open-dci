@@ -86,9 +86,9 @@ mixed freely:
 |---|---|
 | [Introduction](https://mwindower.github.io/open-dci/docs/introduction/what-is-open-dci) | what open-dci is, how it works, design decisions, capabilities and limits |
 | [Getting started](https://mwindower.github.io/open-dci/docs/getting-started/requirements) | requirements, installation, quick start, trying it in the lab |
-| [Configuration](https://mwindower.github.io/open-dci/docs/configuration/overview) | every field, route targets, networks from metal-apiserver |
-| [Operation](https://mwindower.github.io/open-dci/docs/operation/commands) | commands, status, metrics, health and failover, maintenance, the SRv6 domain's edge, adding partitions |
-| [metal-stack](https://mwindower.github.io/open-dci/docs/metal-stack/overview) | open-dci in metal-stack |
+| [Configuration](https://mwindower.github.io/open-dci/docs/configuration/overview) | every field, route targets |
+| [Operation](https://mwindower.github.io/open-dci/docs/operation/commands) | commands, status, metrics, the API, health and failover, maintenance, the SRv6 domain's edge, adding partitions |
+| [metal-stack](https://mwindower.github.io/open-dci/docs/metal-stack/overview) | open-dci in metal-stack, dci-controller |
 
 **Developer documentation:** [`docs/`](docs/README.md): how it works inside, measurements,
 the lab and its routing tables, development and roadmap, design history.

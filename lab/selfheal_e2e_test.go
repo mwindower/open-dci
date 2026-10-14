@@ -4,6 +4,7 @@ package lab
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -21,6 +22,7 @@ func opendci(node string, args ...string) error {
 func TestGatewaysHealthy(t *testing.T) {
 	for _, gw := range append(append(append([]string{}, pairA...), pairB...), pairC...) {
 		t.Run(gw, func(t *testing.T) {
+			t.Parallel()
 			// "status" exits non-zero unless drift-free, kernel in place, peers
 			// Established and a SID allocated for every network
 			waitFor(t, heal, func() error { return opendci(gw, "status") })
@@ -43,6 +45,29 @@ func TestSelfHealAfterFRRReload(t *testing.T) {
 	waitFor(t, heal, func() error { return opendci("gw-a1", "status") })
 	waitFor(t, heal, func() error { return lab.Ping("m-a", mB.v4, 0) })
 	waitFor(t, heal, func() error { return lab.Ping("m-b", mA.v6, 0) })
+}
+
+// A reconcile that runs while frr-reload.py rewrites the config can leave
+// prefixes in the tenant VRFs without a best path (FRR never runs the
+// selection for them, nothing is installed). The test forces that race (the
+// reload and an "apply" at the same time) a few times: the gateway must
+// recover each time, re-running the selection itself.
+func TestRecoversFromNoBestPath(t *testing.T) {
+	const gw = "gw-a1"
+	for i := range 3 {
+		if _, err := lab.Exec(gw, "sh", "-c", "python3 /usr/lib/frr/frr-reload.py --reload /etc/frr/frr.conf >/dev/null 2>&1 & sleep 0.3; /usr/local/bin/open-dci apply -c /etc/open-dci/config.yaml >/dev/null 2>&1; wait"); err != nil {
+			t.Logf("round %d (ignored): %v", i, err)
+		}
+		waitFor(t, heal, func() error { return opendci(gw, "status") })
+	}
+	out, _ := scrape(gw)
+	for _, l := range strings.Split(out, "\n") {
+		if strings.HasPrefix(l, "open_dci_bestpath_recoveries_total ") {
+			t.Logf("%s: %s (0: the race wasn't hit this time)", gw, l)
+		}
+	}
+	waitFor(t, heal, func() error { return lab.Ping("m-a", mB.v4, 0) })
+	waitFor(t, heal, func() error { return lab.Ping("m-b2", mA2.v4, 0) })
 }
 
 // Something (e.g. a networkd restart) resets the DCI devices to the base config's

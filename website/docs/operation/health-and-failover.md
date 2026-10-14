@@ -22,6 +22,13 @@ gateway **withdraws** like a [drain](maintenance.md), and announces again once i
 A network that is just being added doesn't count until it works for the first time, so
 adding a network never makes a gateway withdraw.
 
+One problem open-dci repairs itself: rarely, FRR keeps a tenant route with valid paths but
+never selects one (seen after the base system reloaded FRR's configuration), so nothing is
+installed. `open-dci run` notices it within 2 seconds and makes FRR select the route again,
+usually before the gateway withdraws. The metric `open_dci_bestpath_recoveries_total`
+counts these repairs. A gateway withdrawn by `run` shows `locator WITHDRAWN` and the
+reason in `status`.
+
 ## What a failure costs
 
 Gateways and exits keep no per-flow state, so a failure never resets a TCP connection; it

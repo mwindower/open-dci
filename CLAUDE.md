@@ -23,11 +23,10 @@ Scope decisions, which should not be revisited without the user:
   transport VRF belongs to the base config.
 - **Keep the code independent of metal-stack.** Discover state from kernel and FRR (ASN,
   router-id, VNI device chain) instead of assuming metal-networker's names. metal-stack
-  specifics belong in the lab and in docs. The one exception is the optional network
-  source `internal/source/metalstack` (`source.metalStack`: networks from metal-apiserver
-  labelled networks, grouped by project and label value; no new metal-stack entities);
-  the gateway only sees it as
-  `gateway.NetworkSource`, and without a `source` block nothing changes.
+  specifics belong in the lab and in docs. The metal-stack integration is a separate
+  program, `dci-controller` (`cmd/dci-controller`, `internal/controller`,
+  `internal/metalstack`): it reads metal-apiserver's labelled networks and sets the
+  gateways their networks through the gateway API. The open-dci binary imports none of it.
 - **Two transport modes**:
   - `transport.vrf` set: a DCI network (EVPN VRF) joined to the default VRF by a veth pair.
     Route leaking does not work (see `docs/phase0b-findings.md`).
@@ -53,9 +52,12 @@ Scope decisions, which should not be revisited without the user:
   `dci.conf.tpl`, parser, drift/removals, vtysh. `internal/kernel`: netlink.
   `internal/gateway`: reconcile, pre-flight, status, `Monitor`. `internal/metrics`:
   `/metrics` and `/healthz` (`run --listen`), served from what `run` last published.
-  `internal/source/metalstack`: the optional network source (metal-apiserver API v2;
-  mapping, polling, cache), the only metal-stack-specific code, behind
-  `gateway.NetworkSource`; `fakeapi` serves fixtures for tests and the lab.
+  The gateway API: `api/opendci/v1/gateway.proto` (generated code committed; `make proto`,
+  CI runs `make proto-check`), served by `internal/api` (`run --api-listen`, bearer token,
+  connect-go: gRPC, gRPC-Web, Connect, reflection); the networks live per owner in
+  `internal/gateway/apistore.go` (persisted, merged into the config, the config file
+  wins, the older API network wins). `cmd/dci-controller` + `internal/controller`: the
+  controller; `internal/metalstack`: mapping (labels → networks), client, `fakeapi`.
 - `internal/frr/testdata/gw-{a1,b1}.golden` are the rendered configs for the lab's gateways
   (`go test ./internal/frr -update` rewrites them; review the diff!).
   `testdata/gw-a1.running.conf` is a real FRR running-config: every rendered line must
@@ -69,11 +71,12 @@ Scope decisions, which should not be revisited without the user:
   - Two exits per partition (exit-a1/a2, exit-b1/b2, exit-c1/c2); every gateway is attached to both
     (`uplink0`/`uplink1`), and the exits relay the VPN routes in a ladder.
   - `lab/cmd/labnode` is the container entrypoint (node.yaml → netlink → sidecars → FRR).
-  - Tenant 2 comes from the gateways' network source: `lab/cmd/fakeapi` (a sidecar of the
-    core, `http://core:8080` on the management network) serves `configs/core/metal-api.yaml`
-    as metal-apiserver, labelled `open-dci.io/stitch: main`. Its route target is derived
-    (`65535:26782482`, from `tenant-2/main`); tests change the
-    answer via `/run/fakeapi/` on the core.
+  - Tenant 2 comes through the gateways' API (`:9470`, token `configs/api-token`):
+    the core runs `lab/cmd/fakeapi` (`http://core:8080`, serves
+    `configs/core/metal-api.yaml`, labelled `open-dci.io/stitch: main`) and `dci-controller`
+    (`configs/core/dci-controller.yaml`, every 2 s, `/metrics` on `:9471`). Its route
+    target is derived (`65535:26782482`, from `tenant-2/main`); tests change metal-apiserver's
+    answer via `/run/fakeapi/` on the core, and stop the controller with `pkill -STOP`.
   - e2e tests: `lab/*_test.go`, build tag `e2e`.
 - Documentation comes in two parts:
   - `website/`: the **user** documentation (Docusaurus, published to GitHub Pages by
@@ -107,7 +110,8 @@ make test            # unit tests
 make lint            # gofmt + go vet (as in CI)
 make build           # lab/bin/open-dci (static)
 make lab-up          # build + deploy
-make lab-check       # e2e tests against the running lab
+make lab-check       # all e2e tests against the running lab (~5 min)
+make lab-check-quick # the quick, non-disruptive subset (QUICK_TESTS in the Makefile)
 make lab-perf        # failure semantics under load (tags e2e,perf; not in lab-check)
 make lab-redeploy    # down + up + check
 make lab-capture
@@ -116,7 +120,12 @@ docker exec clab-open-dci-gw-a1 open-dci status -c /etc/open-dci/config.yaml
 docker exec clab-open-dci-<node> vtysh -c '<cmd>'
 ```
 
-A change counts as verified only after `make lab-redeploy` passes from a clean deploy.
+A change counts as verified only after `make lab-redeploy` (the full suite) passes from a
+clean deploy; `make lab-redeploy-quick` is for iterating. CI runs the quick subset on
+pull requests and the full suite on main, nightly and on manual runs. e2e tests wait with
+`waitFor`/`waitAll` (parallel) and count rounds or reconciles (`waitControllerRounds`,
+`waitReconciles`) instead of sleeping; read-only subtests are `t.Parallel()`. New
+non-disruptive tests belong in `QUICK_TESTS`.
 Binaries are bind-mounted, and `go build` replaces the inode, so a running lab keeps the
 old binary until it is redeployed (or you `docker cp` for a quick look).
 
@@ -207,15 +216,23 @@ old binary until it is redeployed (or you `docker cp` for a quick look).
   ones, so renumbering would briefly drop other networks' routes when one is added.
 - FRR 10.4.1 with `func-bits` > 16 encodes the SID function wrongly into the VPN route's
   transposed label (remote gateways encapsulate to a shifted SID; tested with 20). So SID
-  functions stay 16 bits; source networks with larger VRF IDs (metal-stack: up to 131072)
+  functions stay 16 bits; API networks with larger VRF IDs (metal-stack: up to 131072)
   get hashed SIDs, assigned oldest network first. A changed `sid vpn per-vrf export` only
   takes effect after `no sid ...` (removals run first, so open-dci is fine).
 - A gateway withholds its locator until its EVPN sessions have sent End-of-RIB
   (`internal/gateway/ready.go`); `status` is unhealthy meanwhile. The readiness poll is
   debounced and ignores failed or empty answers: reconciling while `frr-reload.py`
   rewrites the config left the re-created tenant VRFs' EVPN-imported routes without a
-  best path (`no best path`, version 0), black-holing traffic while `status` was
-  healthy; only a session reset recovered it.
+  best path (`no best path`, version 0), black-holing traffic. The debounce makes it rare,
+  but it still happens (forced: reload and `apply` at the same time, e2e
+  `TestRecoversFromNoBestPath`). FRR never recovers by itself, and soft resets don't help
+  (the paths are unchanged); `clear bgp vrf V prefix P` (IPv4) / `clear bgp vrf V ipv6
+  unicast prefix P` (IPv6, the syntax differs!) re-runs the selection. `run` does that for
+  every such prefix its health check finds (`recoverBestPaths`, metric
+  `open_dci_bestpath_recoveries_total`).
+- `run` keeps its health withdrawal in memory and mirrors it in a `withdrawn` marker
+  next to the state file, so `status`/`diff` (separate processes) don't report the
+  withdrawn announcements as drift.
 - `frr-reload.py` may exit 1 from its own second pass ("Refusing to remove a non-existent
   route") even though it worked.
 - vtysh reports config errors on stdout (`% ...`), not always via the exit code;

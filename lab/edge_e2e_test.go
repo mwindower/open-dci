@@ -28,10 +28,13 @@ import (
 
 const block = "fd00:dc1::/32"
 
+// ensureTool checks that the lab image (lab/Dockerfile) provides a tool. The
+// tests install nothing at runtime: that was slow, and without network
+// access it made them skip silently.
 func ensureTool(t *testing.T, node, bin, pkg string) {
 	t.Helper()
-	if _, err := lab.Exec(node, "sh", "-c", "command -v "+bin+" >/dev/null || apk add -q "+pkg); err != nil {
-		t.Skipf("%s: cannot install %s: %v", node, pkg, err)
+	if _, err := lab.Exec(node, "sh", "-c", "command -v "+bin); err != nil {
+		t.Fatalf("%s: %s (package %s) missing: the lab image (make lab-image, lab/Dockerfile) should have it", node, bin, pkg)
 	}
 }
 

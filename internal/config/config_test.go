@@ -1,8 +1,10 @@
 package config
 
 import (
+	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 const valid = `
@@ -220,51 +222,58 @@ func TestInterfacePeer(t *testing.T) {
 	}
 }
 
-const withSource = `
-gateway:
-  locator: fd00:dc1:a::/48
-  locatorBlock: fd00:dc1::/32
-peers:
-  - {interface: uplink0}
-networks: []
-source:
-  metalStack:
-    url: https://api.example.com
-    partition: a
-    routeTargetASN: 65535
-    label: open-dci.io/stitch
-`
+// Without networks, a config is valid: they can come from the API.
+func TestNoNetworks(t *testing.T) {
+	raw := strings.Replace(valid, "networks:\n  - {vrf: vrf3981, vni: 3981, routeTarget: \"65535:1001\", prefixes: [\"10.0.16.0/24 le 32\"]}\n", "", 1)
+	if raw == valid {
+		t.Fatal("test case does not modify the config")
+	}
+	if c, err := Parse([]byte(raw)); err != nil || len(c.Networks) != 0 {
+		t.Fatalf("no networks: %v", err)
+	}
+}
 
-func TestSource(t *testing.T) {
-	c, err := Parse([]byte(withSource))
-	if err != nil {
-		t.Fatal(err)
+// SIDs: the VNI if it fits; otherwise hashed, oldest network first, so a
+// new network never moves an existing SID.
+func TestAssignSIDs(t *testing.T) {
+	day := func(d int) time.Time { return time.Date(2026, 1, d, 0, 0, 0, 0, time.UTC) }
+	static := []Network{{VRF: "vrf3981", VNI: 3981}, {VRF: "big", VNI: 100000, SID: 7}}
+	nets := []Network{
+		{VRF: "vrf100000", VNI: 100000}, // day 1: hashed
+		{VRF: "vrf131072", VNI: 131072}, // day 2: hashed
+		{VRF: "vrf4011", VNI: 4011},     // day 3: the VNI
+		{VRF: "vrf3981b", VNI: 3981},    // day 4: VNI taken by a static network: hashed
+		{VRF: "pinned", VNI: 5000, SID: 42},
 	}
-	if c.Source.MetalStack.Interval.Duration != DefaultSourceInterval {
-		t.Fatalf("interval default: %s", c.Source.MetalStack.Interval)
+	ages := []time.Time{day(1), day(2), day(3), day(4), day(5)}
+	AssignSIDs(nets, ages, static)
+	seen := map[uint32]bool{3981: true, 7: true}
+	for _, n := range nets {
+		if n.SID == 0 || n.SID > MaxSIDFunction || seen[n.SID] {
+			t.Fatalf("%s: SID %d (%v)", n.VRF, n.SID, nets)
+		}
+		seen[n.SID] = true
 	}
-	if c, err := Parse([]byte(strings.Replace(withSource, "label: open-dci.io/stitch", "label: open-dci.io/stitch\n    interval: 2m", 1))); err != nil || c.Source.MetalStack.Interval.Minutes() != 2 {
-		t.Fatalf("interval: %v", err)
+	if nets[2].SID != 4011 || nets[4].SID != 42 {
+		t.Fatalf("VNI or pinned SID not kept: %v", nets)
 	}
-	for _, tc := range []struct{ name, from, to, wantErr string }{
-		{"no source, no networks", "source:", "unused:", "unknown field"},
-		{"4-byte rt asn", "routeTargetASN: 65535", "routeTargetASN: 4200000016", "want a 2-byte value"},
-		{"no label", "label: open-dci.io/stitch", "", "metalStack.label: required"},
-		{"projects mode is gone", "label: open-dci.io/stitch", "label: open-dci.io/stitch\n    projects: [p1]", "unknown field"},
-		{"bad url", "https://api.example.com", "api.example.com", "metalStack.url"},
-		{"no partition", "partition: a", "", "metalStack.partition"},
-		{"bad interval", "label: open-dci.io/stitch", "label: open-dci.io/stitch\n    interval: 5", "duration"},
-		{"short interval", "label: open-dci.io/stitch", "label: open-dci.io/stitch\n    interval: 1ms", "too short"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			raw := strings.Replace(withSource, tc.from, tc.to, 1)
-			if _, err := Parse([]byte(raw)); err == nil || !strings.Contains(err.Error(), tc.wantErr) {
-				t.Fatalf("want error containing %q, got %v", tc.wantErr, err)
-			}
-		})
+	// a newer network whose VNI is an existing hashed SID gets another one,
+	// and nothing moves
+	before := []uint32{nets[0].SID, nets[1].SID, nets[2].SID, nets[3].SID}
+	more := append(slices.Clone(nets), Network{VRF: "new", VNI: before[0]})
+	for i := range more {
+		if more[i].VRF != "pinned" {
+			more[i].SID = 0
+		}
 	}
-	if _, err := Parse([]byte(strings.Replace(withSource, "source:\n  metalStack:\n    url: https://api.example.com\n    partition: a\n    routeTargetASN: 65535\n    label: open-dci.io/stitch\n", "", 1))); err == nil || !strings.Contains(err.Error(), "or a source") {
-		t.Fatalf("no networks without a source: %v", err)
+	AssignSIDs(more, append(ages, day(9)), static)
+	for i, sid := range before {
+		if more[i].SID != sid {
+			t.Fatalf("%s moved from %d to %d", more[i].VRF, sid, more[i].SID)
+		}
+	}
+	if more[5].SID == before[0] {
+		t.Fatal("new network took an existing SID")
 	}
 }
 

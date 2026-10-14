@@ -1,10 +1,10 @@
 # What the fake metal-apiserver (lab/cmd/fakeapi, a sidecar of the core) answers:
-# metal-stack private networks (type child) as metal-apiserver lists them. The
-# gateways' network source (open-dci.yaml: source.metalStack, label
-# open-dci.io/stitch) stitches tenant 2 from them: the project's networks with
-# the same label value, one per partition; the VRF ID is the partition's VNI, the
-# prefixes become the aggregates. Tenant 1 is static (open-dci.yaml: networks).
-# e2e tests override this file (/run/fakeapi/).
+# metal-stack private networks (type child) as metal-apiserver lists them.
+# dci-controller (configs/core/dci-controller.yaml) stitches tenant 2 from them:
+# the project's networks with the same value of the label open-dci.io/stitch,
+# one per partition; the VRF ID is the partition's VNI, the prefixes become the
+# aggregates. Tenant 1 is static (open-dci.yaml: networks). e2e tests override
+# this file (/run/fakeapi/).
 networks:
   - id: tenant-2-a
     project: tenant-2

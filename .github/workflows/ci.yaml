@@ -1,9 +1,15 @@
 name: ci
 
+# Pull requests run the quick e2e subset (make lab-check-quick); main, the
+# nightly schedule and manual runs (also on a PR's branch, before merging)
+# run the full suite.
 on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -20,6 +26,8 @@ jobs:
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
       - run: go vet ./... && go vet -tags e2e ./lab/... && go vet -tags 'e2e perf' ./lab/...
       - run: go test ./...
+      - name: generated API code up to date
+        run: make proto-check
       - run: make build labnode
 
   # The containerlab lab as integration test: 25 FRR nodes, three partitions,
@@ -49,7 +57,11 @@ jobs:
       - run: docker pull "$FRR_IMAGE"
       - name: Deploy lab
         run: make lab-up CLAB="sudo containerlab"
-      - name: e2e tests
+      - name: e2e tests (quick subset)
+        if: github.event_name == 'pull_request'
+        run: make lab-check-quick
+      - name: e2e tests (full suite)
+        if: github.event_name != 'pull_request'
         run: make lab-check
       - name: Diagnostics
         if: failure()

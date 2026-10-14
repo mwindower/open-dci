@@ -206,8 +206,19 @@ forward. `run` checks every 2 s:
 
 After two failed checks in a row, the gateway withdraws like a drain: no locator, no type-5
 routes, and its anycast partner carries everything. After three good checks it announces
-again. `status` shows `health UNHEALTHY: <reason>` and exits non-zero; the log has
+again. `status` shows `health UNHEALTHY: <reason>` and `locator WITHDRAWN` (from the
+`withdrawn` marker `run` writes next to the state file) and exits non-zero; the log has
 `locator withdrawn reason=...`.
+
+**Prefixes without best path** (valid paths, but FRR never ran the selection: `version 0`,
+nothing installed) appear when a reconcile runs while `frr-reload.py` rewrites the config.
+FRR doesn't recover by itself, and soft resets don't help (the paths don't change). The
+health check collects every such prefix of every network, and `run` re-runs the selection
+for each right away: `clear bgp vrf V prefix P` for IPv4, `clear bgp vrf V ipv6 unicast
+prefix P` for IPv6 (FRR's syntax differs), at most every 30 s per prefix, logged and
+counted (`open_dci_bestpath_recoveries_total`). No session is touched. e2e
+`TestRecoversFromNoBestPath` forces the race (reload and `apply` at the same time); in the
+lab the gateway was healthy again within 4–12 s in every round.
 
 A network counts for the withdrawal only once it has passed the checks: a network that is
 still being provisioned fails them for its first seconds (L3VNI not up yet, no SID yet), and

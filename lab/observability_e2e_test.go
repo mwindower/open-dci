@@ -78,6 +78,7 @@ func TestMetrics(t *testing.T) {
 	for _, m := range machines {
 		for _, gw := range m.gws {
 			t.Run(gw+"/"+m.vrf, func(t *testing.T) {
+				t.Parallel()
 				waitFor(t, converge, healthzSays(gw, 200, "announced"))
 				waitFor(t, converge, metricsContain(gw,
 					"open_dci_healthy 1",

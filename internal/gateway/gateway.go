@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mwindower/open-dci/internal/config"
@@ -28,13 +29,19 @@ type Gateway struct {
 	StateFile string
 	// SkipKernel leaves the kernel alone (render/diff on a non-gateway host).
 	SkipKernel bool
-	// Source adds networks to the config file's (optional). Config then is
-	// the merged config; see ApplySource.
-	Source NetworkSource
-
-	// static is the config file's config when a Source is used
-	static *config.Config
-	source SourceStatus
+	// mu guards the API store and the latest merged config (latest,
+	// latestStatus), which API calls change; Run alone owns Config and
+	// apiStatus and takes the latest over at the start of each round
+	mu           sync.Mutex
+	latest       *config.Config
+	latestStatus APIStatus
+	// api holds the networks set through the API (UseAPI); Config is then
+	// the config file's (static) merged with them
+	api       *APIStore
+	static    *config.Config
+	apiStatus APIStatus
+	// wake makes Run reconcile right after an API change
+	wake chan struct{}
 	// Monitor, if set, receives what Run does and the status after every
 	// reconcile (metrics and health endpoint).
 	Monitor *Monitor
@@ -52,6 +59,10 @@ type Gateway struct {
 	// settled: networks (VRFs) that passed their health checks once; only
 	// these can make the gateway withdraw
 	settled map[string]bool
+	// stuck: prefixes without best path the last health check found;
+	// cleared: when Run last re-ran the best-path selection for each
+	stuck   []stuckPrefix
+	cleared map[stuckPrefix]time.Time
 }
 
 // Result describes what a reconcile did.
@@ -74,7 +85,7 @@ type Result struct {
 // Plan computes the desired FRR snippet and its difference to the running
 // configuration, without changing anything.
 func (g *Gateway) Plan() (desired string, res Result, err error) {
-	if err := g.sourceReady(); err != nil {
+	if err := g.apiReady(); err != nil {
 		return "", res, err
 	}
 	running, err := g.FRR.RunningConfig()
@@ -90,11 +101,18 @@ func (g *Gateway) Plan() (desired string, res Result, err error) {
 		res.Readiness = *g.gate
 	}
 	id.Withhold = !res.Readiness.Ready
-	id.Drain = g.Drained() || g.withdrawn != nil
+	withdrawn := g.withdrawn
+	if withdrawn == nil && g.gate == nil {
+		// not run itself: run may have withdrawn the gateway
+		if reason, ok := g.withdrawnMarker(); ok {
+			withdrawn = &Health{Reason: reason}
+		}
+	}
+	id.Drain = g.Drained() || withdrawn != nil
 	id.Aggregates = g.activeAggregates()
 	res.Drained = g.Drained()
-	if g.withdrawn != nil {
-		res.Withdrawn = *g.withdrawn
+	if withdrawn != nil {
+		res.Withdrawn = *withdrawn
 	}
 	g.routerID = id.RouterID
 	res.Identity = id
@@ -204,19 +222,14 @@ func (g *Gateway) Run(ctx context.Context, interval time.Duration) {
 	healthTick := time.NewTicker(healthPoll)
 	defer healthTick.Stop()
 	defer func() { g.withdrawn = nil }()
+	g.markWithdrawn(nil) // a marker from an earlier run is stale
 	bad, good := 0, 0
 	initial := g.readiness()
 	g.gate = &initial
 	defer func() { g.gate = nil }()
 	g.Monitor.update(func(s *Snapshot) { s.Interval = interval })
-	var sourceTick <-chan time.Time
-	if g.Source != nil {
-		st := time.NewTicker(g.Source.Interval())
-		defer st.Stop()
-		sourceTick = st.C
-		g.syncSource(ctx)
-	}
 	for {
+		g.takeAPI()
 		res, err := g.Reconcile()
 		switch {
 		case err != nil:
@@ -250,15 +263,16 @@ func (g *Gateway) Run(ctx context.Context, interval time.Duration) {
 				return
 			case <-t.C:
 				break wait
-			case <-sourceTick:
-				if g.syncSource(ctx) {
-					break wait
-				}
+			case <-g.wake:
+				break wait
 			case <-healthTick.C:
 				if g.routerID == "" {
 					continue
 				}
 				h := g.checkHealth(g.routerID, false)
+				if n := g.recoverBestPaths(time.Now()); n > 0 {
+					g.Monitor.update(func(s *Snapshot) { s.BestPathRecoveries += uint64(n) })
+				}
 				if h.OK {
 					bad, good = 0, good+1
 				} else {
@@ -267,10 +281,12 @@ func (g *Gateway) Run(ctx context.Context, interval time.Duration) {
 				switch {
 				case g.withdrawn == nil && bad >= healthDown:
 					g.withdrawn = &h
+					g.markWithdrawn(&h)
 					g.Monitor.update(func(s *Snapshot) { s.Withdrawals++ })
 					break wait
 				case g.withdrawn != nil && good >= healthUp:
 					g.withdrawn = nil
+					g.markWithdrawn(nil)
 					break wait
 				case g.withdrawn != nil && !h.OK:
 					g.withdrawn = &h // keep the reason current
@@ -288,18 +304,6 @@ func (g *Gateway) Run(ctx context.Context, interval time.Duration) {
 			}
 		}
 	}
-}
-
-// syncSource polls the source and logs the outcome; true: the networks
-// changed.
-func (g *Gateway) syncSource(ctx context.Context) bool {
-	changed, err := g.SyncSource(ctx)
-	if err != nil {
-		g.Log.Error("source", "err", err, "networks", g.source.Networks, "synced", g.source.Synced)
-	} else if changed {
-		g.Log.Info("source: networks changed", "networks", g.source.Networks, "skipped", len(g.source.Skipped))
-	}
-	return changed
 }
 
 // identity discovers ASN and router-id from FRR, checks them against the

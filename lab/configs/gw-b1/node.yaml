@@ -7,6 +7,8 @@ interfaces:
   - {name: uplink0, mtu: 9216}
   - {name: uplink1, mtu: 9216}
 # open-dci reconciles continuously; --listen serves Prometheus metrics (/metrics)
-# and the health (/healthz) on port 9469
+# and the health (/healthz) on port 9469, --api-listen the gRPC API on 9470, where
+# the core's dci-controller sets tenant 2 (plaintext on the lab's management network)
 sidecars:
-  - [/usr/local/bin/open-dci, run, -c, /etc/open-dci/config.yaml, --listen, ":9469"]
+  - [/usr/local/bin/open-dci, run, -c, /etc/open-dci/config.yaml, --listen, ":9469",
+     --api-listen, ":9470", --api-token-file, /etc/open-dci/api-token]

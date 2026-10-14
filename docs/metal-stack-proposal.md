@@ -3,8 +3,9 @@
 How open-dci could become part of [metal-stack](https://metal-stack.io) itself. Today the
 gateway needs no metal-stack changes ([open-dci in metal-stack](https://mwindower.github.io/open-dci/docs/metal-stack/overview)): it's an
 FRR box at the exits whose `open-dci.yaml` is written by hand, or whose tenant networks
-open-dci reads from metal-apiserver ([Networks from metal-apiserver](https://mwindower.github.io/open-dci/docs/configuration/metal-apiserver)).
-This page is a design proposal for the next steps and is not implemented.
+dci-controller sets from metal-apiserver's labelled networks
+([dci-controller](https://mwindower.github.io/open-dci/docs/metal-stack/controller)). This page is a design proposal for the
+next steps and is not implemented, except where it says so.
 
 > [!NOTE]
 > Statements about metal-stack internals (metal-api, metal-core, metal-networker,
@@ -55,7 +56,7 @@ So the proposal separates the machine from the intent.
 **The intent: a network stitch in metal-api.**
 - It names the private networks, one per partition, that form one tenant network. It is
   scoped to a project; stitching across projects isn't possible by default.
-- Its route target is derived from its ID ([Route targets](metal-apiserver-source.md#deriving-route-targets)).
+- Its route target is derived from its ID ([Route targets](metal-stack-controller.md#deriving-route-targets)).
 - This is the real new base entity. The gateways only execute it.
 
 **The glue: a `dci-controller`**, in the spirit of the firewall-controller:
@@ -121,12 +122,12 @@ the partition's static network.
 
 1. **Today:** a static `open-dci.yaml` per gateway, written by hand
    ([open-dci in metal-stack](https://mwindower.github.io/open-dci/docs/metal-stack/overview)).
-2. **Networks from metal-apiserver** (implemented): the gateways derive their tenant
-   networks from labelled private networks
-   ([open-dci in metal-stack](https://mwindower.github.io/open-dci/docs/configuration/metal-apiserver)).
-3. **A shared inventory file** distributed to all gateways
-   ([Adding partitions and networks](roadmap.md#keeping-the-locations-in-sync)), or the `dci-controller`, which
-   renders the configs from the network stitch entity.
+2. **Networks from metal-apiserver** (implemented): `dci-controller` sets the gateways
+   their tenant networks from labelled private networks, through the gateway API
+   ([dci-controller](https://mwindower.github.io/open-dci/docs/metal-stack/controller)).
+3. **The network stitch entity**, which the `dci-controller` then reads instead of labels,
+   or a shared inventory file distributed to all gateways
+   ([Keeping the locations in sync](roadmap.md#keeping-the-locations-in-sync)).
 4. **The gateway role** in metal-api and metal-networker, and the exit role in metal-roles.
 
 ## Open questions

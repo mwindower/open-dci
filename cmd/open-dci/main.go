@@ -17,11 +17,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mwindower/open-dci/internal/api"
 	"github.com/mwindower/open-dci/internal/config"
 	"github.com/mwindower/open-dci/internal/frr"
 	"github.com/mwindower/open-dci/internal/gateway"
 	"github.com/mwindower/open-dci/internal/metrics"
-	"github.com/mwindower/open-dci/internal/source/metalstack"
 )
 
 // version is set at build time (-ldflags "-X main.version=...").
@@ -35,10 +35,12 @@ Usage:
                                          print the FRR configuration open-dci adds
   open-dci diff     -c FILE              show what is missing in the running FRR
   open-dci apply    -c FILE              reconcile kernel and FRR once
-  open-dci run      -c FILE [-i 10s] [--listen ADDR]
+  open-dci run      -c FILE [-i 10s] [--listen ADDR] [--api-listen ADDR ...]
                                          reconcile continuously; --listen serves
                                          Prometheus metrics (/metrics) and the
-                                         health (/healthz) on ADDR, e.g. :9469
+                                         health (/healthz) on ADDR, e.g. :9469;
+                                         --api-listen serves the gRPC API (networks
+                                         set by dci-controller or others), e.g. :9470
   open-dci status   -c FILE [--routes all|VRF|VNI]
                                          show sessions, SIDs, prefixes and drift;
                                          --routes lists the networks' local and
@@ -47,15 +49,19 @@ Usage:
   open-dci undrain  -c FILE              announce again
   open-dci version
 
-With a network source (config "source"), render, diff, apply and status use
-its last answer (cached by run); --refresh asks the source first.
+API flags (run):
+  --api-listen ADDR        serve the API (gRPC, gRPC-Web, Connect) on ADDR
+  --api-token-file FILE    bearer token every API call must carry (required)
+  --api-tls-cert FILE      serve TLS with this certificate (default: plaintext h2c)
+  --api-tls-key FILE       ... and key
 
 Common flags:
-  -c FILE        config file (default /etc/open-dci/config.yaml)
-  --vtysh PATH   vtysh binary (default vtysh)
-  --state FILE   last applied FRR snippet (default /var/lib/open-dci/applied.conf)
-  --refresh      poll the network source first (not run)
-  -v             debug logging
+  -c FILE               config file (default /etc/open-dci/config.yaml)
+  --vtysh PATH          vtysh binary (default vtysh)
+  --state FILE          last applied FRR snippet (default /var/lib/open-dci/applied.conf)
+  --api-networks FILE   the networks set through the API (default: api-networks.json
+                        next to --state); every command applies them if the file exists
+  -v                    debug logging
 `
 
 func main() {
@@ -78,7 +84,11 @@ func main() {
 	asn := fs.Uint("asn", 0, "BGP ASN (render without FRR)")
 	routerID := fs.String("router-id", "", "BGP router-id (render without FRR)")
 	routes := fs.String("routes", "", "list the routes of a network: VRF, VNI or all (status)")
-	refresh := fs.Bool("refresh", false, "poll the network source first")
+	apiListen := fs.String("api-listen", "", "address for the API, e.g. :9470 (run)")
+	apiToken := fs.String("api-token-file", "", "file with the API's bearer token (run)")
+	apiCert := fs.String("api-tls-cert", "", "TLS certificate for the API (run)")
+	apiKey := fs.String("api-tls-key", "", "TLS key for the API (run)")
+	apiNetworks := fs.String("api-networks", "", "file of the API networks (default: next to --state)")
 	verbose := fs.Bool("v", false, "debug logging")
 	_ = fs.Parse(os.Args[2:])
 
@@ -93,16 +103,21 @@ func main() {
 		fatal(err)
 	}
 	gw := &gateway.Gateway{Config: cfg, FRR: frr.Vtysh{Path: *vtysh}, Log: log, StateFile: *state}
-	if cfg.Source != nil && cfg.Source.MetalStack != nil {
-		// the last answer, for the commands and a restart without the API
-		cache := filepath.Join(filepath.Dir(*state), "metal-stack-networks.json")
-		gw.Source = metalstack.New(cfg.Source.MetalStack, cache, log)
-		gw.ApplySource()
-		if *refresh && cmd != "run" {
-			if _, err := gw.SyncSource(context.Background()); err != nil {
-				log.Warn("source: using the last answer", "err", err)
-			}
+	// the API networks: every command applies them if they exist, so none of
+	// them takes the API's VRFs for stale; run with the API enables them
+	if *apiNetworks == "" {
+		*apiNetworks = filepath.Join(filepath.Dir(*state), "api-networks.json")
+	}
+	serveAPI := cmd == "run" && *apiListen != ""
+	if _, err := os.Stat(*apiNetworks); err == nil || serveAPI {
+		store, err := gateway.OpenAPIStore(*apiNetworks)
+		if err != nil {
+			fatal(err)
 		}
+		gw.UseAPI(store)
+	}
+	if cmd == "run" && !serveAPI && len(gw.Config.Networks) == 0 {
+		fatal(fmt.Errorf("no networks: list them in %s or enable the API (--api-listen)", *cfgPath))
 	}
 
 	switch cmd {
@@ -132,6 +147,16 @@ func main() {
 					log.Error("metrics listener", "err", err)
 				}
 			}()
+			defer srv.Close()
+		}
+		if serveAPI {
+			if gw.Monitor == nil {
+				gw.Monitor = &gateway.Monitor{}
+			}
+			srv, err := apiServer(*apiListen, *apiToken, *apiCert, *apiKey, gw, log)
+			if err != nil {
+				fatal(err)
+			}
 			defer srv.Close()
 		}
 		gw.Run(ctx, *interval)
@@ -201,4 +226,46 @@ func diff(w io.Writer, gw *gateway.Gateway) error {
 func fatal(err error) {
 	fmt.Fprintln(os.Stderr, "error:", err)
 	os.Exit(1)
+}
+
+// apiServer serves the API on addr in the background: gRPC over HTTP/2,
+// plaintext (h2c) unless a TLS certificate is given.
+func apiServer(addr, tokenFile, cert, key string, gw *gateway.Gateway, log *slog.Logger) (*http.Server, error) {
+	if tokenFile == "" {
+		return nil, fmt.Errorf("--api-listen needs --api-token-file")
+	}
+	raw, err := os.ReadFile(tokenFile)
+	if err != nil {
+		return nil, err
+	}
+	token := strings.TrimSpace(string(raw))
+	if token == "" {
+		return nil, fmt.Errorf("%s: empty token", tokenFile)
+	}
+	if (cert == "") != (key == "") {
+		return nil, fmt.Errorf("--api-tls-cert and --api-tls-key go together")
+	}
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           api.Handler(&api.Server{Gateway: gw, Monitor: gw.Monitor, Version: version}, token),
+		ReadHeaderTimeout: 5 * time.Second,
+		Protocols:         new(http.Protocols),
+	}
+	srv.Protocols.SetHTTP1(true)
+	srv.Protocols.SetHTTP2(true)
+	srv.Protocols.SetUnencryptedHTTP2(true)
+	go func() {
+		log.Info("serving the API", "listen", addr, "tls", cert != "")
+		var err error
+		if cert != "" {
+			err = srv.ListenAndServeTLS(cert, key)
+		} else {
+			err = srv.ListenAndServe()
+		}
+		if err != nil && err != http.ErrServerClosed {
+			// the gateway works without it, with the networks it has
+			log.Error("api listener", "err", err)
+		}
+	}()
+	return srv, nil
 }
