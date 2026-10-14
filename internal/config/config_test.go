@@ -232,7 +232,7 @@ source:
     url: https://api.example.com
     partition: a
     routeTargetASN: 65535
-    projects: [p1]
+    label: open-dci.io/stitch
 `
 
 func TestSource(t *testing.T) {
@@ -243,19 +243,18 @@ func TestSource(t *testing.T) {
 	if c.Source.MetalStack.Interval.Duration != DefaultSourceInterval {
 		t.Fatalf("interval default: %s", c.Source.MetalStack.Interval)
 	}
-	if c, err := Parse([]byte(strings.Replace(withSource, "projects: [p1]", "projects: [p1]\n    interval: 2m", 1))); err != nil || c.Source.MetalStack.Interval.Minutes() != 2 {
+	if c, err := Parse([]byte(strings.Replace(withSource, "label: open-dci.io/stitch", "label: open-dci.io/stitch\n    interval: 2m", 1))); err != nil || c.Source.MetalStack.Interval.Minutes() != 2 {
 		t.Fatalf("interval: %v", err)
 	}
 	for _, tc := range []struct{ name, from, to, wantErr string }{
 		{"no source, no networks", "source:", "unused:", "unknown field"},
 		{"4-byte rt asn", "routeTargetASN: 65535", "routeTargetASN: 4200000016", "want a 2-byte value"},
-		{"no selection", "projects: [p1]", "", "projects or label required"},
-		{"projects and label", "projects: [p1]", "projects: [p1]\n    label: open-dci.io/stitch", "exclusive"},
-		{"star with others", "projects: [p1]", `projects: [p1, "*"]`, "single"},
+		{"no label", "label: open-dci.io/stitch", "", "metalStack.label: required"},
+		{"projects mode is gone", "label: open-dci.io/stitch", "label: open-dci.io/stitch\n    projects: [p1]", "unknown field"},
 		{"bad url", "https://api.example.com", "api.example.com", "metalStack.url"},
 		{"no partition", "partition: a", "", "metalStack.partition"},
-		{"bad interval", "projects: [p1]", "projects: [p1]\n    interval: 5", "duration"},
-		{"short interval", "projects: [p1]", "projects: [p1]\n    interval: 1ms", "too short"},
+		{"bad interval", "label: open-dci.io/stitch", "label: open-dci.io/stitch\n    interval: 5", "duration"},
+		{"short interval", "label: open-dci.io/stitch", "label: open-dci.io/stitch\n    interval: 1ms", "too short"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			raw := strings.Replace(withSource, tc.from, tc.to, 1)
@@ -264,7 +263,7 @@ func TestSource(t *testing.T) {
 			}
 		})
 	}
-	if _, err := Parse([]byte(strings.Replace(withSource, "source:\n  metalStack:\n    url: https://api.example.com\n    partition: a\n    routeTargetASN: 65535\n    projects: [p1]\n", "", 1))); err == nil || !strings.Contains(err.Error(), "or a source") {
+	if _, err := Parse([]byte(strings.Replace(withSource, "source:\n  metalStack:\n    url: https://api.example.com\n    partition: a\n    routeTargetASN: 65535\n    label: open-dci.io/stitch\n", "", 1))); err == nil || !strings.Contains(err.Error(), "or a source") {
 		t.Fatalf("no networks without a source: %v", err)
 	}
 }

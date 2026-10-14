@@ -52,8 +52,8 @@ partition (the VRF ID of the tenant's metal-stack private network) as `networks[
 
 Instead of writing `networks` by hand, the gateways can read them from metal-apiserver
 ([`source.metalStack`](configuration.md#source-networks-from-metal-apiserver)): give each
-gateway its partition, the projects to stitch or a network label, and a read-only API token
-(admin viewer, or project viewer for explicit projects) in `tokenFile`. `run` caches the
+gateway its partition, the network label that marks networks to stitch, and a read-only API
+token (admin viewer) in `tokenFile`. `run` caches the
 last answer in its state directory (`/var/lib/open-dci/`), so keep that directory
 persistent.
 

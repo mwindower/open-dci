@@ -92,3 +92,22 @@ func TestSource(t *testing.T) {
 		t.Fatalf("fresh source warns: %q", warn)
 	}
 }
+
+// A network that leaves the config is forgotten as settled: when it comes
+// back, it is provisioned anew and can't withdraw the gateway meanwhile.
+func TestSettledPruned(t *testing.T) {
+	static, err := config.Load("../../lab/configs/gw-a1/open-dci.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tenant2 := config.Network{Group: "tenant-2/main", VRF: "vrf3982", VNI: 3982, SID: 3982, Table: 3982, RouteTarget: "65535:26782482", Aggregates: []string{"10.0.17.0/24"}}
+	src := &fakeSource{nets: []config.Network{tenant2}, synced: time.Now()}
+	g := &Gateway{Config: static, Source: src, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	g.ApplySource()
+	g.settled = map[string]bool{"vrf3981": true, "vrf3982": true}
+	src.nets = nil
+	g.ApplySource()
+	if !g.settled["vrf3981"] || g.settled["vrf3982"] {
+		t.Fatalf("settled: %v", g.settled)
+	}
+}

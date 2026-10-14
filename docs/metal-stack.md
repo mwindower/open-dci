@@ -12,13 +12,12 @@ The first step needs no change to metal-stack at all: open-dci can read the netw
 stitches from metal-apiserver itself ([`source.metalStack`](configuration.md#source-networks-from-metal-apiserver)).
 It's optional; without it, the config file's `networks` are all there is. Only what
 metal-apiserver already has is used: private networks with project, partition, VRF ID,
-prefixes and labels. Two ways to say what belongs together, one per gateway, and neither
-stitches across projects:
-- **By project:** every private network of the listed projects (or of all projects) is
-  stitched, one stitched network per project. It needs one private network per partition.
-- **By label:** only labelled networks are stitched; a project's networks with the same
-  value of the label (e.g. `open-dci.io/stitch: prod`) form one stitched network. Tenants
-  opt in themselves, and a project can have several.
+prefixes and labels. What belongs together is said by a label: only labelled networks are
+stitched, and a project's networks with the same value (e.g. `open-dci.io/stitch: prod`)
+form one stitched network. Tenants opt in themselves, a project can have several stitched
+networks, and nothing is stitched across projects (the project is part of the group). Labels
+can come and go while traffic flows: a change only touches the network whose label changed
+([Label changes](configuration.md#label-changes)).
 
 Each gateway polls metal-apiserver with a read-only token and derives its own tenant
 VRFs: the VRF ID of the network in its partition is the VNI, the prefixes of all the group's
@@ -26,8 +25,8 @@ networks are the aggregates, and the route target is hashed from the group's nam
 static config (gateway, transport, peers) stays a file. The limits compared to the full
 proposal below:
 - no stitching across projects, and no quotas or permissions of its own: whoever may label
-  a network may stitch it (with `label`);
-- a group with two networks in one partition is skipped;
+  a network may stitch it;
+- a group with two networks with the same value in one partition is skipped;
 - the global checks (RT collisions, overlapping prefixes) happen on every gateway, which
   reports and skips what doesn't fit, instead of rejecting it when it is created;
 - renaming a label value gives the stitched network a new route target (a short
@@ -149,7 +148,7 @@ the partition's static network.
 1. **Today:** a static `open-dci.yaml` per gateway, written by hand
    ([Installation](installation.md#metal-stack)).
 2. **Networks from metal-apiserver** (implemented): the gateways derive their tenant
-   networks from projects or labelled private networks
+   networks from labelled private networks
    ([above](#networks-from-metal-apiserver-implemented)).
 3. **A shared inventory file** distributed to all gateways
    ([day2.md](day2.md#keeping-the-locations-in-sync)), or the `dci-controller`, which

@@ -111,15 +111,12 @@ RT = <admin ASN2> : 2^24 + (fnv32a(name) mod (2^32 − 2^24))
   global view can detect them. The source sees all groups, so every gateway skips the
   colliding ones, and reports them.
 
-The source takes the name from metal-stack entities, in one of two exclusive modes; the
-project is always part of the name, so nothing is stitched across projects:
-- **A label on the private networks** (`source.metalStack.label`, e.g.
-  `open-dci.io/stitch: prod`). Labels are scoped to the project, so the name is
-  `label/<projectID>/<value>`. This allows several stitched networks per project, and it
-  makes stitching an explicit opt-in by the tenant.
-- **The project itself** (`source.metalStack.projects`, name `project/<projectID>`) when
-  "stitch all private networks of the project" is the intent and the project has one private
-  network per partition.
+The source takes the name from a label on the private networks (`source.metalStack.label`,
+e.g. `open-dci.io/stitch: prod`). Label values are only unique within a project, so the
+name is `<projectID>/<value>`: nothing is stitched across projects, a project can have
+several stitched networks, and stitching is an explicit opt-in by the tenant. Stitching all
+private networks of a project automatically was implemented once and dropped: a project's
+networks in one partition are usually separate on purpose.
 
 The VRF ID of a designated anchor network as the RT local part was considered and dropped:
 it is unique within one metal-api without hashing, but the RT depends on the anchor network
@@ -148,8 +145,7 @@ These options build on each other; the second and the networks of the third are 
 3. **Config from metal-api** (Phase 4). The networks are implemented: with
    [`source.metalStack`](configuration.md#source-networks-from-metal-apiserver), each gateway
    reads the private networks (project, partition, VRF ID, labels) from metal-apiserver;
-   projects or labelled networks become stitched networks, and their VRF IDs the gateways'
-   `vni`s. The rest of the config (gateway, transport, peers) is still a file per gateway.
+   labelled networks become stitched networks, and their VRF IDs the gateways' `vni`s. The rest of the config (gateway, transport, peers) is still a file per gateway.
 
    Still open: a stitch entity of its own (across projects, with quotas and permissions)
    and generating the rest of the config. A proposal (a `dci-controller` and a network

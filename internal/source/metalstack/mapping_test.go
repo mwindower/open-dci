@@ -4,35 +4,42 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	apiv2 "github.com/metal-stack/api/go/metalstack/api/v2"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/mwindower/open-dci/internal/config"
 )
 
+const stitch = "dci/stitch"
+
 func network(id, project, partition string, vrf uint32, prefix string, labels map[string]string) *apiv2.Network {
-	n := &apiv2.Network{
+	return &apiv2.Network{
 		Id: id, Project: &project, Partition: &partition, Vrf: &vrf,
 		Type: apiv2.NetworkType_NETWORK_TYPE_CHILD, Prefixes: []string{prefix},
+		Meta: &apiv2.Meta{Labels: &apiv2.Labels{Labels: labels}},
 	}
-	if labels != nil {
-		n.Meta = &apiv2.Meta{Labels: &apiv2.Labels{Labels: labels}}
-	}
-	return n
 }
 
-func byProject(partition string, projects ...string) *config.MetalStackSource {
-	return &config.MetalStackSource{Partition: partition, RouteTargetASN: 65535, Projects: projects, DefaultRouteLabel: "dci/default"}
+func labelled(v string) map[string]string { return map[string]string{stitch: v} }
+
+func source(partition string) *config.MetalStackSource {
+	return &config.MetalStackSource{Partition: partition, RouteTargetASN: 65535, Label: stitch, DefaultRouteLabel: "dci/default"}
 }
 
-func byLabel(partition string) *config.MetalStackSource {
-	return &config.MetalStackSource{Partition: partition, RouteTargetASN: 65535, Label: "dci/stitch", DefaultRouteLabel: "dci/default"}
+func groupsOf(nets []config.Network) string {
+	var g []string
+	for _, n := range nets {
+		g = append(g, n.Group+"="+n.VRF)
+	}
+	return strings.Join(g, " ")
 }
 
 func TestRouteTargetLocal(t *testing.T) {
 	seen := map[uint32]string{}
 	for i := range 1000 {
-		g := fmt.Sprintf("project/p%d", i)
+		g := fmt.Sprintf("p%d/main", i)
 		rt := RouteTargetLocal(g)
 		if rt < 1<<24 {
 			t.Fatalf("%s: %d is in the VNI range", g, rt)
@@ -42,148 +49,119 @@ func TestRouteTargetLocal(t *testing.T) {
 		}
 		seen[rt] = g
 	}
-	// fixed: changing the hash renumbers every stitched network
-	if got := RouteTargetLocal("project/p2"); got != RouteTargetLocal("project/p2") || got == RouteTargetLocal("project/p3") {
-		t.Fatal("not deterministic")
-	}
 }
 
-func TestMapProjects(t *testing.T) {
+func TestMap(t *testing.T) {
 	nets := []*apiv2.Network{
-		network("n-a", "p1", "a", 3982, "10.0.17.0/24", map[string]string{"dci/default": "import"}),
-		network("n-b", "p1", "b", 4012, "10.0.33.0/24", nil),
-		network("n-c", "p1", "c", 5012, "10.0.49.0/24", nil),
-		network("other", "p9", "a", 4000, "10.9.0.0/24", nil),      // project not selected
-		network("lonely", "p2", "a", 4100, "10.2.0.0/24", nil),     // only in partition a
-		network("twice1", "p3", "a", 4201, "10.3.1.0/24", nil),     // two in partition a
-		network("twice2", "p3", "a", 4202, "10.3.2.0/24", nil),     //
-		network("twice3", "p3", "b", 4203, "10.3.3.0/24", nil),     //
-		network("elsewhere", "p4", "b", 4300, "10.4.0.0/24", nil),  // not in partition a
-		network("elsewhere2", "p4", "c", 4301, "10.4.1.0/24", nil), //
+		network("a1", "p1", "a", 3981, "10.0.16.0/24", map[string]string{stitch: "prod", "dci/default": "import"}),
+		network("b1", "p1", "b", 4011, "10.0.32.0/24", labelled("prod")),
+		network("a2", "p1", "a", 3982, "10.0.17.0/24", labelled("dev")),
+		network("c2", "p1", "c", 5012, "10.0.49.0/24", labelled("dev")),
+		network("b3", "p1", "b", 4013, "10.0.34.0/24", nil),              // unlabelled: not stitched
+		network("a4", "p1", "a", 3984, "10.0.19.0/24", labelled("solo")), // only in partition a: stitched anyway
+		network("x", "p2", "c", 5099, "10.9.0.0/24", labelled("prod")),   // same value, other project
+		network("d1", "p3", "a", 3990, "10.3.16.0/24", labelled("dup")),  // two in partition c
+		network("d2", "p3", "c", 5091, "10.3.48.0/24", labelled("dup")),  //
+		network("d3", "p3", "c", 5092, "10.3.49.0/24", labelled("dup")),  //
 	}
-	shared := network("shared", "p1", "b", 4500, "10.5.0.0/24", nil)
+	shared := network("shared", "p1", "b", 4500, "10.5.0.0/24", labelled("prod"))
 	shared.Type = apiv2.NetworkType_NETWORK_TYPE_CHILD_SHARED
 	nets = append(nets, shared)
 
-	got, skipped := Map(nets, byProject("a", "p1", "p2", "p3", "p4"))
-	if len(got) != 1 {
-		t.Fatalf("want one network, got %+v", got)
+	got, skipped := Map(nets, source("a"), nil)
+	if g := groupsOf(got); g != "p1/dev=vrf3982 p1/prod=vrf3981 p1/solo=vrf3984" {
+		t.Fatalf("partition a: %s", g)
 	}
-	n := got[0]
+	prod := got[1]
 	want := config.Network{
-		Group: "project/p1", VRF: "vrf3982", VNI: 3982, DefaultRoute: "import",
-		RouteTarget: fmt.Sprintf("65535:%d", RouteTargetLocal("project/p1")),
-		Aggregates:  []string{"10.0.17.0/24", "10.0.33.0/24", "10.0.49.0/24"},
+		Group: "p1/prod", VRF: "vrf3981", VNI: 3981, SID: 3981, DefaultRoute: "import",
+		RouteTarget: fmt.Sprintf("65535:%d", RouteTargetLocal("p1/prod")),
+		Aggregates:  []string{"10.0.16.0/24", "10.0.32.0/24"}, // not p2's 10.9.0.0/24
 	}
-	if fmt.Sprint(n) != fmt.Sprint(want) {
-		t.Fatalf("got  %+v\nwant %+v", n, want)
+	if fmt.Sprint(prod) != fmt.Sprint(want) {
+		t.Fatalf("got  %+v\nwant %+v", prod, want)
 	}
-	reasons := map[string]string{}
-	for _, s := range skipped {
-		reasons[s.Group] = s.Reason
-	}
-	if !strings.Contains(reasons["project/p2"], "nothing to stitch") || !strings.Contains(reasons["project/p3"], "2 networks in partition a") || len(reasons) != 2 {
+	if len(skipped) != 1 || skipped[0].Group != "p3/dup" || !strings.Contains(skipped[0].Reason, "2 networks in partition c") {
 		t.Fatalf("skipped: %+v", skipped)
 	}
 
-	// all projects
-	got, _ = Map(nets, byProject("b", config.AllProjects))
-	var groups []string
-	for _, n := range got {
-		groups = append(groups, n.Group+"="+n.VRF)
+	// p2's "prod" is its own group, alone in partition c
+	got, _ = Map(nets, source("c"), nil)
+	if g := groupsOf(got); g != "p1/dev=vrf5012 p2/prod=vrf5099" {
+		t.Fatalf("partition c: %s", g)
 	}
-	if fmt.Sprint(groups) != "[project/p1=vrf4012 project/p4=vrf4300]" {
-		t.Fatalf("all projects in partition b: %v", groups)
+	if got[1].RouteTarget == fmt.Sprintf("65535:%d", RouteTargetLocal("p1/prod")) {
+		t.Fatal("p2/prod shares p1/prod's route target")
 	}
 }
 
-func TestMapLabels(t *testing.T) {
+// A network joining or leaving a group changes only that group's
+// aggregates, nothing of the others, and never the remaining members' VRFs.
+func TestMapMembershipChanges(t *testing.T) {
+	base := []*apiv2.Network{
+		network("a", "p1", "a", 3981, "10.0.16.0/24", labelled("prod")),
+		network("b", "p1", "b", 4011, "10.0.32.0/24", labelled("prod")),
+		network("o", "p2", "a", 3982, "10.0.17.0/24", labelled("other")),
+	}
+	before, _ := Map(base, source("a"), nil)
+	joined, _ := Map(append(base, network("c", "p1", "c", 5011, "10.0.48.0/24", labelled("prod"))), source("a"), nil)
+	left, _ := Map([]*apiv2.Network{base[0], base[2]}, source("a"), nil) // without b: a is alone
+	for _, after := range [][]config.Network{joined, left} {
+		// sorted by group: p1/prod (the changing one), p2/other
+		if len(after) != 2 || fmt.Sprint(after[1]) != fmt.Sprint(before[1]) {
+			t.Fatalf("other group changed: %+v -> %+v", before[1], after[1])
+		}
+		if a, b := after[0], before[0]; a.VRF != b.VRF || a.VNI != b.VNI || a.SID != b.SID || a.RouteTarget != b.RouteTarget {
+			t.Fatalf("member changed: %+v -> %+v", b, a)
+		}
+	}
+	if fmt.Sprint(joined[0].Aggregates) != "[10.0.16.0/24 10.0.32.0/24 10.0.48.0/24]" || fmt.Sprint(left[0].Aggregates) != "[10.0.16.0/24]" {
+		t.Fatalf("aggregates: %v %v", joined[0].Aggregates, left[0].Aggregates)
+	}
+}
+
+// SIDs: the VNI if it fits; otherwise hashed, oldest network first, so a
+// new network never moves an existing SID.
+func TestSIDs(t *testing.T) {
+	at := func(n *apiv2.Network, day int) *apiv2.Network {
+		n.Meta.CreatedAt = timestamppb.New(time.Date(2026, 1, day, 0, 0, 0, 0, time.UTC))
+		return n
+	}
+	static := []config.Network{{VRF: "vrf3981", VNI: 3981}}
 	nets := []*apiv2.Network{
-		network("a1", "p1", "a", 3981, "10.0.16.0/24", map[string]string{"dci/stitch": "prod"}),
-		network("b1", "p1", "b", 4011, "10.0.32.0/24", map[string]string{"dci/stitch": "prod"}),
-		network("a2", "p1", "a", 3982, "10.0.17.0/24", map[string]string{"dci/stitch": "dev"}),
-		network("c2", "p1", "c", 5012, "10.0.49.0/24", map[string]string{"dci/stitch": "dev"}),
-		network("b3", "p1", "b", 4013, "10.0.34.0/24", nil), // unlabelled: project mode
-		network("c3", "p1", "c", 5013, "10.0.50.0/24", nil),
-		network("x", "p2", "c", 5099, "10.9.0.0/24", map[string]string{"dci/stitch": "prod"}), // other project
+		at(network("big1", "p1", "a", 100000, "10.1.0.0/24", labelled("x")), 1),
+		at(network("big2", "p2", "a", 131072, "10.2.0.0/24", labelled("x")), 2),
+		at(network("small", "p3", "a", 4011, "10.3.0.0/24", labelled("x")), 3),
+		at(network("taken", "p4", "a", 3981, "10.4.0.0/24", labelled("x")), 4), // VNI = a static SID (conflict, skipped later)
 	}
-	got, skipped := Map(nets, byLabel("a"))
-	if len(got) != 2 || len(skipped) != 0 {
-		t.Fatalf("partition a: %+v %+v", got, skipped)
-	}
-	if got[0].Group != "label/p1/dev" || got[0].VRF != "vrf3982" || fmt.Sprint(got[0].Aggregates) != "[10.0.17.0/24 10.0.49.0/24]" {
-		t.Fatalf("dev: %+v", got[0])
-	}
-	// p2's "prod" network in partition C is not part of p1's "prod"
-	if got[1].Group != "label/p1/prod" || got[1].VRF != "vrf3981" || fmt.Sprint(got[1].Aggregates) != "[10.0.16.0/24 10.0.32.0/24]" {
-		t.Fatalf("prod: %+v", got[1])
-	}
-	// label mode: unlabelled networks (b3, c3) aren't stitched; p2's
-	// "prod" has no partner in its own project
-	got, skipped = Map(nets, byLabel("c"))
-	if len(got) != 1 || got[0].Group != "label/p1/dev" || got[0].VRF != "vrf5012" {
-		t.Fatalf("partition c: %+v", got)
-	}
-	if len(skipped) != 1 || skipped[0].Group != "label/p2/prod" {
-		t.Fatalf("partition c skipped: %+v", skipped)
-	}
-	// project mode ignores the labels: p1's five networks, two of them in
-	// partition c, are no valid project group
-	got, skipped = Map(nets, byProject("c", "p1"))
-	if len(got) != 0 || len(skipped) != 1 || !strings.Contains(skipped[0].Reason, "networks in partition") {
-		t.Fatalf("project mode: %+v %+v", got, skipped)
-	}
-}
-
-// The same label value in two projects makes two stitched networks.
-func TestMapNoSharingAcrossProjects(t *testing.T) {
-	nets := []*apiv2.Network{
-		network("p1-a", "p1", "a", 3981, "10.1.16.0/24", map[string]string{"dci/stitch": "prod"}),
-		network("p1-b", "p1", "b", 4011, "10.1.32.0/24", map[string]string{"dci/stitch": "prod"}),
-		network("p2-a", "p2", "a", 3982, "10.2.16.0/24", map[string]string{"dci/stitch": "prod"}),
-		network("p2-b", "p2", "b", 4012, "10.2.32.0/24", map[string]string{"dci/stitch": "prod"}),
-	}
-	for _, src := range []*config.MetalStackSource{byLabel("a"), byProject("a", config.AllProjects)} {
-		got, skipped := Map(nets, src)
-		if len(got) != 2 || len(skipped) != 0 || got[0].RouteTarget == got[1].RouteTarget {
-			t.Fatalf("%+v: %+v %+v", src, got, skipped)
+	sids := func(nets []*apiv2.Network) map[string]uint32 {
+		out, _ := Map(nets, source("a"), static)
+		m := map[string]uint32{}
+		for _, n := range out {
+			m[n.Group] = n.SID
 		}
-		for _, n := range got {
-			project := strings.Split(n.Group, "/")[1]
-			for _, a := range n.Aggregates {
-				if !strings.HasPrefix(a, "10."+project[1:]+".") {
-					t.Errorf("%s has %s of another project", n.Group, a)
-				}
-			}
+		return m
+	}
+	before := sids(nets)
+	if before["p3/x"] != 4011 || before["p1/x"] == 0 || before["p1/x"] > config.MaxSIDFunction || before["p4/x"] == 3981 {
+		t.Fatalf("SIDs: %v", before)
+	}
+	seen := map[uint32]bool{3981: true}
+	for g, sid := range before {
+		if seen[sid] {
+			t.Fatalf("%s: SID %d used twice: %v", g, sid, before)
+		}
+		seen[sid] = true
+	}
+	// a newer network whose VNI is an existing hashed SID gets another one
+	newer := at(network("new", "p5", "a", before["p1/x"], "10.5.0.0/24", labelled("x")), 9)
+	after := sids(append(nets, newer))
+	for g, sid := range before {
+		if after[g] != sid {
+			t.Fatalf("%s moved from %d to %d", g, sid, after[g])
 		}
 	}
-}
-
-func TestAssignSIDs(t *testing.T) {
-	static := []config.Network{{VRF: "vrf3981", VNI: 3981}, {VRF: "big", VNI: 100000, SID: 7}}
-	nets := []config.Network{
-		{Group: "g/c", VNI: 3981},   // VNI taken by a static network: hashed
-		{Group: "g/a", VNI: 4011},   // VNI
-		{Group: "g/b", VNI: 200000}, // too large: hashed
-	}
-	AssignSIDs(nets, static)
-	if nets[1].SID != 4011 {
-		t.Fatalf("g/a: %d", nets[1].SID)
-	}
-	seen := map[uint32]bool{3981: true, 7: true, 4011: true}
-	for _, n := range []config.Network{nets[0], nets[2]} {
-		if n.SID == 0 || n.SID > config.MaxSIDFunction || seen[n.SID] {
-			t.Fatalf("%s: SID %d", n.Group, n.SID)
-		}
-		seen[n.SID] = true
-	}
-	// deterministic, independent of the order
-	again := []config.Network{nets[2], nets[0], nets[1]}
-	for i := range again {
-		again[i].SID = 0
-	}
-	AssignSIDs(again, static)
-	if again[0].SID != nets[2].SID || again[1].SID != nets[0].SID {
-		t.Fatalf("order-dependent: %+v vs %+v", again, nets)
+	if after["p5/x"] == before["p1/x"] {
+		t.Fatal("new network took an existing SID")
 	}
 }

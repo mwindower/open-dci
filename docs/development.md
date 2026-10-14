@@ -58,5 +58,5 @@ make lab-redeploy  # lab down + up + e2e tests (see lab/README.md)
 | 2.1 | Safety net: per-network prefix allowlists (`prefixes`), inbound route-target filter and `maxPrefixes` per peer | done |
 | 3.2 | Dedicated gateways: provisioned tenant L3VNIs (`networks[].vni`), lab gateways at the exits; the firewall placement removed | done |
 | 3.3 | Scale test for dedicated gateways: number of provisioned VRFs, packets per second | |
-| 4 | metal-stack integration, step 1: networks from metal-apiserver (`source.metalStack`: by project or label, RTs derived from the group names, cached last answer), no new metal-stack entities; fake API in the lab | done |
+| 4 | metal-stack integration, step 1: networks from metal-apiserver (`source.metalStack`: labelled networks, RTs derived from project and label value, cached last answer, label changes without interruption), no new metal-stack entities; fake API in the lab | done |
 | 4.1 | metal-stack integration, step 2: a network stitch entity, `dci-controller` and gateway role ([proposal](metal-stack.md)) | |

@@ -42,16 +42,14 @@ type Source struct {
 }
 
 // MetalStackSource derives networks from metal-apiserver's private networks
-// (API v2), without metal-stack entities of its own, in one of two modes:
-// all private networks of a project form one stitched network (Projects), or
-// a project's networks with the same Label value do. Either way, networks of
+// (API v2), without metal-stack entities of its own: a project's networks
+// with the same value of Label form one stitched network. Networks of
 // different projects are never stitched together.
 type MetalStackSource struct {
 	// URL of metal-apiserver, e.g. https://api.metal.example.com.
 	URL string `json:"url"`
-	// TokenFile holds the API token (re-read on every poll). With explicit
-	// Projects a viewer role in each of them is enough; "*" and Label need
-	// the admin viewer role.
+	// TokenFile holds the API token (re-read on every poll), with the admin
+	// viewer role: the gateway lists the private networks of all projects.
 	TokenFile string `json:"tokenFile,omitempty"`
 	// Partition is the gateway's own partition: its networks there become
 	// the gateway's tenant VRFs.
@@ -61,14 +59,10 @@ type MetalStackSource struct {
 	// RouteTargetASN is the 2-byte admin part of the derived route targets,
 	// a namespace independent of the gateways' (possibly 4-byte) ASNs.
 	RouteTargetASN uint32 `json:"routeTargetASN"`
-	// Projects whose private networks are stitched, all of a project's
-	// networks into one (one per partition); "*" = every project. Exclusive
-	// with Label.
-	Projects []string `json:"projects,omitempty"`
 	// Label is a network label key: only labelled networks are stitched, a
-	// project's networks with the same value into one. Exclusive with
-	// Projects.
-	Label string `json:"label,omitempty"`
+	// project's networks with the same value into one (at most one per
+	// partition).
+	Label string `json:"label"`
 	// DefaultRouteLabel is a network label key whose value (export or
 	// import) sets networks[].defaultRoute for the gateway's own network.
 	DefaultRouteLabel string `json:"defaultRouteLabel,omitempty"`
@@ -76,9 +70,6 @@ type MetalStackSource struct {
 
 // DefaultSourceInterval is the default poll interval of a source.
 const DefaultSourceInterval = 30 * time.Second
-
-// AllProjects in MetalStackSource.Projects selects every project.
-const AllProjects = "*"
 
 // Duration is a time.Duration written as "30s" in the config.
 type Duration struct{ time.Duration }
@@ -641,16 +632,8 @@ func (s *Source) validate() []string {
 		errs = append(errs, fmt.Sprintf("metalStack.routeTargetASN: %d, want a 2-byte value (1-65535): it is only the route targets' namespace, "+
 			"and after a 4-byte ASN the local part has 16 bits, too few for hashed group names; the gateways' own ASN may still be 4-byte", m.RouteTargetASN))
 	}
-	switch {
-	case len(m.Projects) == 0 && m.Label == "":
-		errs = append(errs, "metalStack: projects or label required")
-	case len(m.Projects) > 0 && m.Label != "":
-		errs = append(errs, "metalStack: projects and label are exclusive: stitch all networks of the projects, or only the labelled ones")
-	}
-	for i, p := range m.Projects {
-		if p == "" || (p == AllProjects && len(m.Projects) > 1) {
-			errs = append(errs, fmt.Sprintf("metalStack.projects[%d]: %q, want project IDs or a single %q", i, p, AllProjects))
-		}
+	if m.Label == "" {
+		errs = append(errs, "metalStack.label: required (the network label whose value groups the networks)")
 	}
 	return errs
 }

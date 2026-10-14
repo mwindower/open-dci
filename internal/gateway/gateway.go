@@ -49,6 +49,9 @@ type Gateway struct {
 	routerID  string
 	// lastAggregates: the active aggregates, kept when FRR can't be asked
 	lastAggregates map[string]bool
+	// settled: networks (VRFs) that passed their health checks once; only
+	// these can make the gateway withdraw
+	settled map[string]bool
 }
 
 // Result describes what a reconcile did.
@@ -255,7 +258,7 @@ func (g *Gateway) Run(ctx context.Context, interval time.Duration) {
 				if g.routerID == "" {
 					continue
 				}
-				h := g.checkHealth(g.routerID)
+				h := g.checkHealth(g.routerID, false)
 				if h.OK {
 					bad, good = 0, good+1
 				} else {

@@ -67,14 +67,14 @@ Requirements:
   their `node.yaml`, standing in for switch ACLs); the gateways run open-dci's ingress
   filter.
 - **Different tenant VNIs per partition** (3981/4011/5011, 3982/4012/5012), each tenant stitched via
-  its own route target (65535:1001, 65535:3473928608).
+  its own route target (65535:1001, 65535:26782482).
 - **Static and metal-apiserver networks side by side:** tenant 1 is written in each
   gateway's `open-dci.yaml`; tenant 2 comes from the gateways' network source
   (`source.metalStack`). A fake metal-apiserver (`cmd/fakeapi`, a sidecar of the core,
   `http://core:8080` on the management network) serves the private networks of project
-  `tenant-2` from `configs/core/metal-api.yaml`, one per partition; the gateways stitch all
-  networks of their listed projects (project mode) and derive VRF, VNI, aggregates and
-  route target from them.
+  `tenant-2` from `configs/core/metal-api.yaml`, one per partition, labelled
+  `open-dci.io/stitch: main`; the gateways stitch the labelled networks and derive VRF,
+  VNI, aggregates and route target from them.
 - **Leaves** mirror metal-core's SONiC template (auto RTs, one tenant VRF per machine port).
   **Machines** announce their IPs via BGP to the leaf, as in metal-stack.
 - **`labnode`** (`cmd/labnode`) is every node's entrypoint:
@@ -115,7 +115,7 @@ Routing tables of every node: [docs/lab-routing.md](../docs/lab-routing.md).
 | `TestType5Hygiene` | the gateways' type-5 routes of remote prefixes carry the L3VNI's route target and the partition's site of origin, but no DCI RT or other community from the VPN |
 | `TestSiteOfOriginNotExported` | gw-a1 announces its aggregate afresh, marked with the own site of origin (by hand): it never reaches the VPN, gw-a2's path carries the traffic; without the mark it is exported again |
 | `TestSourceStitchesTenant2` | every gateway stitches tenant 2 from the fake metal-apiserver: `status` shows its group and derived route target, `/metrics` one source network, not stale |
-| `TestSourceAddRemove` | a new project's networks in partitions A and B are provisioned on pairs A and B only; a project with two networks in one partition is reported as skipped; an unlisted project's labelled networks aren't stitched; dropped from the answer, the networks are removed with their devices |
+| `TestSourceLabelChanges` | labels come and go while pings run between the untouched members (tenant 1 and tenant 2 A↔B, none may be lost): tenant 2 leaves and rejoins partition C; other groups come and go (pairs only provision their own partition's members, an unlabelled network is ignored, the same value in another project is a group of its own, two networks with one value in a partition are reported as skipped, VRF IDs beyond 16 bits get the same hashed SID on both gateways of a pair) without a single removed line on gw-a1; the remaining VRFs keep their ifindex (never rebuilt); a lone member stays provisioned |
 | `TestSourceOutage` | metal-apiserver unreachable: the gateway keeps its networks and stays healthy (`/healthz` 200 with a warning, `source_stale` 1, errors counted), tenant 2 keeps working |
 | `TestSelfHealAfterFRRReload` | `frr-reload.py` of the base config wipes all open-dci lines → back within one interval |
 | `TestSelfHealMTU` | DCI devices reset to 9000 → raised again, 9000 B packets pass |

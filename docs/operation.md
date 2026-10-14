@@ -48,7 +48,7 @@ uplink1  4200000018  Established  00:00:29  4/6              4/6
 
 VRF                         RT                RD              SID                          L3VNI    LOCAL v4/v6  REMOTE v4/v6
 vrf3981                     65535:1001        10.0.0.16:3981  fd00:dc1:a:f8d:: (End.DT46)  3981 Up  1/1          1/1
-vrf3982 (project/tenant-2)  65535:3473928608  10.0.0.16:3982  fd00:dc1:a:f8e:: (End.DT46)  3982 Up  1/1          1/1
+vrf3982 (tenant-2/main)     65535:26782482    10.0.0.16:3982  fd00:dc1:a:f8e:: (End.DT46)  3982 Up  1/1          1/1
 ```
 
 - `locator` is `announced`, or `WITHHELD` with the reason (see
@@ -58,7 +58,7 @@ vrf3982 (project/tenant-2)  65535:3473928608  10.0.0.16:3982  fd00:dc1:a:f8e:: (
 - `source` (only with a [network source](configuration.md#source-networks-from-metal-apiserver)):
   how many networks it adds, when it last answered, failed polls and skipped groups, followed
   by a line per warning (stale, skipped). Networks from the source show their group after the
-  VRF (here tenant 2, from metal-apiserver's project `tenant-2`).
+  VRF (here tenant 2: project `tenant-2`, label value `main`).
 - The only peers are the sessions to the two exits (`peers[].interface`); `AS` comes from
   FRR.
   `RCVD` counts the remote gateways' routes (2 tenants × 2 gateways of pair B). `SENT`
@@ -298,8 +298,9 @@ vrf vrf104100
  ipv6 route fd00:dc1:a::/48 fe80::1 dci1       ! own locator → default VRF (SIDs)
  ipv6 route fd00:dc1:ff::a1/128 fe80::1 dci1   ! own loopback, if outside the locator
 !
-ip prefix-list DCI-vrf3981-v4 seq 5 permit 10.0.16.0/24     ! networks[].aggregates (exact),
-ip prefix-list DCI-vrf3981-v4 seq 10 permit 10.0.32.0/24    !   then networks[].prefixes
+ip prefix-list DCI-vrf3981-v4 seq 663923921 permit 10.0.16.0/24   ! networks[].aggregates (exact) and
+ip prefix-list DCI-vrf3981-v4 seq 438889611 permit 10.0.32.0/24   !   networks[].prefixes; seq from the
+                                                                  !   entry's content, not its position
 route-map DCI-vrf3981-v4 deny 5                 ! (in every filter route-map) a route with the
  match extcommunity DCI-SOO                     !   own site of origin came back from the own
                                                 !   fabric: never into the VPN
@@ -326,8 +327,8 @@ route-map DCI-ADV permit 30                     !   ... then mark it with the si
  set extcommunity soo 4200000016:10             !   FRR adds the L3VNI's RT and router MAC
 bgp extcommunity-list expanded DCI-ANY seq 5 permit .*
 bgp extcommunity-list standard DCI-SOO seq 5 permit soo 4200000016:10   ! gateway.siteOfOrigin
-bgp extcommunity-list standard DCI-RT seq 5 permit rt 65535:1001   ! one per route target
-bgp extcommunity-list standard DCI-RT seq 10 permit rt 65535:3473928608
+bgp extcommunity-list standard DCI-RT seq 1872273698 permit rt 65535:1001   ! one per route target,
+bgp extcommunity-list standard DCI-RT seq 3319327117 permit rt 65535:26782482   !   seq from its content
 route-map DCI-PEER-IN permit 10
  match extcommunity DCI-RT
 ```
@@ -382,7 +383,14 @@ routes, and its anycast partner carries everything. After three good checks it a
 again. `status` shows `health UNHEALTHY: <reason>` and exits non-zero; the log has
 `locator withdrawn reason=...`.
 
-`apply` and `status` run the checks too, but only `run` withdraws.
+A network counts for the withdrawal only once it has passed the checks: a network that is
+still being provisioned fails them for its first seconds (L3VNI not up yet, no SID yet), and
+both gateways of a pair provision a new network at the same time. Withdrawing for that would
+take the partition down whenever a network is added; `status` shows the problem instead. A
+network that leaves the config and comes back starts over.
+
+`apply` and `status` run the checks too (every network counts there), but only `run`
+withdraws.
 
 ### Announcing the locator
 

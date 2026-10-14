@@ -3,9 +3,11 @@ package gateway
 import (
 	"fmt"
 	"net/netip"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/mwindower/open-dci/internal/config"
 	"github.com/mwindower/open-dci/internal/kernel"
 )
 
@@ -82,8 +84,13 @@ func transportVerdict(reachable map[netip.Addr]bool) Health {
 	return Health{Reason: "no remote SID reachable (" + strings.Join(dead, ", ") + ")"}
 }
 
-// checkHealth runs the checks once.
-func (g *Gateway) checkHealth(routerID string) Health {
+// checkHealth runs the checks once. all: every network counts (status);
+// otherwise (Run's withdraw decision) a network counts only once it has
+// passed its checks: a network that is still being provisioned (L3VNI not up
+// yet, no SID yet) fails them for a few seconds, and both gateways of a pair
+// provision it at the same time. Withdrawing for that would take the whole
+// partition down whenever a network is added; status shows it instead.
+func (g *Gateway) checkHealth(routerID string, all bool) Health {
 	var sids map[string]struct {
 		Context struct {
 			VRFName string `json:"vrfName"`
@@ -92,29 +99,26 @@ func (g *Gateway) checkHealth(routerID string) Health {
 	if err := g.FRR.ShowJSON("show segment-routing srv6 sid", &sids); err != nil {
 		return Health{Reason: "show segment-routing srv6 sid: " + err.Error()}
 	}
+	g.pruneSettled()
 	block := netip.MustParsePrefix(g.Config.Gateway.LocatorBlock)
 	reachable := map[netip.Addr]bool{}
 	for _, n := range g.Config.Networks {
-		if st := g.l3vniState(n.VNI, routerID); st != "Up" {
-			return Health{Reason: fmt.Sprintf("%s: L3VNI %d %s", n.VRF, n.VNI, st)}
-		}
 		var sid netip.Addr
 		for s, v := range sids {
 			if v.Context.VRFName == n.VRF {
 				sid, _ = netip.ParseAddr(s)
 			}
 		}
-		if !sid.IsValid() {
-			return Health{Reason: n.VRF + ": no SID"}
-		}
-		if !kernel.LocalSIDInstalled(sid) {
-			return Health{Reason: fmt.Sprintf("%s: SID %s not installed in the kernel", n.VRF, sid)}
-		}
-		for _, afi := range []string{"ipv4", "ipv6"} {
-			if _, _, stuck := tallyRoutes(g.vrfTable(n.VRF, afi)); stuck > 0 {
-				return Health{Reason: fmt.Sprintf("%s: %d %s prefix(es) without best path", n.VRF, stuck, afi)}
+		if reason := g.networkProblem(n, routerID, sid); reason != "" {
+			if all || g.settled[n.VRF] {
+				return Health{Reason: reason}
 			}
+			continue // still being provisioned
 		}
+		if g.settled == nil {
+			g.settled = map[string]bool{}
+		}
+		g.settled[n.VRF] = true
 		remote, err := kernel.EncapSIDs(n.Table)
 		if err != nil {
 			return Health{Reason: n.VRF + ": " + err.Error()}
@@ -132,4 +136,33 @@ func (g *Gateway) checkHealth(routerID string) Health {
 		}
 	}
 	return transportVerdict(reachable)
+}
+
+// networkProblem checks one network's data plane; "" if it works.
+func (g *Gateway) networkProblem(n config.Network, routerID string, sid netip.Addr) string {
+	if st := g.l3vniState(n.VNI, routerID); st != "Up" {
+		return fmt.Sprintf("%s: L3VNI %d %s", n.VRF, n.VNI, st)
+	}
+	if !sid.IsValid() {
+		return n.VRF + ": no SID"
+	}
+	if !kernel.LocalSIDInstalled(sid) {
+		return fmt.Sprintf("%s: SID %s not installed in the kernel", n.VRF, sid)
+	}
+	for _, afi := range []string{"ipv4", "ipv6"} {
+		if _, _, stuck := tallyRoutes(g.vrfTable(n.VRF, afi)); stuck > 0 {
+			return fmt.Sprintf("%s: %d %s prefix(es) without best path", n.VRF, stuck, afi)
+		}
+	}
+	return ""
+}
+
+// pruneSettled forgets networks that are no longer configured: one that
+// comes back (e.g. its label returns) is provisioned anew.
+func (g *Gateway) pruneSettled() {
+	for vrf := range g.settled {
+		if !slices.ContainsFunc(g.Config.Networks, func(n config.Network) bool { return n.VRF == vrf }) {
+			delete(g.settled, vrf)
+		}
+	}
 }

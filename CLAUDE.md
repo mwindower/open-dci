@@ -25,7 +25,8 @@ Scope decisions, which should not be revisited without the user:
   router-id, VNI device chain) instead of assuming metal-networker's names. metal-stack
   specifics belong in the lab and in docs. The one exception is the optional network
   source `internal/source/metalstack` (`source.metalStack`: networks from metal-apiserver
-  by project or label, no new metal-stack entities); the gateway only sees it as
+  labelled networks, grouped by project and label value; no new metal-stack entities);
+  the gateway only sees it as
   `gateway.NetworkSource`, and without a `source` block nothing changes.
 - **Two transport modes**:
   - `transport.vrf` set: a DCI network (EVPN VRF) joined to the default VRF by a veth pair.
@@ -70,7 +71,8 @@ Scope decisions, which should not be revisited without the user:
   - `lab/cmd/labnode` is the container entrypoint (node.yaml → netlink → sidecars → FRR).
   - Tenant 2 comes from the gateways' network source: `lab/cmd/fakeapi` (a sidecar of the
     core, `http://core:8080` on the management network) serves `configs/core/metal-api.yaml`
-    as metal-apiserver. Its route target is derived (`65535:3473928608`); tests change the
+    as metal-apiserver, labelled `open-dci.io/stitch: main`. Its route target is derived
+    (`65535:26782482`, from `tenant-2/main`); tests change the
     answer via `/run/fakeapi/` on the core.
   - e2e tests: `lab/*_test.go`, build tag `e2e`.
 - `docs/`: findings of phases 0/0b (historical design reasoning), the lab's routing
@@ -187,6 +189,17 @@ old binary until it is redeployed (or you `docker cp` for a quick look).
 - `run` also checks the gateway's health every 2 s (`internal/gateway/health.go`) and
   withdraws it like a drain while unhealthy. Remote SIDs count as broken only if *none* is
   reachable: one failed partition must not make every gateway withdraw.
+  A network only counts once it has passed the checks (`settled`): a new one fails them
+  for its first seconds on both gateways of a pair at once, which would withdraw the whole
+  partition whenever a network (label) is added.
+- Permit-only lists (per-VRF prefix lists, `DCI-RT`) number their entries by content
+  (`stableSeqs`), never by position: a reconcile removes stale lines before adding the new
+  ones, so renumbering would briefly drop other networks' routes when one is added.
+- FRR 10.4.1 with `func-bits` > 16 encodes the SID function wrongly into the VPN route's
+  transposed label (remote gateways encapsulate to a shifted SID; tested with 20). So SID
+  functions stay 16 bits; source networks with larger VRF IDs (metal-stack: up to 131072)
+  get hashed SIDs, assigned oldest network first. A changed `sid vpn per-vrf export` only
+  takes effect after `no sid ...` (removals run first, so open-dci is fine).
 - A gateway withholds its locator until its EVPN sessions have sent End-of-RIB
   (`internal/gateway/ready.go`); `status` is unhealthy meanwhile. The readiness poll is
   debounced and ignores failed or empty answers: reconciling while `frr-reload.py`

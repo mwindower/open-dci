@@ -96,6 +96,12 @@ Optional. Instead of (or in addition to) writing `networks` by hand, open-dci re
 what metal-stack already has, the private networks (type `child`) with their project,
 partition, VRF ID, prefixes and labels; no new metal-stack entity.
 
+Only networks that carry the stitch label are stitched, and a project's networks with the
+same label value form one stitched network. The tenant opts in by labelling its networks,
+e.g. `open-dci.io/stitch: prod` on its network in each partition. The project comes from the
+network itself, so a stitched network never spans projects: `prod` in two projects makes two
+stitched networks.
+
 ```yaml
 source:
   metalStack:
@@ -103,61 +109,69 @@ source:
     tokenFile: /etc/open-dci/metal-stack-token
     partition: fra-equ01              # the gateway's own partition
     routeTargetASN: 65535             # namespace of the derived route targets
-    projects: [<project-id>]          # all private networks of these projects ("*": every project)
-    # label: open-dci.io/stitch       # or instead: only labelled networks, by label value
+    label: open-dci.io/stitch         # networks with this label, grouped by project and value
 ```
-
-Two modes, exactly one per gateway (all gateways of a stitched network must use the same
-one, since the route target depends on it). In both, a stitched network never spans
-projects:
-- **`projects`:** all private networks of a project form one stitched network.
-- **`label`:** only a project's networks carrying the label are stitched; those with the
-  same value form one stitched network.
 
 | Field | Default | Meaning |
 |---|---|---|
 | `url` | required | metal-apiserver's URL. |
-| `tokenFile` | – | File with an API token, re-read on every poll. With explicit `projects`, open-dci lists each project's networks (project API; a viewer role in each project is enough); with `"*"` or `label` it lists all private networks (admin API; admin viewer role). |
+| `tokenFile` | – | File with an API token with the admin viewer role, re-read on every poll. open-dci lists the private networks of all projects (labels can't be filtered by key on the server). |
 | `partition` | required | The gateway's own partition: its networks there become the gateway's tenant VRFs. |
 | `interval` | `30s` | Time between polls. |
 | `routeTargetASN` | required | 2-byte admin part (1 – 65535) of the derived route targets. It is only a namespace, independent of the gateways' ASNs, which may well be 4-byte (the lab's gateways have 4200000016 and the like). A 4-byte value isn't accepted: the local part would only have 16 bits, too few for hashed names. |
-| `projects` | – | Project IDs whose private networks are all stitched, each project's into one stitched network, or `["*"]` for every project. Exclusive with `label`. |
-| `label` | – | A network label key. Only networks with this label are stitched; a project's networks with the same value form one stitched network, so a project can have several, and tenants opt in themselves by labelling their networks. Exclusive with `projects`. |
+| `label` | required | The network label key. Its value names the stitched network within the project; a project can have several. |
 | `defaultRouteLabel` | – | A network label key whose value (`export` or `import`) sets `defaultRoute` for the gateway's own network of the group. |
 
 How the networks are derived. Both gateways of a pair compute the same result, and every
 gateway the same route targets:
-- **Groups:** `project/<project>` for `projects`, `label/<project>/<value>` for `label`.
-  The project is part of every group, so stitching across projects isn't possible: the same
-  label value in two projects makes two stitched networks with different route targets.
-- **One network per partition:** a group with two networks in the same partition is
-  stitched nowhere (reported as skipped; label the networks to split them).
-- A group is provisioned on the gateways of each partition it has a network in, if it has a
-  network in at least one other partition.
+- **Groups:** `<project>/<label value>`.
+- **One network per partition:** a group with two networks with the same value in one
+  partition is stitched nowhere (reported as skipped) until one of them loses the label.
+- A group is provisioned on the gateways of every partition it has a network in, even if
+  that is the only partition (yet).
 - `vrf` is `vrf<VRF ID>`, `vni` the VRF ID of the network in the own partition.
 - `aggregates`: the prefixes of all the group's networks; each lies in one partition.
 - `routeTarget`: `<routeTargetASN>:<2^24 + fnv32a(group) mod (2^32 − 2^24)>`, as in
   [day2.md](day2.md#deriving-route-targets-automatically). It is outside the VNI range, so it
   can't collide with an EVPN auto RT. Groups whose route targets collide are skipped.
-- `sid`: the VNI if it fits 16 bits and is free; otherwise derived from the group's name.
-  If another group already has that value, the next free one is taken, so deleting that
-  other group can change the SID (a short interruption).
+- `sid`: the VNI if it fits 16 bits and is free. metal-stack's VRF IDs go up to 131072 by
+  default, so larger ones get a SID hashed from the VNI. Networks are served oldest first
+  (`created_at`), so a new network never moves an existing SID; only deleting a network can
+  move a younger one that collided with it (rare: it needs a hash collision). Wider SID
+  functions would avoid hashing, but FRR 10.4.1 encodes functions beyond 16 bits wrongly
+  into the VPN routes.
 - Static `networks` win: a derived network that conflicts with one (VRF, VNI, SID, table,
   route target) or is invalid is skipped and reported; the others are stitched anyway.
 
 What it means in operation:
-- open-dci polls every `interval`. A change (a new network, a new label, a deleted
-  network) takes effect at the next reconcile, right after the poll.
+- open-dci polls every `interval`. A change takes effect at the next reconcile, right after
+  the poll.
 - A failed poll changes nothing. open-dci keeps the last good answer, also across
   restarts: `run` caches it next to the state file
   (`/var/lib/open-dci/metal-stack-networks.json`). Only a successful answer without a
-  network removes it.
+  network (or without its label) removes it.
 - Without any answer and without a cache, open-dci doesn't reconcile at all, so it never
   removes networks it merely doesn't know about yet.
 - `render`, `diff`, `apply` and `status` use the cache; `--refresh` polls first.
 - `status` and the metrics show the source's state: [Operation](operation.md#metrics-and-health).
-- Renaming a label value or moving a network to another group gives it a new route target,
-  which is a short interruption.
+
+#### Label changes
+
+Labels come and go while traffic flows. What each change touches (e2e
+`TestSourceLabelChanges`, with continuous pings between the untouched members):
+
+| Change | Effect |
+|---|---|
+| A network gets the label (new partition in the group) | That partition's gateways provision its VRF. The other members only get its prefixes added to their allowlists; their VRFs, SIDs and route targets stay, and no line of theirs is touched. |
+| A network loses the label | That partition's gateways remove its VRF. The others only lose its prefixes. |
+| Down to one partition | The last member stays provisioned (idle until a partner returns), so nothing is rebuilt when one does. |
+| Another group appears or disappears | Nothing of the existing groups changes: the allowlists and the route-target filter number their entries by content, not by position, so adding or removing one never renumbers the others. |
+| A network's label value changes | It leaves one group and joins the other: new route target for that network only. Its connectivity to the old group ends, by intent. |
+| A second network in a partition gets the same value | **The whole group is skipped** until one of the two loses the label: the one change that interrupts a working stitched network. |
+
+A newly provisioned network doesn't count for the [health checks](operation.md#withdrawing-an-unhealthy-gateway)
+until it has passed them once: both gateways of a pair provision it at the same time, and
+withdrawing for its first seconds would take the partition down for everyone.
 
 ## Validation
 
@@ -177,9 +191,8 @@ Besides syntax, `validate` (and every other command) rejects:
   set, `ge`/`le` out of range, `ge` > `le`) or duplicates, also of an aggregate; a
   `defaultRoute` other than `export`/`import`, or together with a prefix matching the
   default route; and a `maxPrefixes` below 1
-- no `networks` without a `source`; a `source.metalStack` without `url` or `partition`,
-  with neither or both of `projects` and `label`, or with a `routeTargetASN` that isn't
-  2-byte; `"*"` together with other projects; an `interval` below 1 s
+- no `networks` without a `source`; a `source.metalStack` without `url`, `partition` or
+  `label`, or with a `routeTargetASN` that isn't 2-byte; an `interval` below 1 s
 
 At runtime, `apply`/`run`/`diff`/`status` also check the system:
 - the transport VRF (if any) exists in the kernel, with a BGP instance

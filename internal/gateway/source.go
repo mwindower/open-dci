@@ -59,6 +59,7 @@ func (g *Gateway) ApplySource() {
 		}
 	}
 	g.Config = cfg
+	g.pruneSettled()
 	g.source.Synced, g.source.Interval = synced, g.Source.Interval()
 	g.source.Networks = len(cfg.Networks) - len(g.static.Networks)
 	g.source.Skipped = skipped

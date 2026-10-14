@@ -16,7 +16,6 @@ import (
 	adminv2 "github.com/metal-stack/api/go/metalstack/admin/v2"
 	"github.com/metal-stack/api/go/metalstack/admin/v2/adminv2connect"
 	apiv2 "github.com/metal-stack/api/go/metalstack/api/v2"
-	"github.com/metal-stack/api/go/metalstack/api/v2/apiv2connect"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
@@ -55,8 +54,7 @@ func (s *Source) Networks(static []config.Network) ([]config.Network, []config.S
 	s.mu.Lock()
 	nets, synced := s.nets, s.synced
 	s.mu.Unlock()
-	out, skipped := Map(nets, s.cfg)
-	AssignSIDs(out, static)
+	out, skipped := Map(nets, s.cfg, static)
 	return out, skipped, synced
 }
 
@@ -82,9 +80,8 @@ func (s *Source) Sync(ctx context.Context) (changed bool, err error) {
 	return changed, nil
 }
 
-// fetch lists the private networks: per project with the project API if the
-// projects are given explicitly (a project viewer token is enough), otherwise
-// ("*" or label) all of them with the admin API.
+// fetch lists the private networks of all projects (admin API): labels
+// can't be filtered by key on the server.
 func (s *Source) fetch(ctx context.Context) ([]*apiv2.Network, error) {
 	opts := []connect.ClientOption{}
 	if s.cfg.TokenFile != "" {
@@ -95,21 +92,8 @@ func (s *Source) fetch(ctx context.Context) ([]*apiv2.Network, error) {
 		opts = append(opts, connect.WithInterceptors(bearer(strings.TrimSpace(string(token)))))
 	}
 	child := apiv2.NetworkType_NETWORK_TYPE_CHILD
-	query := &apiv2.NetworkQuery{Type: &child}
-	if s.cfg.Label == "" && !slices.Contains(s.cfg.Projects, config.AllProjects) {
-		c := apiv2connect.NewNetworkServiceClient(s.http, s.cfg.URL, opts...)
-		var nets []*apiv2.Network
-		for _, p := range s.cfg.Projects {
-			resp, err := c.List(ctx, &apiv2.NetworkServiceListRequest{Project: p, Query: query})
-			if err != nil {
-				return nil, fmt.Errorf("project %s: %w", p, err)
-			}
-			nets = append(nets, resp.GetNetworks()...)
-		}
-		return nets, nil
-	}
 	c := adminv2connect.NewNetworkServiceClient(s.http, s.cfg.URL, opts...)
-	resp, err := c.List(ctx, &adminv2.NetworkServiceListRequest{Query: query})
+	resp, err := c.List(ctx, &adminv2.NetworkServiceListRequest{Query: &apiv2.NetworkQuery{Type: &child}})
 	if err != nil {
 		return nil, err
 	}

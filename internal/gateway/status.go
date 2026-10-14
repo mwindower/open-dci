@@ -93,7 +93,7 @@ func (g *Gateway) Status(routes string) (*Status, error) {
 		Announced:      plan.Readiness.Ready,
 		WithheldReason: plan.Readiness.Reason,
 		Drained:        plan.Drained,
-		Health:         g.checkHealth(plan.Identity.RouterID),
+		Health:         g.checkHealth(plan.Identity.RouterID, true),
 		Kernel:         g.kernelStatus(),
 	}
 

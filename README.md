@@ -139,8 +139,8 @@ mixed freely:
   (tagged as its own), and reconciles continuously instead of owning `frr.conf`.
 - **Independent of metal-stack.** metal-stack is the first target, not a dependency: the
   code assumes no device names or metal-stack APIs, so any FRR-based EVPN fabric works.
-  Optionally, the gateways read the networks to stitch from metal-apiserver (by project or
-  network label, no new metal-stack entities;
+  Optionally, the gateways read the networks to stitch from metal-apiserver (labelled networks,
+  no new metal-stack entities;
   [Configuration](docs/configuration.md#source-networks-from-metal-apiserver)).
 
 ## Requirements on the environment

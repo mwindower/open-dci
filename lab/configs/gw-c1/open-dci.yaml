@@ -24,16 +24,14 @@ networks:
       - 2001:db8:32::/48
       - 2001:db8:48::/48
 # tenant 2 comes from metal-apiserver (in the lab: the fake one on the core,
-# configs/core/metal-api.yaml): all private networks of project tenant-2, one per
-# partition, become one stitched network; its VNI here is the VRF ID of the
-# partition-c network (vrf5012), the route target is derived from the project.
+# configs/core/metal-api.yaml): project tenant-2's private networks labelled
+# open-dci.io/stitch=main, one per partition, become one stitched network
+# (tenant-2/main); its VNI here is the VRF ID of the partition-c network (vrf5012), the route target is derived from tenant-2/main.
 source:
   metalStack:
     url: http://core:8080
     partition: c                    # this gateway's partition
     interval: 5s                    # lab: react quickly (default 30s)
     routeTargetASN: 65535           # namespace of the derived route targets
-    projects: [tenant-2, tenant-3, tenant-4]   # stitch all private networks of these
-                                    # projects, one stitched network per project (tenant-3/4:
-                                    # only while e2e tests add them); the alternative is
-                                    # "label: <key>": only labelled networks, by label value
+    label: open-dci.io/stitch       # only networks with this label are stitched; a project's
+                                    # networks with the same value form one stitched network

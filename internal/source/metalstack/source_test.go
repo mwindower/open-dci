@@ -38,31 +38,22 @@ func TestSource(t *testing.T) {
 	defer srv.Close()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	for _, mode := range []struct {
-		projects []string
-		label    string
-		group    string
-	}{
-		{[]string{"p2"}, "", "project/p2"},               // project API
-		{[]string{config.AllProjects}, "", "project/p2"}, // admin API
-		{nil, "dci/stitch", "label/p2/web"},              // admin API
-	} {
-		os.Remove(cache)
-		cfg := &config.MetalStackSource{URL: srv.URL, TokenFile: token, Partition: "a", RouteTargetASN: 65535, Projects: mode.projects, Label: mode.label}
+	os.Remove(cache)
+	cfg := &config.MetalStackSource{URL: srv.URL, TokenFile: token, Partition: "a", RouteTargetASN: 65535, Label: "dci/stitch"}
+	{
 		s := New(cfg, cache, log)
 		if changed, err := s.Sync(context.Background()); err != nil || !changed {
-			t.Fatalf("%v: sync: changed %v, %v", mode, changed, err)
+			t.Fatalf("sync: changed %v, %v", changed, err)
 		}
 		nets, _, synced := s.Networks(nil)
-		if len(nets) != 1 || nets[0].VRF != "vrf3982" || nets[0].SID != 3982 || nets[0].Group != mode.group || synced.IsZero() {
-			t.Fatalf("%v: %+v", mode, nets)
+		if len(nets) != 1 || nets[0].VRF != "vrf3982" || nets[0].SID != 3982 || nets[0].Group != "p2/web" || synced.IsZero() {
+			t.Fatalf("%+v", nets)
 		}
 		if changed, err := s.Sync(context.Background()); err != nil || changed {
-			t.Fatalf("%v: second sync: changed %v, %v", mode, changed, err)
+			t.Fatalf("second sync: changed %v, %v", changed, err)
 		}
 	}
 
-	cfg := &config.MetalStackSource{URL: srv.URL, TokenFile: token, Partition: "a", RouteTargetASN: 65535, Projects: []string{"p2"}}
 	s := New(cfg, cache, log)
 	// the cache: known before the first sync
 	if nets, _, synced := s.Networks(nil); len(nets) != 1 || synced.IsZero() {
@@ -76,13 +67,14 @@ func TestSource(t *testing.T) {
 	if nets, _, _ := s.Networks(nil); len(nets) != 1 {
 		t.Fatalf("after a failure: %+v", nets)
 	}
-	// only an answer without the network removes it
+	// only an answer without the network (or its label) removes it
 	os.WriteFile(token, []byte("secret"), 0o600)
-	writeFixture(t, fixture, a)
+	a.Labels = nil
+	writeFixture(t, fixture, a, b)
 	if changed, err := s.Sync(context.Background()); err != nil || !changed {
 		t.Fatalf("sync: changed %v, %v", changed, err)
 	}
-	if nets, skipped, _ := s.Networks(nil); len(nets) != 0 || len(skipped) != 1 {
+	if nets, skipped, _ := s.Networks(nil); len(nets) != 0 || len(skipped) != 0 {
 		t.Fatalf("after removal: %+v %+v", nets, skipped)
 	}
 	// a broken cache is ignored

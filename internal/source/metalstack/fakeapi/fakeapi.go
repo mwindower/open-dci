@@ -1,6 +1,6 @@
 // Package fakeapi is a minimal metal-apiserver for tests and the lab: it
-// answers the network List calls (admin and project API) from a YAML file,
-// read on every request so that tests can change it.
+// answers the admin API's network List from a YAML file, read on every
+// request so that tests can change it.
 package fakeapi
 
 import (
@@ -9,12 +9,13 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"time"
 
 	"connectrpc.com/connect"
 	adminv2 "github.com/metal-stack/api/go/metalstack/admin/v2"
 	"github.com/metal-stack/api/go/metalstack/admin/v2/adminv2connect"
 	apiv2 "github.com/metal-stack/api/go/metalstack/api/v2"
-	"github.com/metal-stack/api/go/metalstack/api/v2/apiv2connect"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"sigs.k8s.io/yaml"
 )
 
@@ -31,6 +32,8 @@ type Network struct {
 	VRF       uint32            `json:"vrf"`
 	Prefixes  []string          `json:"prefixes"`
 	Labels    map[string]string `json:"labels,omitempty"`
+	// Created is meta.created_at (RFC 3339), optional.
+	Created string `json:"created,omitempty"`
 }
 
 // Server serves File, or Override if that exists. While Down exists, it
@@ -41,15 +44,14 @@ type Server struct {
 	Token                string
 }
 
-// Handler returns the connect handlers of both network services.
+// Handler returns the connect handler of the admin network service.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle(adminv2connect.NewNetworkServiceHandler(admin{s: s}))
-	mux.Handle(apiv2connect.NewNetworkServiceHandler(project{s: s}))
 	return mux
 }
 
-func (s *Server) list(h http.Header, project string, q *apiv2.NetworkQuery) ([]*apiv2.Network, error) {
+func (s *Server) list(h http.Header, q *apiv2.NetworkQuery) ([]*apiv2.Network, error) {
 	if s.Token != "" && h.Get("Authorization") != "Bearer "+s.Token {
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("invalid token"))
 	}
@@ -70,9 +72,6 @@ func (s *Server) list(h http.Header, project string, q *apiv2.NetworkQuery) ([]*
 	}
 	var out []*apiv2.Network
 	for _, n := range nets {
-		if project != "" && n.GetProject() != project {
-			continue
-		}
 		if q.GetType() != apiv2.NetworkType_NETWORK_TYPE_UNSPECIFIED && q.GetType() != n.GetType() {
 			continue
 		}
@@ -93,10 +92,17 @@ func Load(path string) ([]*apiv2.Network, error) {
 	}
 	var out []*apiv2.Network
 	for _, n := range f.Networks {
+		meta := &apiv2.Meta{Labels: &apiv2.Labels{Labels: n.Labels}}
+		if n.Created != "" {
+			t, err := time.Parse(time.RFC3339, n.Created)
+			if err != nil {
+				return nil, fmt.Errorf("%s: network %s: %w", path, n.ID, err)
+			}
+			meta.CreatedAt = timestamppb.New(t)
+		}
 		out = append(out, &apiv2.Network{
 			Id: n.ID, Project: &n.Project, Partition: &n.Partition, Vrf: &n.VRF, Prefixes: n.Prefixes,
-			Type: apiv2.NetworkType_NETWORK_TYPE_CHILD,
-			Meta: &apiv2.Meta{Labels: &apiv2.Labels{Labels: n.Labels}},
+			Type: apiv2.NetworkType_NETWORK_TYPE_CHILD, Meta: meta,
 		})
 	}
 	return out, nil
@@ -108,18 +114,8 @@ type admin struct {
 }
 
 func (a admin) List(ctx context.Context, req *adminv2.NetworkServiceListRequest) (*adminv2.NetworkServiceListResponse, error) {
-	nets, err := a.s.list(header(ctx), "", req.GetQuery())
+	nets, err := a.s.list(header(ctx), req.GetQuery())
 	return &adminv2.NetworkServiceListResponse{Networks: nets}, err
-}
-
-type project struct {
-	apiv2connect.UnimplementedNetworkServiceHandler
-	s *Server
-}
-
-func (p project) List(ctx context.Context, req *apiv2.NetworkServiceListRequest) (*apiv2.NetworkServiceListResponse, error) {
-	nets, err := p.s.list(header(ctx), req.GetProject(), req.GetQuery())
-	return &apiv2.NetworkServiceListResponse{Networks: nets}, err
 }
 
 func header(ctx context.Context) http.Header {
