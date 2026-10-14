@@ -39,7 +39,8 @@ vrf3982 (tenant-2/main)     65535:26782482    10.0.0.16:3982  fd00:dc1:a:f8e:: (
   - every network has a SID
   - every network's L3VNI is `Up`
   - every route in the tenant VRFs is installed (a route FRR never selected is a silent
-    black hole; a BGP session reset fixes it)
+    black hole; `open-dci run` repairs it within seconds, see
+    [Health and failover](health-and-failover.md))
   - the ingress filter is installed
 
 ## Routes of a network

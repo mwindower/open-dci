@@ -25,6 +25,8 @@ type Status struct {
 	WithheldReason string `json:",omitempty"`
 	// Drained: withdrawn on purpose (open-dci drain), counts as healthy
 	Drained bool
+	// Withdrawn: why open-dci run withdrew the gateway (unhealthy)
+	Withdrawn string `json:",omitempty"`
 	// Health: the data-plane checks open-dci run withdraws on
 	Health   Health
 	Kernel   KernelStatus
@@ -93,6 +95,7 @@ func (g *Gateway) Status(routes string) (*Status, error) {
 		Announced:      plan.Readiness.Ready,
 		WithheldReason: plan.Readiness.Reason,
 		Drained:        plan.Drained,
+		Withdrawn:      plan.Withdrawn.Reason,
 		Health:         g.checkHealth(plan.Identity.RouterID, true),
 		Kernel:         g.kernelStatus(),
 	}

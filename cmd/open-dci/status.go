@@ -54,6 +54,8 @@ func printStatus(w io.Writer, st *gateway.Status) {
 	}
 	if st.Drained {
 		fmt.Fprintf(w, "locator   DRAINED: nothing announced, the partner carries the traffic (open-dci undrain)\n")
+	} else if st.Withdrawn != "" {
+		fmt.Fprintf(w, "locator   WITHDRAWN by open-dci run: %s (announced again once healthy)\n", st.Withdrawn)
 	} else if st.Announced {
 		fmt.Fprintf(w, "locator   announced\n")
 	} else {

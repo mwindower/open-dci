@@ -40,6 +40,7 @@ type Snapshot struct {
 	Applies                     uint64 // reconciles that applied missing lines
 	Removals                    uint64 // reconciles that removed stale lines
 	Withdrawals                 uint64 // health checks that withdrew the gateway
+	BestPathRecoveries          uint64 // prefixes without best path whose selection Run re-ran
 	LastReconcile               time.Time
 	LastError                   string
 	// Interval is Run's reconcile interval: a status older than a few

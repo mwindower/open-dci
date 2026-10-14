@@ -81,6 +81,7 @@ var (
 	appliesDesc    = desc("frr_applies_total", "Reconciles that applied missing FRR lines (drift repaired).")
 	removalsDesc   = desc("frr_removals_total", "Reconciles that removed stale FRR lines.")
 	withdrawDesc   = desc("withdrawals_total", "Times the health checks withdrew the gateway.")
+	bestPathDesc   = desc("bestpath_recoveries_total", "Prefixes without best path (FRR never selected one) whose best-path selection run re-ran.")
 	lastReconDesc  = desc("last_reconcile_timestamp_seconds", "When the last successful reconcile finished.")
 	peerUpDesc     = desc("peer_established", "1 if the VPN session is established.", "peer")
 	peerPfxDesc    = desc("peer_vpn_prefixes", "VPN prefixes accepted from or sent to a peer.", "peer", "family", "direction")
@@ -134,6 +135,7 @@ func (c *collector) Collect(ch chan<- prometheus.Metric) {
 	counter(appliesDesc, float64(s.Applies))
 	counter(removalsDesc, float64(s.Removals))
 	counter(withdrawDesc, float64(s.Withdrawals))
+	counter(bestPathDesc, float64(s.BestPathRecoveries))
 	if !s.LastReconcile.IsZero() {
 		gauge(lastReconDesc, float64(s.LastReconcile.Unix()))
 	}

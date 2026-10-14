@@ -3,6 +3,7 @@ package gateway
 import (
 	"encoding/json"
 	"net/netip"
+	"strings"
 	"testing"
 )
 
@@ -55,5 +56,17 @@ func TestTransportVerdict(t *testing.T) {
 				t.Fatalf("%+v, want OK=%v", h, c.want)
 			}
 		})
+	}
+}
+
+func TestStuckPrefixes(t *testing.T) {
+	table := vrfTable{
+		"10.0.16.10/32": {{Valid: true}, {Valid: true}},             // no best path: stuck
+		"10.0.32.0/24":  {{Valid: true, Best: true}, {Valid: true}}, // fine
+		"10.9.0.0/24":   {{Valid: false}},                           // invalid only: not our problem
+		"2001:db8::/48": {{Valid: true}},                            // stuck
+	}
+	if got := stuckPrefixes(table); strings.Join(got, " ") != "10.0.16.10/32 2001:db8::/48" {
+		t.Fatalf("stuck: %v", got)
 	}
 }

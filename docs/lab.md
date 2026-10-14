@@ -121,6 +121,7 @@ Routing tables of every node: [Routing tables](lab-routing.md).
 | `TestControllerOutage` | dci-controller stopped: a label change doesn't reach the gateways, nothing changes; once it runs again, the change arrives |
 | `TestAPI` | the gateway API, called from the core over the management network (Connect protocol): wrong token refused, networks listed with their origin (config, or API and owner), an operator's network (owner `e2e`) provisioned and kept while the controller runs, a conflicting `PutNetwork` refused, another owner's network not deletable, `SetNetworks` reports the conflicting entry and applies the rest |
 | `TestSelfHealAfterFRRReload` | `frr-reload.py` of the base config wipes all open-dci lines → back within one interval |
+| `TestRecoversFromNoBestPath` | forces the race of a reconcile during `frr-reload.py` (which can leave tenant routes without a best path) three times: the gateway repairs it itself and is healthy again each time |
 | `TestSelfHealMTU` | DCI devices reset to 9000 → raised again, 9000 B packets pass |
 | `TestRemovesStaleConfig` | a peer dropped from the config is removed from FRR |
 | `TestAggregation` | each pair announces its partition's ranges instead of the host routes; the own fabric doesn't get them back as type-5; blackhole for unused addresses |

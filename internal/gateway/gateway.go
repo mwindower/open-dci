@@ -59,6 +59,10 @@ type Gateway struct {
 	// settled: networks (VRFs) that passed their health checks once; only
 	// these can make the gateway withdraw
 	settled map[string]bool
+	// stuck: prefixes without best path the last health check found;
+	// cleared: when Run last re-ran the best-path selection for each
+	stuck   []stuckPrefix
+	cleared map[stuckPrefix]time.Time
 }
 
 // Result describes what a reconcile did.
@@ -97,11 +101,18 @@ func (g *Gateway) Plan() (desired string, res Result, err error) {
 		res.Readiness = *g.gate
 	}
 	id.Withhold = !res.Readiness.Ready
-	id.Drain = g.Drained() || g.withdrawn != nil
+	withdrawn := g.withdrawn
+	if withdrawn == nil && g.gate == nil {
+		// not run itself: run may have withdrawn the gateway
+		if reason, ok := g.withdrawnMarker(); ok {
+			withdrawn = &Health{Reason: reason}
+		}
+	}
+	id.Drain = g.Drained() || withdrawn != nil
 	id.Aggregates = g.activeAggregates()
 	res.Drained = g.Drained()
-	if g.withdrawn != nil {
-		res.Withdrawn = *g.withdrawn
+	if withdrawn != nil {
+		res.Withdrawn = *withdrawn
 	}
 	g.routerID = id.RouterID
 	res.Identity = id
@@ -211,6 +222,7 @@ func (g *Gateway) Run(ctx context.Context, interval time.Duration) {
 	healthTick := time.NewTicker(healthPoll)
 	defer healthTick.Stop()
 	defer func() { g.withdrawn = nil }()
+	g.markWithdrawn(nil) // a marker from an earlier run is stale
 	bad, good := 0, 0
 	initial := g.readiness()
 	g.gate = &initial
@@ -258,6 +270,9 @@ func (g *Gateway) Run(ctx context.Context, interval time.Duration) {
 					continue
 				}
 				h := g.checkHealth(g.routerID, false)
+				if n := g.recoverBestPaths(time.Now()); n > 0 {
+					g.Monitor.update(func(s *Snapshot) { s.BestPathRecoveries += uint64(n) })
+				}
 				if h.OK {
 					bad, good = 0, good+1
 				} else {
@@ -266,10 +281,12 @@ func (g *Gateway) Run(ctx context.Context, interval time.Duration) {
 				switch {
 				case g.withdrawn == nil && bad >= healthDown:
 					g.withdrawn = &h
+					g.markWithdrawn(&h)
 					g.Monitor.update(func(s *Snapshot) { s.Withdrawals++ })
 					break wait
 				case g.withdrawn != nil && good >= healthUp:
 					g.withdrawn = nil
+					g.markWithdrawn(nil)
 					break wait
 				case g.withdrawn != nil && !h.OK:
 					g.withdrawn = &h // keep the reason current

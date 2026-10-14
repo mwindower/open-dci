@@ -217,8 +217,16 @@ old binary until it is redeployed (or you `docker cp` for a quick look).
   (`internal/gateway/ready.go`); `status` is unhealthy meanwhile. The readiness poll is
   debounced and ignores failed or empty answers: reconciling while `frr-reload.py`
   rewrites the config left the re-created tenant VRFs' EVPN-imported routes without a
-  best path (`no best path`, version 0), black-holing traffic while `status` was
-  healthy; only a session reset recovered it.
+  best path (`no best path`, version 0), black-holing traffic. The debounce makes it rare,
+  but it still happens (forced: reload and `apply` at the same time, e2e
+  `TestRecoversFromNoBestPath`). FRR never recovers by itself, and soft resets don't help
+  (the paths are unchanged); `clear bgp vrf V prefix P` (IPv4) / `clear bgp vrf V ipv6
+  unicast prefix P` (IPv6, the syntax differs!) re-runs the selection. `run` does that for
+  every such prefix its health check finds (`recoverBestPaths`, metric
+  `open_dci_bestpath_recoveries_total`).
+- `run` keeps its health withdrawal in memory and mirrors it in a `withdrawn` marker
+  next to the state file, so `status`/`diff` (separate processes) don't report the
+  withdrawn announcements as drift.
 - `frr-reload.py` may exit 1 from its own second pass ("Refusing to remove a non-existent
   route") even though it worked.
 - vtysh reports config errors on stdout (`% ...`), not always via the exit code;

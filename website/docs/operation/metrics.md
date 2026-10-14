@@ -30,6 +30,7 @@ applied (e.g. a conflict with the config file).
 | `reconciles_total`, `reconcile_errors_total` | | reconciles since start, failed ones |
 | `frr_applies_total`, `frr_removals_total` | | reconciles that repaired drift or removed stale lines |
 | `withdrawals_total` | | times the health checks withdrew the gateway |
+| `bestpath_recoveries_total` | | routes without a best path (FRR never selected one) that `run` made FRR select again |
 | `last_reconcile_timestamp_seconds`, `status_timestamp_seconds` | | when `run` last reconciled successfully, collected the status |
 | `peer_established` | `peer` | 1 if the VPN session is up |
 | `peer_vpn_prefixes` | `peer`, `family`, `direction` | VPN prefixes `accepted` from / `sent` to the peer |

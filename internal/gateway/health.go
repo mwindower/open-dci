@@ -100,6 +100,8 @@ func (g *Gateway) checkHealth(routerID string, all bool) Health {
 		return Health{Reason: "show segment-routing srv6 sid: " + err.Error()}
 	}
 	g.pruneSettled()
+	g.stuck = nil
+	problem := ""
 	block := netip.MustParsePrefix(g.Config.Gateway.LocatorBlock)
 	reachable := map[netip.Addr]bool{}
 	for _, n := range g.Config.Networks {
@@ -109,11 +111,13 @@ func (g *Gateway) checkHealth(routerID string, all bool) Health {
 				sid, _ = netip.ParseAddr(s)
 			}
 		}
+		// every network is checked, also after a problem: Run recovers all
+		// prefixes without best path at once (g.stuck)
 		if reason := g.networkProblem(n, routerID, sid); reason != "" {
-			if all || g.settled[n.VRF] {
-				return Health{Reason: reason}
+			if (all || g.settled[n.VRF]) && problem == "" {
+				problem = reason
 			}
-			continue // still being provisioned
+			continue // a broken (or still provisioned) network has no SIDs to check
 		}
 		if g.settled == nil {
 			g.settled = map[string]bool{}
@@ -135,6 +139,9 @@ func (g *Gateway) checkHealth(routerID string, all bool) Health {
 			reachable[r] = g.FRR.ShowJSON(cmd, &routes) == nil && usable(routes, block)
 		}
 	}
+	if problem != "" {
+		return Health{Reason: problem}
+	}
 	return transportVerdict(reachable)
 }
 
@@ -149,12 +156,82 @@ func (g *Gateway) networkProblem(n config.Network, routerID string, sid netip.Ad
 	if !kernel.LocalSIDInstalled(sid) {
 		return fmt.Sprintf("%s: SID %s not installed in the kernel", n.VRF, sid)
 	}
+	reason := ""
 	for _, afi := range []string{"ipv4", "ipv6"} {
-		if _, _, stuck := tallyRoutes(g.vrfTable(n.VRF, afi)); stuck > 0 {
-			return fmt.Sprintf("%s: %d %s prefix(es) without best path", n.VRF, stuck, afi)
+		table := g.vrfTable(n.VRF, afi)
+		if _, _, stuck := tallyRoutes(table); stuck > 0 {
+			for _, p := range stuckPrefixes(table) {
+				g.stuck = append(g.stuck, stuckPrefix{VRF: n.VRF, AFI: afi, Prefix: p})
+			}
+			if reason == "" {
+				reason = fmt.Sprintf("%s: %d %s prefix(es) without best path", n.VRF, stuck, afi)
+			}
 		}
 	}
-	return ""
+	return reason
+}
+
+// stuckPrefix is a prefix in a tenant VRF with valid paths but no best path:
+// FRR never ran its best-path selection for it (version 0), so nothing is
+// installed. Seen after a reconcile ran while frr-reload.py rewrote the
+// config; FRR doesn't recover by itself, but re-running the selection for
+// the prefix fixes it (recoverBestPaths).
+type stuckPrefix struct {
+	VRF, AFI, Prefix string
+}
+
+// stuckPrefixes lists the prefixes of a VRF table with valid paths but no
+// best path.
+func stuckPrefixes(routes vrfTable) []string {
+	var out []string
+	for prefix, paths := range routes {
+		valid, best := false, false
+		for _, p := range paths {
+			valid = valid || p.Valid
+			best = best || p.Best
+		}
+		if valid && !best {
+			out = append(out, prefix)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// bestPathRetry is how often the same stuck prefix is cleared at most.
+const bestPathRetry = 30 * time.Second
+
+// recoverBestPaths re-runs FRR's best-path selection for the stuck prefixes
+// the last health check found ("clear bgp vrf V [ipv6 unicast] prefix P":
+// no session is touched). It returns how many it cleared.
+func (g *Gateway) recoverBestPaths(now time.Time) int {
+	if g.cleared == nil {
+		g.cleared = map[stuckPrefix]time.Time{}
+	}
+	n := 0
+	for _, s := range g.stuck {
+		if last, ok := g.cleared[s]; ok && now.Sub(last) < bestPathRetry {
+			continue
+		}
+		g.cleared[s] = now
+		// FRR's syntax differs per family: IPv4 without, IPv6 with it
+		cmd := fmt.Sprintf("clear bgp vrf %s prefix %s", s.VRF, s.Prefix)
+		if s.AFI == "ipv6" {
+			cmd = fmt.Sprintf("clear bgp vrf %s ipv6 unicast prefix %s", s.VRF, s.Prefix)
+		}
+		if _, err := g.FRR.Show(cmd); err != nil {
+			g.Log.Warn("no best path: clear failed", "vrf", s.VRF, "prefix", s.Prefix, "err", err)
+			continue
+		}
+		g.Log.Info("no best path: re-running FRR's best-path selection", "vrf", s.VRF, "prefix", s.Prefix)
+		n++
+	}
+	for s, t := range g.cleared {
+		if now.Sub(t) > 10*bestPathRetry {
+			delete(g.cleared, s)
+		}
+	}
+	return n
 }
 
 // pruneSettled forgets networks that are no longer configured: one that
