@@ -1,0 +1,55 @@
+/* Colours from the mascot (docs: website/static/img/mascot.svg): the blue and
+   green threads (tenants) and the weaver bird's yellow. */
+:root {
+  --ifm-color-primary: #0969da;
+  --ifm-color-primary-dark: #0860c4;
+  --ifm-color-primary-darker: #075bb9;
+  --ifm-color-primary-darkest: #064b98;
+  --ifm-color-primary-light: #1a7af0;
+  --ifm-color-primary-lighter: #2683f2;
+  --ifm-color-primary-lightest: #4a98f4;
+  --ifm-code-font-size: 92%;
+  --ifm-font-family-base: system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.08);
+
+  --dci-yellow: #f2b705;
+  --dci-green: #1a7f37;
+  --dci-surface: #f6f8fa;
+  --dci-border: #d0d7de;
+}
+
+[data-theme='dark'] {
+  --ifm-color-primary: #4493f8;
+  --ifm-color-primary-dark: #2b84f7;
+  --ifm-color-primary-darker: #1e7cf7;
+  --ifm-color-primary-darkest: #0866e0;
+  --ifm-color-primary-light: #5da2f9;
+  --ifm-color-primary-lighter: #6aaaf9;
+  --ifm-color-primary-lightest: #90c0fb;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+
+  --dci-yellow: #ffd84d;
+  --dci-green: #3fb950;
+  --dci-surface: #161b22;
+  --dci-border: #30363d;
+}
+
+/* wide tables (field references) scroll instead of squeezing */
+.markdown table {
+  display: block;
+  overflow-x: auto;
+}
+
+/* the drawings are wide: let them use the content width */
+.markdown img[src*='logical-view'],
+.markdown img[src*='packet-flow'] {
+  width: 100%;
+  height: auto;
+}
+
+/* the mascot in the docs isn't a full-width figure */
+.markdown img[src*='mascot'] {
+  display: block;
+  margin: 0 auto;
+  max-width: 236px;
+}

@@ -1,4 +1,4 @@
-# Routing tables in the lab
+# Routing tables
 
 What each node of `lab/` knows once the lab has converged. Taken from a clean deploy
 (`make lab-up`, all e2e tests passing); the gateways' tenant VRFs and DCI parts were added by
@@ -133,7 +133,7 @@ unreachable default metric 4278198272
 The exits' edge filter (`edgeFilter` in their `node.yaml`) keeps the block
 `fd00:dc1::/32` unreachable from the fabric side and from the default-VRF core link
 (`swp5`), and drops packets from the core into the block with a source outside it (see
-[Operation](operation.md#the-srv6-domain-and-its-edge)).
+[Operation](https://mwindower.github.io/open-dci/docs/operation/srv6-domain-edge)).
 
 ## Gateway `gw-a1`
 

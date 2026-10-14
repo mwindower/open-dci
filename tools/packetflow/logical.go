@@ -9,7 +9,7 @@ import (
 // has its own private network and VNI per tenant; open-dci joins them into one
 // routed network per tenant via SRv6 L3VPN. Static, no animation.
 
-const logicalFile = "docs/logical-view.svg"
+const logicalFile = "website/static/img/logical-view.svg"
 
 type network struct{ v4, v6, vni, sid string }
 
