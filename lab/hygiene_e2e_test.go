@@ -72,6 +72,7 @@ func TestType5Hygiene(t *testing.T) {
 				}
 				remote := f[1]
 				t.Run(p.leaf+"/"+remote.net4, func(t *testing.T) {
+					t.Parallel()
 					waitFor(t, converge, func() error {
 						comms, err := type5Communities(p.leaf, remote.net4)
 						if err != nil {

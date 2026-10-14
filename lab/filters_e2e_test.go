@@ -279,6 +279,7 @@ func TestAggregation(t *testing.T) {
 		{mC2, "leaf-c", "leaf-a", append(pairA, pairB...)},
 	} {
 		t.Run(c.m.name, func(t *testing.T) {
+			t.Parallel()
 			for _, gw := range c.remote {
 				waitFor(t, converge, present(gw, "ipv4 vpn", c.m.net4))
 				waitFor(t, converge, present(gw, "ipv6 vpn", c.m.net6))

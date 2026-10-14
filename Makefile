@@ -41,11 +41,28 @@ labnode:          ## static container entrypoint used by all lab nodes, and the 
 	CGO_ENABLED=0 go build -o $(BIN)/labnode ./lab/cmd/labnode
 	CGO_ENABLED=0 go build -o $(BIN)/fakeapi ./lab/cmd/fakeapi
 
-lab-up: build labnode   ## deploy the lab; the gateways run open-dci as sidecar
+FRR_IMAGE ?= quay.io/frrouting/frr:10.4.1
+LAB_IMAGE := open-dci-lab:frr-10.4.1
+
+lab-image:        ## the lab's node image: FRR plus the tools the e2e tests need (lab/Dockerfile)
+	docker build -q -t $(LAB_IMAGE) --build-arg FRR_IMAGE=$(FRR_IMAGE) lab
+
+lab-up: build labnode lab-image   ## deploy the lab; the gateways run open-dci, the core dci-controller as sidecar
 	$(CLAB) deploy -t $(TOPO)
 
-lab-check:        ## e2e tests against the running lab
+lab-check:        ## all e2e tests against the running lab (~5 min)
 	go test -tags e2e -count=1 -v -timeout 30m ./lab/
+
+# The quick subset: everything that checks the converged lab without breaking
+# anything (control and data plane, isolation, health, metrics, status, the
+# controller and the API). For every PR and local work; failover, drain,
+# withdrawal, self-healing and filter tests run in the full lab-check.
+QUICK_TESTS := TestControllerStitchesTenant2|TestAPI|TestControlPlane|TestDataPlane|TestMTU|TestTenantIsolation|TestNoFallThrough|TestGatewaysHealthy|TestMetrics|TestStatusRoutes|TestType5Hygiene|TestBothPathsSameSID|TestGatewaysPeerWithTheirExit|TestGatewaysAreNotTransit|TestFabricHasNoTransportRoutes|TestCoreAnnouncesPerVRF|TestExitLadder|TestAggregation
+
+lab-check-quick:  ## the quick, non-disruptive e2e subset (~1-2 min)
+	go test -tags e2e -count=1 -v -timeout 15m -run '^($(QUICK_TESTS))$$' ./lab/
+
+lab-redeploy-quick: lab-down lab-up lab-check-quick
 
 lab-perf:         ## failure semantics under load (gateway/exit fails, ping + TCP), against the running lab
 	go test -tags 'e2e perf' -count=1 -v -timeout 30m -run TestPerf ./lab/

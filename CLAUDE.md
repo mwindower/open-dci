@@ -110,7 +110,8 @@ make test            # unit tests
 make lint            # gofmt + go vet (as in CI)
 make build           # lab/bin/open-dci (static)
 make lab-up          # build + deploy
-make lab-check       # e2e tests against the running lab
+make lab-check       # all e2e tests against the running lab (~5 min)
+make lab-check-quick # the quick, non-disruptive subset (QUICK_TESTS in the Makefile)
 make lab-perf        # failure semantics under load (tags e2e,perf; not in lab-check)
 make lab-redeploy    # down + up + check
 make lab-capture
@@ -119,7 +120,12 @@ docker exec clab-open-dci-gw-a1 open-dci status -c /etc/open-dci/config.yaml
 docker exec clab-open-dci-<node> vtysh -c '<cmd>'
 ```
 
-A change counts as verified only after `make lab-redeploy` passes from a clean deploy.
+A change counts as verified only after `make lab-redeploy` (the full suite) passes from a
+clean deploy; `make lab-redeploy-quick` is for iterating. CI runs the quick subset on
+pull requests and the full suite on main, nightly and on manual runs. e2e tests wait with
+`waitFor`/`waitAll` (parallel) and count rounds or reconciles (`waitControllerRounds`,
+`waitReconciles`) instead of sleeping; read-only subtests are `t.Parallel()`. New
+non-disruptive tests belong in `QUICK_TESTS`.
 Binaries are bind-mounted, and `go build` replaces the inode, so a running lab keeps the
 old binary until it is redeployed (or you `docker cp` for a quick look).
 

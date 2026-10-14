@@ -44,6 +44,7 @@ func TestStatusRoutes(t *testing.T) {
 		}
 		for _, gw := range m.gws {
 			t.Run(gw+"/"+m.vrf, func(t *testing.T) {
+				t.Parallel()
 				waitFor(t, converge, func() error {
 					r, err := statusRoutes(gw, m.vrf)
 					if err != nil {

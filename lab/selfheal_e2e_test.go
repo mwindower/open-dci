@@ -22,6 +22,7 @@ func opendci(node string, args ...string) error {
 func TestGatewaysHealthy(t *testing.T) {
 	for _, gw := range append(append(append([]string{}, pairA...), pairB...), pairC...) {
 		t.Run(gw, func(t *testing.T) {
+			t.Parallel()
 			// "status" exits non-zero unless drift-free, kernel in place, peers
 			// Established and a SID allocated for every network
 			waitFor(t, heal, func() error { return opendci(gw, "status") })

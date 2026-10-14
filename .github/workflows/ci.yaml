@@ -1,9 +1,15 @@
 name: ci
 
+# Pull requests run the quick e2e subset (make lab-check-quick); main, the
+# nightly schedule and manual runs (also on a PR's branch, before merging)
+# run the full suite.
 on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -51,7 +57,11 @@ jobs:
       - run: docker pull "$FRR_IMAGE"
       - name: Deploy lab
         run: make lab-up CLAB="sudo containerlab"
-      - name: e2e tests
+      - name: e2e tests (quick subset)
+        if: github.event_name == 'pull_request'
+        run: make lab-check-quick
+      - name: e2e tests (full suite)
+        if: github.event_name != 'pull_request'
         run: make lab-check
       - name: Diagnostics
         if: failure()

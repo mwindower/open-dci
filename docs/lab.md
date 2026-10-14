@@ -24,8 +24,9 @@ Both tenants (m-a/m-b/m-c with VNIs 3981/4011/5011, m-a2/m-b2/m-c2 with VNIs
 3982/4012/5012) are stitched by the gateway pairs at the exits, which provision their VRFs.
 
 ```sh
-make lab-up        # build open-dci + labnode, deploy
-make lab-check     # Go e2e tests (build tag e2e)
+make lab-up        # build open-dci, dci-controller, labnode and the lab image, deploy
+make lab-check     # all Go e2e tests (build tag e2e, ~5 min)
+make lab-check-quick   # the quick, non-disruptive subset (~1-2 min; CI on pull requests)
 make lab-perf      # failure semantics under load (not part of lab-check)
 make lab-capture   # SRv6-in-VXLAN between gw-a1 and exit-a1
 make lab-down
@@ -36,7 +37,8 @@ Requirements:
 - Docker
 - containerlab (SUID-root or root; in CI: `make lab-up CLAB="sudo containerlab"`)
 - Go ≥ 1.27
-- the image `quay.io/frrouting/frr:10.4.1`
+- network access for the first `make lab-up`: it builds the lab image (`lab/Dockerfile`:
+  `quay.io/frrouting/frr:10.4.1` plus tcpdump, nftables, iperf3 for the tests)
 
 ## What it models
 

@@ -68,6 +68,7 @@ func TestControlPlane(t *testing.T) {
 	for _, n := range []string{"m-a", "m-a2", "leaf-a", "spine-a", "exit-a1", "exit-a2", "gw-a1", "gw-a2", "core", "gw-b1", "gw-b2", "exit-b1", "exit-b2", "spine-b", "leaf-b", "m-b", "m-b2",
 		"gw-c1", "gw-c2", "exit-c1", "exit-c2", "spine-c", "leaf-c", "m-c", "m-c2"} {
 		t.Run("bgp-established/"+n, func(t *testing.T) {
+			t.Parallel()
 			labtest.Eventually(t, converge, func() error { return lab.BGPEstablished(n) })
 		})
 	}
@@ -76,6 +77,7 @@ func TestControlPlane(t *testing.T) {
 		for _, gw := range m.gws {
 			// the provisioned VRF, bridge and VXLAN device, tagged as open-dci's
 			t.Run("provisioned-devices/"+gw+"/"+m.vrf, func(t *testing.T) {
+				t.Parallel()
 				for _, dev := range []string{m.vrf, "dcibr" + m.vni, "dcivx" + m.vni} {
 					labtest.Eventually(t, converge, labtest.Contains(func() (string, error) {
 						return lab.Exec(gw, "ip", "link", "show", dev)
@@ -83,6 +85,7 @@ func TestControlPlane(t *testing.T) {
 				}
 			})
 			t.Run("l3vni-up/"+gw+"/"+m.vni, func(t *testing.T) {
+				t.Parallel()
 				labtest.Eventually(t, converge, labtest.Contains(func() (string, error) {
 					return lab.Vtysh(gw, "show evpn vni "+m.vni)
 				}, "State: Up"))
@@ -90,6 +93,7 @@ func TestControlPlane(t *testing.T) {
 			// the pinned SID (function = VNI) into table = VNI, the same on
 			// both gateways of the pair (anycast)
 			t.Run("end-dt46/"+gw+"/"+m.vrf, func(t *testing.T) {
+				t.Parallel()
 				labtest.Eventually(t, converge, labtest.Contains(func() (string, error) {
 					return lab.Exec(gw, "ip", "-6", "route", "show", m.sid)
 				}, "seg6local action End.DT46 vrftable "+m.vni))
@@ -101,6 +105,7 @@ func TestControlPlane(t *testing.T) {
 	// network) or in the default VRF (pair B: via the IPv6 underlay)
 	for _, g := range gateways {
 		t.Run("remote-locator-reachable/"+g.name, func(t *testing.T) {
+			t.Parallel()
 			labtest.Eventually(t, converge, labtest.Contains(func() (string, error) {
 				return lab.KernelRoute(g.name, g.transportVRF, g.remoteLocator)
 			}, "proto bgp"))
@@ -114,6 +119,7 @@ func TestControlPlane(t *testing.T) {
 			// the exit; the gateway announces its aggregate as VPN route with
 			// SID instead, and not the machine's host route
 			t.Run("evpn-to-vpn-with-sid/"+gw+"/"+src.net4, func(t *testing.T) {
+				t.Parallel()
 				labtest.Eventually(t, converge, labtest.Contains(func() (string, error) {
 					return lab.Vtysh(gw, "show bgp ipv4 vpn "+src.net4)
 				}, "Remote SID"))
@@ -127,12 +133,14 @@ func TestControlPlane(t *testing.T) {
 			// remote machines via SRv6 to the remote pair's anycast SID, never
 			// via the partner gateway's re-announcement in the fabric
 			t.Run("tenant-route-seg6-encap/"+gw+"/"+dst.net6, func(t *testing.T) {
+				t.Parallel()
 				labtest.Eventually(t, converge, labtest.Contains(func() (string, error) {
 					return lab.KernelRoute(gw, src.vrf, dst.net6)
 				}, "segs 1 [ "+dst.sid+" ]"))
 			})
 			// own machines via the fabric (EVPN), never back via SRv6: no loops
 			t.Run("local-route-via-fabric/"+gw+"/"+src.v4, func(t *testing.T) {
+				t.Parallel()
 				labtest.Eventually(t, converge, labtest.Contains(func() (string, error) {
 					return lab.KernelRoute(gw, src.vrf, src.v4)
 				}, "dev dcibr"+src.vni))
@@ -141,6 +149,7 @@ func TestControlPlane(t *testing.T) {
 		// the remote partition's aggregate arrives at the local machine as a
 		// plain BGP route from its leaf
 		t.Run("machine-learns-remote-machine/"+src.name+"/"+dst.net4, func(t *testing.T) {
+			t.Parallel()
 			labtest.Eventually(t, converge, labtest.Contains(func() (string, error) {
 				return lab.KernelRoute(src.name, "", dst.net4)
 			}, "proto bgp"))
@@ -150,6 +159,7 @@ func TestControlPlane(t *testing.T) {
 	// tenant prefixes never leave the tenant VRFs: exits and core only see locators
 	for _, n := range []string{"exit-a1", "exit-a2", "core", "exit-b1", "exit-b2", "exit-c1", "exit-c2"} {
 		t.Run("no-tenant-state/"+n, func(t *testing.T) {
+			t.Parallel()
 			out, err := lab.Vtysh(n, "show ip route vrf all")
 			if err != nil {
 				t.Fatal(err)
@@ -169,6 +179,7 @@ func TestDataPlane(t *testing.T) {
 	for _, f := range flows {
 		for _, dst := range []string{f[1].v4, f[1].v6} {
 			t.Run(f[0].name+"->"+dst, func(t *testing.T) {
+				t.Parallel()
 				labtest.Eventually(t, converge, func() error { return lab.Ping(f[0].name, dst, 0) })
 			})
 		}
@@ -191,6 +202,7 @@ func TestMTU(t *testing.T) {
 		{"m-b2", mA2.v6, machineMTU - 48},
 	} {
 		t.Run(c.src+"->"+c.dst, func(t *testing.T) {
+			t.Parallel()
 			labtest.Eventually(t, 20*time.Second, func() error { return lab.Ping(c.src, c.dst, c.size) })
 		})
 	}
@@ -205,6 +217,7 @@ func TestTenantIsolation(t *testing.T) {
 		{"m-a", mB2}, {"m-a", mA2}, {"m-a2", mB}, {"m-b2", mA},
 	} {
 		t.Run(c.node+"->"+c.dst.v4, func(t *testing.T) {
+			t.Parallel()
 			for _, p := range []string{c.dst.v4, c.dst.net4} {
 				out, _ := lab.KernelRoute(c.node, "", p)
 				if strings.Contains(out, "proto bgp") {
@@ -230,6 +243,7 @@ func TestNoFallThrough(t *testing.T) {
 		{"leaf-a", mA.vrf, "10.99.9.9"}, {"leaf-b", mB2.vrf, "2001:db8:99::1"},
 	} {
 		t.Run(c.node+"/"+c.vrf+"/"+c.dst, func(t *testing.T) {
+			t.Parallel()
 			args := []string{"ip", "route", "get", c.dst, "vrf", c.vrf}
 			if strings.Contains(c.dst, ":") {
 				args = []string{"ip", "-6", "route", "get", c.dst, "vrf", c.vrf}

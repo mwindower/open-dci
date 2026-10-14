@@ -52,7 +52,7 @@ func (l Lab) VtyshJSON(node, command string, v any) error {
 // IPv6 is never fragmented in transit, so a full-size v6 echo proves that
 // every hop has enough MTU headroom.
 func (l Lab) Ping(node, dst string, size int) error {
-	args := []string{"ping", "-c", "2", "-W", "1"}
+	args := []string{"ping", "-c", "2", "-i", "0.2", "-W", "1"}
 	if strings.Contains(dst, ":") {
 		args = append(args, "-6")
 	}

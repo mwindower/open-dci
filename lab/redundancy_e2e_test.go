@@ -27,15 +27,10 @@ func TestFailover(t *testing.T) {
 			defer restore()
 
 			// the partner carries everything, in both directions
-			for _, f := range flows {
-				waitFor(t, converge, func() error { return lab.Ping(f[0].name, f[1].v4, 0) })
-				waitFor(t, converge, func() error { return lab.Ping(f[0].name, f[1].v6, 0) })
-			}
+			pingFlows(t, "v4", "v6")
 			restore()
 			waitFor(t, converge, func() error { return opendci(gw, "status") })
-			for _, f := range flows {
-				waitFor(t, converge, func() error { return lab.Ping(f[0].name, f[1].v4, 0) })
-			}
+			pingFlows(t, "v4")
 		})
 	}
 }
@@ -53,6 +48,7 @@ func TestBothPathsSameSID(t *testing.T) {
 	} {
 		for _, rd := range c.rds {
 			t.Run(c.gw+"/"+rd, func(t *testing.T) {
+				t.Parallel()
 				waitFor(t, converge, func() error {
 					out, err := lab.Vtysh(c.gw, "show bgp ipv4 vpn rd "+rd+" "+c.dst.net4)
 					if err != nil {
@@ -76,6 +72,7 @@ func TestBothPathsSameSID(t *testing.T) {
 func TestGatewaysPeerWithTheirExit(t *testing.T) {
 	for _, g := range gateways {
 		t.Run(g.name, func(t *testing.T) {
+			t.Parallel()
 			var sum struct {
 				Peers map[string]struct {
 					State string `json:"state"`
@@ -96,6 +93,7 @@ func TestGatewaysPeerWithTheirExit(t *testing.T) {
 		{"exit-c1", "10.0.1.16:4011", mB.net4}, {"exit-c2", "10.0.0.17:3982", mA2.net4},
 	} {
 		t.Run(c.exit+"/"+c.rd, func(t *testing.T) {
+			t.Parallel()
 			waitFor(t, converge, func() error {
 				out, err := lab.Vtysh(c.exit, "show bgp ipv4 vpn rd "+c.rd+" "+c.prefix)
 				if err != nil || !strings.Contains(out, "Remote SID") {
@@ -133,14 +131,13 @@ func TestExitFailover(t *testing.T) {
 			}
 			defer restore()
 
-			for _, f := range flows {
-				waitFor(t, converge, func() error { return lab.Ping(f[0].name, f[1].v4, 0) })
-				waitFor(t, converge, func() error { return lab.Ping(f[0].name, f[1].v6, 0) })
-			}
+			pingFlows(t, "v4", "v6")
 			restore()
-			for _, gw := range append(append(append([]string{}, pairA...), pairB...), pairC...) {
-				waitFor(t, converge, func() error { return opendci(gw, "status") })
+			healthy := map[string]func() error{}
+			for _, gw := range allGateways() {
+				healthy[gw] = func() error { return opendci(gw, "status") }
 			}
+			waitAll(t, healthy)
 		})
 	}
 }
@@ -154,6 +151,7 @@ func TestGatewaysAreNotTransit(t *testing.T) {
 		{"exit-b1", "2001:db8:e::b2"}, {"exit-b2", "2001:db8:e::b1"}, // IPv6 loopbacks
 	} {
 		t.Run(c.exit+"/"+c.dst, func(t *testing.T) {
+			t.Parallel()
 			waitFor(t, converge, func() error {
 				out, err := lab.KernelRoute(c.exit, "", c.dst)
 				if err != nil || !strings.Contains(out, c.dst) {
@@ -175,6 +173,7 @@ func TestGatewaysAreNotTransit(t *testing.T) {
 func TestFabricHasNoTransportRoutes(t *testing.T) {
 	for _, n := range []string{"leaf-a", "spine-a", "leaf-b", "spine-b", "leaf-c", "spine-c"} {
 		t.Run(n, func(t *testing.T) {
+			t.Parallel()
 			out, err := lab.Exec(n, "ip", "-6", "route", "show", "table", "all")
 			if err != nil {
 				t.Fatal(err)
@@ -201,6 +200,7 @@ func TestCoreAnnouncesPerVRF(t *testing.T) {
 			{"vrf104100", "fd00:dc1:b::/48", "2001:db8:e::"},
 		} {
 			t.Run(exit+"/"+c.vrf, func(t *testing.T) {
+				t.Parallel()
 				args := []string{"ip", "-6", "route", "show"}
 				if c.vrf != "" {
 					args = append(args, "vrf", c.vrf)
@@ -255,6 +255,7 @@ func TestExitLadder(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.exit, func(t *testing.T) {
+			t.Parallel()
 			waitFor(t, converge, func() error {
 				var sum struct {
 					Peers map[string]struct {

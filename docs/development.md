@@ -28,7 +28,8 @@ Dockerfile           container image (FRR base for vtysh)
 ```sh
 make test          # unit tests: config, rendering, parser, lab specs
 make lint          # gofmt + go vet (incl. e2e code)
-make lab-redeploy  # lab down + up + e2e tests (see the lab docs)
+make lab-redeploy  # lab down + up + all e2e tests (see the lab docs)
+make lab-redeploy-quick  # ... with the quick subset only (CI on pull requests)
 make website       # build this website; make website-serve to preview it
 make proto         # regenerate the API code after changing api/**/*.proto
 ```
