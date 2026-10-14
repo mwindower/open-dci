@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="open-dci's logo: a small yellow weaver bird perched on the middle of three knots, through which a blue and a green thread are braided.">
+  <!-- open-dci's app icon: favicon, navbar logo and README. The bird is the mascot
+       (mascot.svg), slimmer; knots are partitions, threads are tenants. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1b2b5e"/><stop offset="1" stop-color="#0a1128"/>
+    </linearGradient>
+    <linearGradient id="blue" x1="0" x2="1"><stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#7dd3fc"/></linearGradient>
+    <linearGradient id="green" x1="0" x2="1"><stop offset="0" stop-color="#22c55e"/><stop offset="1" stop-color="#bef264"/></linearGradient>
+    <radialGradient id="knot" cx="0.35" cy="0.35" r="0.75"><stop offset="0" stop-color="#ffe680"/><stop offset="1" stop-color="#f2a900"/></radialGradient>
+  </defs>
+  <rect width="512" height="512" rx="116" fill="url(#bg)"/>
+  <!-- two tenants (threads), braided through three partitions (knots) -->
+  <path d="M 116 300 C 146 180, 226 180, 256 300 S 366 420, 396 300" fill="none" stroke="url(#blue)" stroke-width="30" stroke-linecap="round"/>
+  <path d="M 116 300 C 146 420, 226 420, 256 300 S 366 180, 396 300" fill="none" stroke="url(#green)" stroke-width="30" stroke-linecap="round"/>
+  <g stroke="#0a1128" stroke-width="9" fill="url(#knot)">
+    <circle cx="116" cy="300" r="38"/>
+    <circle cx="396" cy="300" r="38"/>
+  </g>
+  <!-- the weaver bird (the mascot, slimmer), perched on the middle knot -->
+  <g transform="translate(256 262) scale(1.4)" stroke="#0a1128" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M-8 -12 L-14 0 M-17 0 L-9 0 M8 -12 L10 0 M5 0 L15 0" fill="none" stroke="#e8a317" stroke-width="3.6"/>
+    <path d="M-30 -40 L-62 -66 L-58 -48 L-70 -40 L-28 -26 Z" fill="#c98a00"/>
+    <path d="M-38 -38 C -36 -60, -6 -66, 14 -56 C 32 -46, 32 -20, 12 -12 C -8 -6, -32 -14, -38 -38 Z" fill="#f2b705"/>
+    <path d="M-20 -14 C -2 -6, 22 -12, 28 -30 C 18 -18, 0 -14, -20 -14 Z" fill="#ffd84d" stroke="none"/>
+    <path d="M-34 -42 C -22 -58, 2 -56, 8 -42 C -2 -28, -24 -26, -34 -42 Z" fill="#d99a00"/>
+    <circle cx="22" cy="-64" r="17" fill="#f2b705"/>
+    <path d="M22 -75 C 32 -78, 40 -70, 39 -62 C 37 -53, 28 -48, 20 -51 C 16 -58, 16 -70, 22 -75 Z" fill="#1f2328" stroke="none"/>
+    <circle cx="28" cy="-65" r="3.6" fill="#ffffff" stroke="none"/><circle cx="29" cy="-65" r="1.8" fill="#1f2328" stroke="none"/>
+    <path d="M37 -68 L56 -62 L37 -55 Z" fill="#64748b"/>
+  </g>
+  <circle cx="256" cy="300" r="38" fill="url(#knot)" stroke="#0a1128" stroke-width="9"/>
+</svg>

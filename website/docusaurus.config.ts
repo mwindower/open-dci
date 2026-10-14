@@ -9,7 +9,7 @@ const repo = 'https://github.com/mwindower/open-dci';
 const config: Config = {
   title: 'open-dci',
   tagline: 'Stitch EVPN tenant VRFs across independent EVPN/VXLAN domains using SRv6 L3VPN',
-  favicon: 'img/mascot.svg',
+  favicon: 'img/logo.svg',
 
   future: {
     v4: true,
@@ -62,8 +62,8 @@ const config: Config = {
     navbar: {
       title: 'open-dci',
       logo: {
-        alt: "open-dci's mascot, a weaver bird",
-        src: 'img/mascot.svg',
+        alt: "open-dci's logo, a weaver bird on braided threads",
+        src: 'img/logo.svg',
       },
       items: [
         {type: 'docSidebar', sidebarId: 'docs', position: 'left', label: 'Docs'},

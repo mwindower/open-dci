@@ -1,7 +1,7 @@
 # open-dci
 
 <p align="center">
-  <img src="website/static/img/mascot.svg" width="236" alt="open-dci's mascot: a yellow weaver bird weaving a blue and a green thread, one per tenant, through the knots of partitions A, B and C.">
+  <img src="website/static/img/logo.svg" width="128" alt="open-dci's logo: a small yellow weaver bird perched on the middle of three knots, through which a blue and a green thread are braided.">
 </p>
 
 [![ci](https://github.com/mwindower/open-dci/actions/workflows/ci.yaml/badge.svg)](https://github.com/mwindower/open-dci/actions/workflows/ci.yaml)
