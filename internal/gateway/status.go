@@ -69,7 +69,8 @@ type NetworkStatus struct {
 	LocalV4, LocalV6, RemoteV4, RemoteV6 int
 	// NoBestPath counts prefixes with valid paths but none selected: FRR
 	// installs nothing for them (seen after an frr-reload re-created the
-	// VRF's BGP instance), a silent black hole
+	// VRF's BGP instance), a silent black hole. Only prefixes that stay so
+	// for stuckGrace count: a fresh update is unselected for a moment.
 	NoBestPath int
 	// Routes lists the prefixes (status --routes)
 	Routes *Routes `json:",omitempty"`
@@ -149,10 +150,9 @@ func (g *Gateway) Status(routes string) (*Status, error) {
 		}
 		ns.VNI, ns.L3VNIState = n.VNI, g.l3vniState(n.VNI, st.RouterID)
 		bgp := map[string]vrfTable{"ipv4": g.vrfTable(n.VRF, "ipv4"), "ipv6": g.vrfTable(n.VRF, "ipv6")}
-		var stuck4, stuck6 int
-		ns.LocalV4, ns.RemoteV4, stuck4 = tallyRoutes(bgp["ipv4"])
-		ns.LocalV6, ns.RemoteV6, stuck6 = tallyRoutes(bgp["ipv6"])
-		ns.NoBestPath = stuck4 + stuck6
+		ns.LocalV4, ns.RemoteV4, _ = tallyRoutes(bgp["ipv4"])
+		ns.LocalV6, ns.RemoteV6, _ = tallyRoutes(bgp["ipv6"])
+		ns.NoBestPath = len(g.confirmStuck(n.VRF, "ipv4", bgp["ipv4"])) + len(g.confirmStuck(n.VRF, "ipv6", bgp["ipv6"]))
 		if slices.ContainsFunc(withRoutes, func(w config.Network) bool { return w.VRF == n.VRF }) {
 			ns.Routes = g.routes(n, ns.RD, bgp, evpn)
 		}

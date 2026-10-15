@@ -106,10 +106,11 @@ func TestDrain(t *testing.T) {
 		}
 	}
 	waitFor(t, converge, usesGW(true))
+	// undrain even if drain fails: it writes its marker before it reconciles
+	defer opendci(gw, "undrain")
 	if err := opendci(gw, "drain"); err != nil {
 		t.Fatal(err)
 	}
-	defer opendci(gw, "undrain")
 	waitFor(t, converge, usesGW(false))
 	// still healthy: drained on purpose
 	if err := opendci(gw, "status"); err != nil {

@@ -158,13 +158,12 @@ func (g *Gateway) networkProblem(n config.Network, routerID string, sid netip.Ad
 	}
 	reason := ""
 	for _, afi := range []string{"ipv4", "ipv6"} {
-		table := g.vrfTable(n.VRF, afi)
-		if _, _, stuck := tallyRoutes(table); stuck > 0 {
-			for _, p := range stuckPrefixes(table) {
+		if stuck := g.confirmStuck(n.VRF, afi, g.vrfTable(n.VRF, afi)); len(stuck) > 0 {
+			for _, p := range stuck {
 				g.stuck = append(g.stuck, stuckPrefix{VRF: n.VRF, AFI: afi, Prefix: p})
 			}
 			if reason == "" {
-				reason = fmt.Sprintf("%s: %d %s prefix(es) without best path", n.VRF, stuck, afi)
+				reason = fmt.Sprintf("%s: %d %s prefix(es) without best path", n.VRF, len(stuck), afi)
 			}
 		}
 	}
@@ -196,6 +195,71 @@ func stuckPrefixes(routes vrfTable) []string {
 	}
 	slices.Sort(out)
 	return out
+}
+
+// stuckGrace: how long a prefix must stay without best path before it
+// counts. FRR selects the best path asynchronously, so a prefix whose update
+// has just arrived (e.g. a network that came back in another partition) is
+// valid but not yet selected for a moment; one reading must not make the
+// gateway unhealthy for that.
+const stuckGrace = 2 * time.Second
+
+// confirmStuck returns the prefixes of a VRF table that are without best
+// path for at least stuckGrace. Run remembers since when (stuckSince,
+// across health checks and status collections); a one-off check (status,
+// outside Run) reads the table once more after stuckGrace.
+func (g *Gateway) confirmStuck(vrf, afi string, table vrfTable) []string {
+	return g.confirmStuckWith(vrf, afi, table, func() vrfTable { return g.vrfTable(vrf, afi) })
+}
+
+// confirmStuckWith is confirmStuck with the re-read of the table given.
+func (g *Gateway) confirmStuckWith(vrf, afi string, table vrfTable, reread func() vrfTable) []string {
+	now := g.clock()
+	raw := stuckPrefixes(table)
+	for s := range g.stuckSince {
+		if s.VRF == vrf && s.AFI == afi && !slices.Contains(raw, s.Prefix) {
+			delete(g.stuckSince, s)
+		}
+	}
+	if len(raw) == 0 {
+		return nil
+	}
+	if g.gate == nil {
+		g.sleep(stuckGrace)
+		again := stuckPrefixes(reread())
+		return slices.DeleteFunc(raw, func(p string) bool { return !slices.Contains(again, p) })
+	}
+	if g.stuckSince == nil {
+		g.stuckSince = map[stuckPrefix]time.Time{}
+	}
+	var out []string
+	for _, p := range raw {
+		k := stuckPrefix{VRF: vrf, AFI: afi, Prefix: p}
+		since, ok := g.stuckSince[k]
+		if !ok {
+			g.stuckSince[k] = now
+			continue
+		}
+		if now.Sub(since) >= stuckGrace {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func (g *Gateway) clock() time.Time {
+	if g.now != nil {
+		return g.now()
+	}
+	return time.Now()
+}
+
+func (g *Gateway) sleep(d time.Duration) {
+	if g.sleepFn != nil {
+		g.sleepFn(d)
+		return
+	}
+	time.Sleep(d)
 }
 
 // bestPathRetry is how often the same stuck prefix is cleared at most.
@@ -237,9 +301,17 @@ func (g *Gateway) recoverBestPaths(now time.Time) int {
 // pruneSettled forgets networks that are no longer configured: one that
 // comes back (e.g. its label returns) is provisioned anew.
 func (g *Gateway) pruneSettled() {
+	configured := func(vrf string) bool {
+		return slices.ContainsFunc(g.Config.Networks, func(n config.Network) bool { return n.VRF == vrf })
+	}
 	for vrf := range g.settled {
-		if !slices.ContainsFunc(g.Config.Networks, func(n config.Network) bool { return n.VRF == vrf }) {
+		if !configured(vrf) {
 			delete(g.settled, vrf)
+		}
+	}
+	for s := range g.stuckSince {
+		if !configured(s.VRF) {
+			delete(g.stuckSince, s)
 		}
 	}
 }

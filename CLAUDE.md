@@ -232,9 +232,14 @@ old binary until it is redeployed (or you `docker cp` for a quick look).
   unicast prefix P` (IPv6, the syntax differs!) re-runs the selection. `run` does that for
   every such prefix its health check finds (`recoverBestPaths`, metric
   `open_dci_bestpath_recoveries_total`).
+  A fresh update is also valid but unselected for a moment, so a prefix only counts once
+  it stays so for `stuckGrace` (2 s, `confirmStuck`); one reading made `TestAPI` flaky.
 - `run` keeps its health withdrawal in memory and mirrors it in a `withdrawn` marker
   next to the state file, so `status`/`diff` (separate processes) don't report the
   withdrawn announcements as drift.
+- Reconciles of several processes (`run` and a CLI `drain`/`undrain`/`apply`) overlapped
+  and the second vtysh batch failed on already removed lines; `Reconcile` now holds an
+  `flock` on `lock` next to the state file (`internal/gateway/lock.go`).
 - `frr-reload.py` may exit 1 from its own second pass ("Refusing to remove a non-existent
   route") even though it worked.
 - vtysh reports config errors on stdout (`% ...`), not always via the exit code;

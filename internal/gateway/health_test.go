@@ -5,6 +5,7 @@ import (
 	"net/netip"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestUsable(t *testing.T) {
@@ -68,5 +69,44 @@ func TestStuckPrefixes(t *testing.T) {
 	}
 	if got := stuckPrefixes(table); strings.Join(got, " ") != "10.0.16.10/32 2001:db8::/48" {
 		t.Fatalf("stuck: %v", got)
+	}
+}
+
+// A prefix only counts as stuck once it stays without best path for
+// stuckGrace: a fresh update is valid but unselected for a moment.
+func TestConfirmStuck(t *testing.T) {
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	stuck := vrfTable{"10.0.49.0/24": {{Valid: true}}}
+	fine := vrfTable{"10.0.49.0/24": {{Valid: true, Best: true}}}
+	noReread := func() vrfTable { t.Fatal("re-read inside Run"); return nil }
+
+	// inside Run: remembered across checks
+	g := &Gateway{gate: &Readiness{}, now: func() time.Time { return now }}
+	check := func(table vrfTable, want int) {
+		t.Helper()
+		if got := g.confirmStuckWith("vrf4012", "ipv4", table, noReread); len(got) != want {
+			t.Fatalf("at %s: %v, want %d", now.Format("15:04:05"), got, want)
+		}
+	}
+	check(stuck, 0) // first seen
+	now = now.Add(time.Second)
+	check(stuck, 0) // still within the grace
+	now = now.Add(time.Second)
+	check(stuck, 1) // stuck for stuckGrace: counts
+	check(fine, 0)  // selected meanwhile: forgotten
+	now = now.Add(time.Second)
+	check(stuck, 0) // stuck again: the grace starts anew
+
+	// a one-off check (status, outside Run): look again after stuckGrace
+	slept := time.Duration(0)
+	o := &Gateway{sleepFn: func(d time.Duration) { slept += d }}
+	if got := o.confirmStuckWith("vrf4012", "ipv4", stuck, func() vrfTable { return fine }); len(got) != 0 || slept != stuckGrace {
+		t.Fatalf("transient: %v, slept %s", got, slept)
+	}
+	if got := o.confirmStuckWith("vrf4012", "ipv4", stuck, func() vrfTable { return stuck }); len(got) != 1 {
+		t.Fatalf("stuck: %v", got)
+	}
+	if got := o.confirmStuckWith("vrf4012", "ipv4", fine, nil); len(got) != 0 || slept != 2*stuckGrace {
+		t.Fatalf("fine: %v, slept %s", got, slept)
 	}
 }

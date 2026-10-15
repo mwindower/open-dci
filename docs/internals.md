@@ -59,6 +59,12 @@ accepts:
    headers of the base config are never removed. The tenant VRFs, and open-dci's own
    route-maps (all named `DCI-...`), are removed as a whole (see [Provisioned networks](#provisioned-networks)).
 
+A reconcile holds an exclusive `flock` on `lock` next to the state file, so `run` and a
+`drain`, `undrain` or `apply` from the command line never overlap: both would send the same
+removals, and vtysh fails the second batch for lines that are already gone (seen in CI:
+`drain` 7 ms after the sidecar). The second one waits and then plans against what the first
+one left.
+
 The lines for the lab's gw-a1 in DCI network mode (full version:
 [`internal/frr/testdata/gw-a1.golden`](https://github.com/mwindower/open-dci/blob/main/internal/frr/testdata/gw-a1.golden)):
 
@@ -198,7 +204,7 @@ A gateway can fail in ways neither BGP nor BFD notice: its sessions are up, but 
 forward. `run` checks every 2 s:
 - every network's L3VNI is `Up` (fabric side)
 - every network's SID is installed in the kernel as End.DT46 (decapsulation)
-- no tenant VRF has prefixes with valid paths but no best path
+- no tenant VRF has prefixes with valid paths but no best path for 2 s or longer
 - at least one remote SID the tenant VRFs encapsulate to has a usable route: one inside
   the locator block, not a blackhole or `unreachable`. In DCI-network mode the transport
   VRF's table is checked. If only some remote SIDs are unreachable, that's a remote
@@ -219,6 +225,13 @@ prefix P` for IPv6 (FRR's syntax differs), at most every 30 s per prefix, logged
 counted (`open_dci_bestpath_recoveries_total`). No session is touched. e2e
 `TestRecoversFromNoBestPath` forces the race (reload and `apply` at the same time); in the
 lab the gateway was healthy again within 4–12 s in every round.
+
+A prefix only counts once it stays without best path for 2 s (`stuckGrace`): FRR selects
+asynchronously, so a fresh update (e.g. a network coming back in another partition) is
+valid but unselected for a moment. A single such reading made the status unhealthy until
+the next collection (`TestAPI` failed on it in CI). `run` remembers since when each prefix
+is stuck, across health checks and status collections; a one-off `open-dci status` reads
+the VRF table again after 2 s, so it takes 2 s longer only while such a prefix exists.
 
 A network counts for the withdrawal only once it has passed the checks: a network that is
 still being provisioned fails them for its first seconds (L3VNI not up yet, no SID yet), and

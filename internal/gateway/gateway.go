@@ -60,9 +60,15 @@ type Gateway struct {
 	// these can make the gateway withdraw
 	settled map[string]bool
 	// stuck: prefixes without best path the last health check found;
-	// cleared: when Run last re-ran the best-path selection for each
-	stuck   []stuckPrefix
-	cleared map[stuckPrefix]time.Time
+	// stuckSince: since when each prefix is seen without best path
+	// (confirmStuck); cleared: when Run last re-ran the best-path selection
+	// for each
+	stuck      []stuckPrefix
+	stuckSince map[stuckPrefix]time.Time
+	cleared    map[stuckPrefix]time.Time
+	// now and sleepFn replace time.Now and time.Sleep in tests
+	now     func() time.Time
+	sleepFn func(time.Duration)
 }
 
 // Result describes what a reconcile did.
@@ -136,6 +142,11 @@ func (g *Gateway) Plan() (desired string, res Result, err error) {
 // released their L3VNI), then their FRR VRFs, and finally missing lines are
 // applied.
 func (g *Gateway) Reconcile() (Result, error) {
+	unlock, err := g.lock()
+	if err != nil {
+		return Result{}, fmt.Errorf("lock %s: %w", g.LockFile(), err)
+	}
+	defer unlock()
 	desired, res, err := g.Plan()
 	if err != nil {
 		return res, err
