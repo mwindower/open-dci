@@ -222,8 +222,11 @@ old binary until it is redeployed (or you `docker cp` for a quick look).
   get hashed SIDs, assigned oldest network first. A changed `sid vpn per-vrf export` only
   takes effect after `no sid ...` (removals run first, so open-dci is fine).
 - A gateway withholds its locator until its EVPN sessions have sent End-of-RIB
-  (`internal/gateway/ready.go`); `status` is unhealthy meanwhile. The readiness poll is
-  debounced and ignores failed or empty answers: reconciling while `frr-reload.py`
+  (`internal/gateway/ready.go`); `status` is unhealthy meanwhile. FRR resets a session
+  that gets a new address family, so an apply that activates the VPN families on an
+  established EVPN session (the first one) withholds the locator too (`resetsSessions`);
+  otherwise the locator flapped ~2 s after the deploy and `TestLabelChanges` lost a
+  ping. The readiness poll is debounced and ignores failed or empty answers: reconciling while `frr-reload.py`
   rewrites the config left the re-created tenant VRFs' EVPN-imported routes without a
   best path (`no best path`, version 0), black-holing traffic. The debounce makes it rare,
   but it still happens (forced: reload and `apply` at the same time, e2e

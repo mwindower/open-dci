@@ -3,7 +3,10 @@ package gateway
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
+
+	"github.com/mwindower/open-dci/internal/frr"
 )
 
 // The gateway announces its locator (and loopback) only while it can deliver
@@ -83,5 +86,27 @@ func (g *Gateway) readiness() Readiness {
 		return r
 	}
 	g.lastReadiness = evpnReady(nb)
+	g.evpnSessions = map[string]bool{}
+	for name, n := range nb {
+		if _, evpn := n.AFI["l2VpnEvpn"]; evpn && n.State == "Established" {
+			g.evpnSessions[name] = true
+		}
+	}
 	return g.lastReadiness
+}
+
+// resetsSessions tells whether applying the missing lines resets one of the
+// established EVPN sessions: FRR resets a session that gets a new address
+// family (here the VPN families on the base session to the exit, at the first
+// apply). The readiness was judged on the session before the reset; once it
+// is back, it needs to converge again.
+func resetsSessions(missing []frr.Line, evpnSessions map[string]bool) bool {
+	for _, l := range missing {
+		f := strings.Fields(l.Text)
+		if len(f) == 3 && f[0] == "neighbor" && f[2] == "activate" && evpnSessions[f[1]] &&
+			len(l.Context) == 2 && !strings.Contains(l.Context[0], " vrf ") && strings.HasPrefix(l.Context[1], "address-family ") {
+			return true
+		}
+	}
+	return false
 }

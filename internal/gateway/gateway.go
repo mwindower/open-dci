@@ -47,8 +47,14 @@ type Gateway struct {
 	Monitor *Monitor
 
 	lastReadiness Readiness
+	// evpnSessions: the neighbors with an established EVPN session, as of
+	// the last readiness check
+	evpnSessions map[string]bool
 	// gate is the debounced readiness Run renders with; nil outside Run
-	gate       *Readiness
+	gate *Readiness
+	// held overrides the readiness for the rest of a reconcile whose apply
+	// resets the BGP sessions (Result.SessionReset)
+	held       *Readiness
 	lastLogged string
 	// withdrawn is set by Run while the gateway is unhealthy: it announces
 	// nothing, like a drained one
@@ -82,6 +88,9 @@ type Result struct {
 	Applied       bool
 	// Readiness decides whether locator and loopback are announced
 	Readiness Readiness
+	// SessionReset: the apply activates an address family on a BGP session,
+	// which makes FRR reset it; the locator is withheld meanwhile
+	SessionReset bool
 	// Drained: announces nothing (open-dci drain)
 	Drained bool
 	// Withdrawn: Run found the gateway unhealthy and withdrew it (Reason)
@@ -106,6 +115,9 @@ func (g *Gateway) Plan() (desired string, res Result, err error) {
 	if g.gate != nil {
 		res.Readiness = *g.gate
 	}
+	if g.held != nil {
+		res.Readiness = *g.held
+	}
 	id.Withhold = !res.Readiness.Ready
 	withdrawn := g.withdrawn
 	if withdrawn == nil && g.gate == nil {
@@ -128,6 +140,20 @@ func (g *Gateway) Plan() (desired string, res Result, err error) {
 	}
 	want, have := frr.Parse(desired), frr.Parse(running)
 	res.Missing = frr.Missing(want, have)
+	if !id.Withhold && !id.Drain && resetsSessions(res.Missing, g.evpnSessions) {
+		// the apply resets the sessions the readiness was judged on: once
+		// they are back, a locator announced now would attract traffic
+		// before the fabric's routes have arrived again
+		res.Readiness = Readiness{Reason: "BGP sessions reset by activating an address family"}
+		res.SessionReset = true
+		id.Withhold = true
+		res.Identity = id
+		if desired, err = frr.Render(g.Config, id); err != nil {
+			return "", res, err
+		}
+		want = frr.Parse(desired)
+		res.Missing = frr.Missing(want, have)
+	}
 	if prev, err := os.ReadFile(g.StateFile); err == nil {
 		res.RemovedL3VNIs = frr.L3VNIRemovals(frr.Parse(string(prev)), want)
 		res.Removed = frr.Removals(frr.Present(frr.Parse(string(prev)), have), want)
@@ -150,6 +176,15 @@ func (g *Gateway) Reconcile() (Result, error) {
 	desired, res, err := g.Plan()
 	if err != nil {
 		return res, err
+	}
+	if res.SessionReset {
+		// withheld until Run's readiness poll sees the reset sessions
+		// converged again
+		g.held = &res.Readiness
+		defer func() { g.held = nil }()
+		if g.gate != nil {
+			g.gate = &res.Readiness
+		}
 	}
 	if !g.SkipKernel {
 		if err := ensureKernel(g.Config, res.Identity); err != nil {

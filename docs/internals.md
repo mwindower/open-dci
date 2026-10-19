@@ -190,6 +190,13 @@ in the meantime.
   - default-VRF mode: the `network` statements
 
   The SIDs, the VRFs and everything else stay configured.
+- **Reset by the own apply:** activating an address family on an established session makes
+  FRR reset it. The first apply activates the VPN families on the base session to the exit,
+  so readiness judged before it is stale: the locator would come back with the reset
+  session, before the fabric's routes do (seen in the lab as a 2 s flap of a gateway right
+  after the deploy). An apply that activates a family on an established EVPN session
+  therefore withholds the locator (reason `BGP sessions reset by activating an address
+  family`) and leaves the announcement to the readiness poll.
 - `run` checks readiness every 500 ms and acts once a change has held for 1.5 s. A link
   flap thus withdraws the locator before the sessions are back (unnumbered sessions wait
   for router advertisements, ~3 s). If FRR can't be queried, or answers without any

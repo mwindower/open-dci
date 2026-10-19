@@ -3,6 +3,8 @@ package gateway
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/mwindower/open-dci/internal/frr"
 )
 
 func TestEVPNReady(t *testing.T) {
@@ -33,6 +35,33 @@ func TestEVPNReady(t *testing.T) {
 			}
 			if !r.Ready && r.Reason == "" {
 				t.Fatal("not ready without a reason")
+			}
+		})
+	}
+}
+
+// Activating the VPN families on the base session makes FRR reset it; a new
+// VPN-only peer or anything else doesn't touch the EVPN sessions.
+func TestResetsSessions(t *testing.T) {
+	evpn := map[string]bool{"uplink0": true, "uplink1": true}
+	line := func(af, text string) frr.Line {
+		return frr.Line{Context: []string{"router bgp 65000", af}, Text: text, Leaf: true}
+	}
+	for _, c := range []struct {
+		name    string
+		missing []frr.Line
+		want    bool
+	}{
+		{"in sync", nil, false},
+		{"VPN on the base session", []frr.Line{line("address-family ipv4 vpn", "neighbor uplink1 route-map DCI-PEER-IN in"), line("address-family ipv4 vpn", "neighbor uplink1 activate")}, true},
+		{"only a route-map", []frr.Line{line("address-family ipv4 vpn", "neighbor uplink1 route-map DCI-PEER-IN in")}, false},
+		{"new multihop peer", []frr.Line{line("address-family ipv6 vpn", "neighbor 2001:db8::1 activate")}, false},
+		{"deactivation", []frr.Line{line("address-family ipv4 unicast", "no neighbor uplink0 activate")}, false},
+		{"VRF instance", []frr.Line{{Context: []string{"router bgp 65000 vrf vrf1", "address-family ipv4 unicast"}, Text: "neighbor uplink0 activate", Leaf: true}}, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := resetsSessions(c.missing, evpn); got != c.want {
+				t.Fatalf("resetsSessions = %v, want %v", got, c.want)
 			}
 		})
 	}
