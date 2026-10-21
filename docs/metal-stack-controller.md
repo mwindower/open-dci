@@ -2,7 +2,8 @@
 
 How dci-controller derives the gateways' networks from metal-apiserver, how it hands them
 over, and why. The user's view: [dci-controller](https://mwindower.github.io/open-dci/docs/metal-stack/controller)
-on the website. Code: `internal/metalstack` (mapping, client, fake API),
+on the website. Code: `internal/metalstack` (mapping, client, the lab's fake API;
+unit tests fake its answers with metal-stack's `client.NewTestInterceptor`, see `metalstacktest`),
 `internal/controller` and `cmd/dci-controller`; the gateway side is the API
 (`api/opendci/v1`, `internal/api`, `internal/gateway/apistore.go`).
 

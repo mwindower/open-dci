@@ -13,7 +13,7 @@ internal/gateway/    reconcile loop, pre-flight checks, status, Monitor (what ru
 internal/metrics/    /metrics (Prometheus) and /healthz from the Monitor
 internal/api/        the gateway API server (run --api-listen)
 internal/controller/ dci-controller: rounds, pushes, metrics
-internal/metalstack/ metal-apiserver: mapping (labels → networks), client, fakeapi for tests and the lab
+internal/metalstack/ metal-apiserver: mapping (labels → networks), client, fakeapi (the lab's server), metalstacktest (unit tests)
 lab/                 containerlab lab: topology, configs/<node>/, e2e tests, labnode, fakeapi
 website/            the website (Docusaurus): docs/ (user documentation), static/img/ (drawings)
 docs/                developer documentation (this file, internals, measurements, lab, history)

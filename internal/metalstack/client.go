@@ -22,6 +22,9 @@ type Client struct {
 	// call, so it can be rotated. Empty: no token.
 	TokenFile string
 	HTTP      *http.Client
+	// Interceptors run after the bearer interceptor (tests: metal-stack's
+	// client.NewTestInterceptor answers instead of a server).
+	Interceptors []connect.Interceptor
 }
 
 // Networks returns the private networks (type child), sorted by ID.
@@ -34,6 +37,7 @@ func (c *Client) Networks(ctx context.Context) ([]*apiv2.Network, error) {
 		}
 		opts = append(opts, connect.WithInterceptors(Bearer(strings.TrimSpace(string(token)))))
 	}
+	opts = append(opts, connect.WithInterceptors(c.Interceptors...))
 	hc := c.HTTP
 	if hc == nil {
 		hc = &http.Client{Timeout: 20 * time.Second}

@@ -13,12 +13,15 @@ import (
 	"testing"
 	"time"
 
-	"sigs.k8s.io/yaml"
+	"connectrpc.com/connect"
+	"github.com/metal-stack/api/go/client"
+	apiv2 "github.com/metal-stack/api/go/metalstack/api/v2"
 
 	"github.com/mwindower/open-dci/internal/api"
 	"github.com/mwindower/open-dci/internal/config"
 	"github.com/mwindower/open-dci/internal/gateway"
-	"github.com/mwindower/open-dci/internal/metalstack/fakeapi"
+	"github.com/mwindower/open-dci/internal/metalstack"
+	"github.com/mwindower/open-dci/internal/metalstack/metalstacktest"
 )
 
 var quiet = slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -43,14 +46,6 @@ func testGateway(t *testing.T, cfgFile string) (*gateway.Gateway, *httptest.Serv
 
 func label(v string) map[string]string { return map[string]string{"open-dci.io/stitch": v} }
 
-func writeFixture(t *testing.T, path string, nets ...fakeapi.Network) {
-	t.Helper()
-	raw, _ := yaml.Marshal(fakeapi.Fixture{Networks: nets})
-	if err := os.WriteFile(path, raw, 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func vrfs(gw *gateway.Gateway) string {
 	nets, _ := gw.Networks()
 	var out []string
@@ -61,21 +56,27 @@ func vrfs(gw *gateway.Gateway) string {
 }
 
 func TestController(t *testing.T) {
-	dir := t.TempDir()
-	fixture, token := filepath.Join(dir, "networks.yaml"), filepath.Join(dir, "gw-token")
+	token := filepath.Join(t.TempDir(), "gw-token")
 	os.WriteFile(token, []byte("gw-secret\n"), 0o600)
-	tenant2 := []fakeapi.Network{
-		{ID: "t2-a", Project: "tenant-2", Partition: "a", VRF: 3982, Prefixes: []string{"10.0.17.0/24"}, Labels: label("main")},
-		{ID: "t2-b", Project: "tenant-2", Partition: "b", VRF: 4012, Prefixes: []string{"10.0.33.0/24"}, Labels: label("main")},
-		{ID: "t2-c", Project: "tenant-2", Partition: "c", VRF: 5012, Prefixes: []string{"10.0.49.0/24"}, Labels: label("main")}, // no gateway in c
+	net := metalstacktest.Network
+	tenant2 := []*apiv2.Network{
+		net("t2-a", "tenant-2", "a", 3982, label("main"), "10.0.17.0/24"),
+		net("t2-b", "tenant-2", "b", 4012, label("main"), "10.0.33.0/24"),
+		net("t2-c", "tenant-2", "c", 5012, label("main"), "10.0.49.0/24"), // no gateway in c
 	}
-	dup := []fakeapi.Network{
-		{ID: "d1", Project: "tenant-4", Partition: "b", VRF: 4021, Prefixes: []string{"10.4.32.0/24"}, Labels: label("dup")},
-		{ID: "d2", Project: "tenant-4", Partition: "b", VRF: 4022, Prefixes: []string{"10.4.33.0/24"}, Labels: label("dup")},
+	dup := []*apiv2.Network{
+		net("d1", "tenant-4", "b", 4021, label("dup"), "10.4.32.0/24"),
+		net("d2", "tenant-4", "b", 4022, label("dup"), "10.4.33.0/24"),
 	}
-	writeFixture(t, fixture, append(tenant2, dup...)...)
-	metal := httptest.NewServer((&fakeapi.Server{File: fixture, Down: filepath.Join(dir, "down")}).Handler())
-	defer metal.Close()
+	unlabelled := net("t2-b", "tenant-2", "b", 4012, nil, "10.0.33.0/24")
+	// one answer per round, in order
+	metal := &metalstack.Client{URL: "http://metal-api.test", Interceptors: []connect.Interceptor{
+		client.NewTestInterceptor(t, []client.ClientCall{
+			metalstacktest.List(append(tenant2, dup...)...),
+			metalstacktest.Unavailable(),
+			metalstacktest.List(tenant2[0], unlabelled, tenant2[2]),
+		}),
+	}}
 
 	gwA, srvA := testGateway(t, "../../lab/configs/gw-a1/open-dci.yaml")
 	gwB, srvB := testGateway(t, "../../lab/configs/gw-b1/open-dci.yaml")
@@ -93,7 +94,7 @@ func TestController(t *testing.T) {
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	c, err := New(cfg, nil, quiet)
+	c, err := New(cfg, metal, quiet)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,19 +130,14 @@ func TestController(t *testing.T) {
 	}
 
 	// metal-apiserver down: nothing is pushed, the gateways keep their networks
-	os.WriteFile(filepath.Join(dir, "down"), nil, 0o644)
-	writeFixture(t, fixture) // would remove everything, if it were read
 	if err := c.Round(ctx); err == nil {
 		t.Fatal("round without metal-apiserver succeeded")
 	}
 	if got := vrfs(gwA); got != "vrf3981 vrf3982" {
 		t.Fatalf("gw-a1 changed during the outage: %s", got)
 	}
-	os.Remove(filepath.Join(dir, "down"))
 
 	// a label removed: only that partition loses the network
-	tenant2[1].Labels = nil
-	writeFixture(t, fixture, tenant2...)
 	if err := c.Round(ctx); err != nil {
 		t.Fatal(err)
 	}

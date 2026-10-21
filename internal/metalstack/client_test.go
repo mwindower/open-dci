@@ -2,51 +2,56 @@ package metalstack
 
 import (
 	"context"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
-	"sigs.k8s.io/yaml"
+	"connectrpc.com/connect"
+	"github.com/metal-stack/api/go/client"
+	apiv2 "github.com/metal-stack/api/go/metalstack/api/v2"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/mwindower/open-dci/internal/metalstack/fakeapi"
+	"github.com/mwindower/open-dci/internal/metalstack/metalstacktest"
 )
 
-func writeFixture(t *testing.T, path string, nets ...fakeapi.Network) {
-	t.Helper()
-	raw, err := yaml.Marshal(fakeapi.Fixture{Networks: nets})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, raw, 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestClient(t *testing.T) {
-	dir := t.TempDir()
-	fixture, token := filepath.Join(dir, "networks.yaml"), filepath.Join(dir, "token")
-	label := map[string]string{"dci/stitch": "web"}
-	writeFixture(t, fixture,
-		fakeapi.Network{ID: "b", Project: "p2", Partition: "b", VRF: 4012, Prefixes: []string{"10.0.33.0/24"}, Labels: label, Created: "2026-01-02T00:00:00Z"},
-		fakeapi.Network{ID: "a", Project: "p2", Partition: "a", VRF: 3982, Prefixes: []string{"10.0.17.0/24"}, Labels: label, Created: "2026-01-01T00:00:00Z"},
-	)
+	token := filepath.Join(t.TempDir(), "token")
 	os.WriteFile(token, []byte("secret\n"), 0o600)
-	srv := httptest.NewServer((&fakeapi.Server{File: fixture, Token: "secret"}).Handler())
-	defer srv.Close()
+	created := func(n *apiv2.Network, day int) *apiv2.Network {
+		n.Meta.CreatedAt = timestamppb.New(time.Date(2026, 1, day, 0, 0, 0, 0, time.UTC))
+		return n
+	}
+	label := map[string]string{"dci/stitch": "web"}
+	var auth string
+	capture := connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
+		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+			auth = req.Header().Get("Authorization")
+			return next(ctx, req)
+		}
+	})
+	c := &Client{URL: "http://metal-api.test", TokenFile: token, Interceptors: []connect.Interceptor{capture,
+		client.NewTestInterceptor(t, []client.ClientCall{
+			metalstacktest.List(
+				created(metalstacktest.Network("b", "p2", "b", 4012, label, "10.0.33.0/24"), 2),
+				created(metalstacktest.Network("a", "p2", "a", 3982, label, "10.0.17.0/24"), 1),
+			),
+			metalstacktest.Unavailable(),
+		}),
+	}}
 
-	c := &Client{URL: srv.URL, TokenFile: token}
 	nets, err := c.Networks(context.Background())
 	if err != nil || len(nets) != 2 || nets[0].GetId() != "a" {
 		t.Fatalf("networks: %v %v", nets, err)
+	}
+	if auth != "Bearer secret" {
+		t.Fatalf("authorization: %q", auth)
 	}
 	got, _ := Map(nets, Options{Label: "dci/stitch", RouteTargetASN: 65535}, "a")
 	if len(got) != 1 || got[0].VRF != "vrf3982" || got[0].Group != "p2/web" || got[0].Created.Day() != 1 {
 		t.Fatalf("mapped: %+v", got)
 	}
-	// a wrong token is refused
-	os.WriteFile(token, []byte("wrong"), 0o600)
-	if _, err := c.Networks(context.Background()); err == nil {
-		t.Fatal("wrong token accepted")
+	if _, err := c.Networks(context.Background()); connect.CodeOf(err) != connect.CodeUnavailable {
+		t.Fatalf("outage: %v", err)
 	}
 }

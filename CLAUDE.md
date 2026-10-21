@@ -57,7 +57,9 @@ Scope decisions, which should not be revisited without the user:
   connect-go: gRPC, gRPC-Web, Connect, reflection); the networks live per owner in
   `internal/gateway/apistore.go` (persisted, merged into the config, the config file
   wins, the older API network wins). `cmd/dci-controller` + `internal/controller`: the
-  controller; `internal/metalstack`: mapping (labels → networks), client, `fakeapi`.
+  controller; `internal/metalstack`: mapping (labels → networks), client, `fakeapi`
+  (the lab's fake metal-apiserver); unit tests fake its answers with metal-stack's
+  `client.NewTestInterceptor` (`metalstacktest`: expected calls in order, no server).
 - `internal/frr/testdata/gw-{a1,b1}.golden` are the rendered configs for the lab's gateways
   (`go test ./internal/frr -update` rewrites them; review the diff!).
   `testdata/gw-a1.running.conf` is a real FRR running-config: every rendered line must
