@@ -7,7 +7,7 @@ gateway   fd00:dc1:ff::a1  AS 4200000016  router-id 10.0.0.16  locator fd00:dc1:
 frr       in sync
 locator   announced
 transport vrf vrf104100  veth up: yes  path MTU: 9166 (need 9166)  local rule last: yes  vrf strict_mode: 1
-filter    dropped: tenant-to-transport 0, locator-from-outside 0, loopback-from-outside 0
+filter    dropped: tenant-to-transport 0, locator-from-outside 0, own-locator-spoofed 0, loopback-from-outside 0, own-loopback-spoofed 0, vxlan-from-outside 0
 api       1 network(s), last change 2026-10-14T09:12:35Z, 0 not applied
 
 PEER     AS          STATE        UP        VPNv4 RCVD/SENT  VPNv6 RCVD/SENT

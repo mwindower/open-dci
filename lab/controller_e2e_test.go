@@ -583,3 +583,62 @@ func TestAPI(t *testing.T) {
 	waitFor(t, converge, provisioned(gw, "vrf4050", false))
 	waitFor(t, converge, func() error { return lab.Ping("m-b2", mA2.v4, 0) })
 }
+
+// API networks that the kernel or FRR already use for something else (here:
+// a VRF named after an uplink, and the VNI of gw-a1's DCI network) are set
+// aside and reported; the gateway goes on reconciling everything else.
+// Before, one of them failed every reconcile.
+func TestAPIConflictsSetAside(t *testing.T) {
+	labReady(t)
+	const gw = "gw-a1"
+	raw, err := os.ReadFile("configs/api-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := strings.TrimSpace(string(raw))
+	call := func(method string, req any) (int, map[string]any) { return apiCall(t, gw, method, token, req) }
+	defer func() {
+		call("SetNetworks", map[string]any{"owner": "e2e-screen"})
+		waitFor(t, converge, provisioned(gw, "vrf4062", false))
+	}()
+	errorsBefore := counter(t, gw, "9469", "open_dci_reconcile_errors_total")
+	code, set := call("SetNetworks", map[string]any{"owner": "e2e-screen", "networks": []any{
+		map[string]any{"vrf": "uplink0", "vni": 4061, "routeTarget": "65535:4061", "aggregates": []string{"10.61.16.0/24"}},
+		map[string]any{"vrf": "vrf4060", "vni": 104100, "routeTarget": "65535:4060", "aggregates": []string{"10.60.16.0/24"}},
+		map[string]any{"vrf": "vrf4062", "vni": 4062, "routeTarget": "65535:4062", "aggregates": []string{"10.62.16.0/24"}},
+	}})
+	if code != 200 {
+		t.Fatalf("set: %d %v", code, set)
+	}
+	waitFor(t, converge, provisioned(gw, "vrf4062", true))
+	waitFor(t, converge, func() error {
+		_, list := call("ListNetworks", map[string]any{})
+		reasons := map[string]string{}
+		for _, e := range list["skipped"].([]any) {
+			s := e.(map[string]any)
+			reasons[s["vrf"].(string)], _ = s["reason"].(string)
+		}
+		if !strings.Contains(reasons["uplink0"], "uplink0 exists but was not created by open-dci") ||
+			!strings.Contains(reasons["vrf4060"], "VNI 104100 is used by") {
+			return fmt.Errorf("skipped: %v", reasons)
+		}
+		for _, e := range list["networks"].([]any) {
+			if vrf := e.(map[string]any)["network"].(map[string]any)["vrf"]; vrf == "uplink0" || vrf == "vrf4060" {
+				return fmt.Errorf("%s listed as applied", vrf)
+			}
+		}
+		return nil
+	})
+	waitReconciles(t, gw, 2)
+	if got := counter(t, gw, "9469", "open_dci_reconcile_errors_total"); got != errorsBefore {
+		t.Errorf("%v failed reconciles", got-errorsBefore)
+	}
+	if err := opendci(gw, "status"); err != nil {
+		t.Errorf("status: %v", err)
+	}
+	// nothing of the base config was touched
+	if out, _ := lab.Exec(gw, "ip", "-d", "link", "show", "uplink0"); strings.Contains(out, "vrf") && strings.Contains(out, "open-dci") {
+		t.Errorf("uplink0 was modified:\n%s", out)
+	}
+	waitFor(t, converge, func() error { return lab.Ping("m-a", mB.v4, 0) })
+}

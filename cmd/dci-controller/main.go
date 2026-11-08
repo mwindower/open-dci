@@ -60,7 +60,8 @@ func main() {
 	}
 	log.Info("dci-controller started", "version", version, "gateways", len(cfg.Gateways), "interval", cfg.Interval, "metal-apiserver", cfg.MetalStack.URL)
 	if cfg.Listen != "" {
-		srv := &http.Server{Addr: cfg.Listen, Handler: controller.Handler(c, version), ReadHeaderTimeout: 5 * time.Second}
+		srv := &http.Server{Addr: cfg.Listen, Handler: controller.Handler(c, version), ReadHeaderTimeout: 5 * time.Second,
+			ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 64 << 10}
 		go func() {
 			log.Info("serving /metrics and /healthz", "listen", cfg.Listen)
 			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {

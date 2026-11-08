@@ -39,7 +39,9 @@ of a pair, and every gateway gets the same route targets:
 - `aggregates`: the prefixes of all the group's networks; each lies in one partition.
 - `routeTarget`: `<routeTargetASN>:<2^24 + fnv32a(group) mod (2^32 − 2^24)>`, as in
   [below](#deriving-route-targets). It is outside the VNI range, so it
-  can't collide with an EVPN auto RT. Groups whose route targets collide are skipped.
+  can't collide with an EVPN auto RT. With `routeTargetKeyFile`, the hash is HMAC-SHA256
+  with that key instead. Of groups whose route targets collide, the oldest keeps it (by its
+  oldest network's `created_at`, then name); the others are skipped.
 - `created`: the metal-stack network's `created_at`, passed on to the gateway.
 - `sid`: assigned by the gateway (`config.AssignSIDs`), not the controller, because only the
   gateway knows its static networks: the VNI if it fits 16 bits and is free. metal-stack's
@@ -80,6 +82,7 @@ allocated:
 
 ```
 RT = <admin ASN2> : 2^24 + (fnv32a(name) mod (2^32 − 2^24))
+RT = <admin ASN2> : 2^24 + (HMAC-SHA256(key, name)[0:4] mod (2^32 − 2^24))   # with routeTargetKeyFile
 ```
 
 - The RT is deterministic, and no registry is needed.
@@ -87,8 +90,16 @@ RT = <admin ASN2> : 2^24 + (fnv32a(name) mod (2^32 − 2^24))
 - The admin part is a 2-byte namespace (`routeTargetASN`), independent of the gateways'
   ASNs: after a 4-byte ASN the local part only has 16 bits, too few for hashing.
 - Hash collisions between two names are unlikely but possible. Only a component with a
-  global view can detect them. The controller sees all groups, so it skips the colliding
-  ones everywhere, and reports them.
+  global view can detect them. The controller sees all groups: the oldest of colliding
+  groups keeps the route target, the younger ones are skipped everywhere and reported.
+  Skipping all of them, as the controller first did, let a tenant take another project's
+  stitched network off the air.
+- FNV is not secret. A tenant who knows another project's ID and label value finds a
+  colliding label value of their own in minutes (about 2^32 hashes). The older-group rule
+  makes that harmless for a group they create, but not for an old network they relabel
+  (the age is the network's, not the label's). `routeTargetKeyFile` makes the hash
+  `HMAC-SHA256(key, name)`, which nobody without the key can steer. Changing the key
+  changes every route target, so all groups are stitched anew.
 
 The controller takes the name from a label on the private networks (`metalStack.label`,
 e.g. `open-dci.io/stitch: prod`). Label values are only unique within a project, so the

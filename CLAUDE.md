@@ -50,8 +50,9 @@ Scope decisions, which should not be revisited without the user:
 
 - `cmd/open-dci`: CLI. `internal/config`: schema and validation. `internal/frr`:
   `dci.conf.tpl`, parser, drift/removals, vtysh. `internal/kernel`: netlink.
-  `internal/gateway`: reconcile, pre-flight, status, `Monitor`. `internal/metrics`:
-  `/metrics` and `/healthz` (`run --listen`), served from what `run` last published.
+  `internal/gateway`: reconcile, pre-flight, screening of API networks, status,
+  `Monitor`. `internal/metrics`: `/metrics` and `/healthz` (`run --listen`), served from
+  what `run` last published.
   The gateway API: `api/opendci/v1/gateway.proto` (generated code committed; `make proto`,
   CI runs `make proto-check`), served by `internal/api` (`run --api-listen`, bearer token,
   connect-go: gRPC, gRPC-Web, Connect, reflection); the networks live per owner in
@@ -88,7 +89,8 @@ Scope decisions, which should not be revisited without the user:
     CommonMark (`markdown.format: detect`); the build fails on any broken link or anchor.
     `website/go.mod` only keeps the go tool out of `node_modules`.
   - `docs/`: the **developer** documentation (index `docs/README.md`): internals (what
-    exactly is changed in kernel and FRR), the reasoning in detail, measurements, the lab and
+    exactly is changed in kernel and FRR), the security analysis (`docs/security.md`: keep
+    its findings table current), the reasoning in detail, measurements, the lab and
     its routing tables, development, roadmap, proposals, and the phase 0/0b findings
     (historical design reasoning). Implementation details and experiment results go here,
     not on the website; the website links to them.
@@ -239,6 +241,14 @@ old binary until it is redeployed (or you `docker cp` for a quick look).
   `open_dci_bestpath_recoveries_total`).
   A fresh update is also valid but unselected for a moment, so a prefix only counts once
   it stays so for `stuckGrace` (2 s, `confirmStuck`); one reading made `TestAPI` flaky.
+- In DCI-network mode the gateway's own encapsulated packets leave via `dci0` and come
+  back *in* on `dci1` (the transport VRF's end) with the own loopback as source, and pass
+  prerouting a second time with the VRF device (`vrf104100`) as iif. Rules on the own
+  source (`own-*-spoofed`) must exempt both, or they drop all outbound traffic.
+- An API network that the kernel or FRR already use for something else (names, VNI,
+  table) used to fail every reconcile; `screen.go` sets such networks aside each `Plan`
+  (`g.Config` is the screened config, `g.unscreened` the wanted one). Config-file
+  networks aren't screened.
 - `run` keeps its health withdrawal in memory and mirrors it in a `withdrawn` marker
   next to the state file, so `status`/`diff` (separate processes) don't report the
   withdrawn announcements as drift.

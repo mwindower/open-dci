@@ -11,9 +11,12 @@ open-dci run -c /etc/open-dci/config.yaml --listen :9469 \
   [--api-tls-cert /etc/open-dci/tls.crt --api-tls-key /etc/open-dci/tls.key]
 ```
 
-- Every call needs the token: `Authorization: Bearer <token>`.
+- Every call needs the token: `Authorization: Bearer <token>`, also the reflection
+  service's (grpcurl's `list`). The gateway checks it before it reads the request. A
+  request may be up to 4 MiB.
 - Without a certificate the API is plaintext (HTTP/2 without TLS), meant for a management
-  network; with `--api-tls-cert`/`--api-tls-key` it is TLS.
+  network; with `--api-tls-cert`/`--api-tls-key` it is TLS. The token gives control over
+  every tenant's VRF on the gateway: see [Security](security.md).
 - Networks set through the API survive restarts (`/var/lib/open-dci/api-networks.json`).
   While the API is enabled but has never received a network, the gateway doesn't change
   anything yet: it waits for the first write.
@@ -36,6 +39,12 @@ controller uses `dci-controller`, an operator might use their own name. An owner
 changes its own networks, so manual changes and the controller don't overwrite each
 other. Networks from the config file always win a conflict; between API networks, the
 older one wins.
+
+**Conflicts with the system.** An API network whose VRF, bridge or VXLAN device name
+already exists without being open-dci's, or whose VNI or table a device of the base config
+already uses, or whose VNI FRR already maps to another VRF, is set aside: it appears under
+`skipped` in `ListNetworks` and `status` (and `open_dci_api_skipped`), and is applied once
+the conflict is gone. The other networks are reconciled as usual.
 
 ## With grpcurl
 

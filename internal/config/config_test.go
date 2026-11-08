@@ -106,6 +106,10 @@ func TestValidate(t *testing.T) {
 		{"peer with interface and address", `{address: "fd00:dc1:b::1", asn: 4200000022}`, `{interface: uplink0, address: "fd00:dc1:b::1"}`, "either interface"},
 		{"peer with bad interface", `{address: "fd00:dc1:b::1", asn: 4200000022}`, `{interface: "bad name"}`, "invalid interface"},
 		{"max prefixes negative", "asn: 4200000022}", "asn: 4200000022, maxPrefixes: -1}", "maxPrefixes"},
+		{"vrf named like a provisioned device", "vrf: vrf3981", "vrf: dcibr5", "name of a device open-dci creates"},
+		{"vrf named like the veth", "vrf: vrf3981", "vrf: dci1", "name of a device open-dci creates"},
+		{"vxlan source not ipv4", "locatorBlock: fd00:dc1::/32\n", "locatorBlock: fd00:dc1::/32\n  vxlanSources: [\"fd00::/8\"]\n", "gateway.vxlanSources[0]"},
+		{"vxlan source host bits", "locatorBlock: fd00:dc1::/32\n", "locatorBlock: fd00:dc1::/32\n  vxlanSources: [10.0.0.1/24]\n", "gateway.vxlanSources[0]"},
 		{"bad vtep", "locatorBlock: fd00:dc1::/32\n", "locatorBlock: fd00:dc1::/32\n  vtep: fd00::1\n", "gateway.vtep"},
 	} {
 		t.Run(c.name, func(t *testing.T) {

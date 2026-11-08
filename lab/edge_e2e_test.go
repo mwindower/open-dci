@@ -199,3 +199,62 @@ func TestGatewayDropsTenantToTransport(t *testing.T) {
 	// m-a's regular traffic still works
 	waitFor(t, converge, func() error { return lab.Ping("m-a", mB.v4, 0) })
 }
+
+// A source inside the block passes the gateway's locator rule, so a forger
+// who can reach the gateway picks one; the gateway's own loopback is the one
+// source it can tell is forged (it never arrives from outside). exit-b1
+// stands in for any device next to the gateway.
+func TestGatewayDropsOwnSourceSpoofed(t *testing.T) {
+	const gw = "gw-b1"
+	before := gatewayDrops(t, gw, "own-loopback-spoofed")
+	via := linkLocal(t, gw, "uplink0")
+	if _, err := lab.Exec("exit-b1", "sh", "-c", fmt.Sprintf(
+		"ip sr tunsrc set fd00:dc1:ff::b1 && ip -6 route replace %s/128 via %s dev swp3 && ip route replace %s/32 encap seg6 mode encap segs %s via inet6 %s dev swp3",
+		mB.sid, via, mB.v4, mB.sid, via)); err != nil {
+		t.Fatal(err)
+	}
+	defer lab.Exec("exit-b1", "sh", "-c", "ip route del "+mB.v4+"/32; ip -6 route del "+mB.sid+"/128; ip sr tunsrc set ::")
+
+	seen := captureICMP(t, "m-b", "10.0.1.14")
+	lab.Exec("exit-b1", "ping", "-c", "3", "-W", "1", mB.v4)
+	if s := seen(); strings.Contains(s, "ICMP") {
+		t.Fatalf("forged packet reached m-b:\n%s", s)
+	}
+	if after := gatewayDrops(t, gw, "own-loopback-spoofed"); after < before+3 {
+		t.Fatalf("%s counted %d, want +3", gw, after-before)
+	}
+}
+
+// Linux accepts VXLAN for a known VNI from any sender. A device outside
+// partition B's VTEP range (exit-b1 with a partition A address) sends tenant
+// 1's VNI to gw-b1's VTEP, addressed to the gateway's router MAC: without
+// gateway.vxlanSources, gw-b1 would route it into tenant 1's VRF.
+func TestGatewayDropsVXLANFromOutside(t *testing.T) {
+	const gw = "gw-b1"
+	before := gatewayDrops(t, gw, "vxlan-from-outside")
+	mac, err := lab.Exec(gw, "cat", "/sys/class/net/dcibr"+mB.vni+"/address")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lab.Exec("exit-b1", "sh", "-c", fmt.Sprintf(
+		"ip addr add 10.0.0.99/32 dev lo && "+
+			"ip link add vxforged type vxlan id %s local 10.0.0.99 remote 10.0.1.16 dstport 4789 nolearning && "+
+			"ip link set vxforged up && ip addr add 10.0.16.250/32 dev vxforged && "+
+			"ip neigh replace %s lladdr %s dev vxforged nud permanent && "+
+			"ip route replace %s/32 dev vxforged src 10.0.16.250",
+		mB.vni, mB.v4, strings.TrimSpace(mac), mB.v4)); err != nil {
+		t.Fatal(err)
+	}
+	defer lab.Exec("exit-b1", "sh", "-c", "ip link del vxforged; ip addr del 10.0.0.99/32 dev lo")
+
+	seen := captureICMP(t, "m-b", "10.0.16.250")
+	lab.Exec("exit-b1", "ping", "-c", "3", "-W", "1", mB.v4)
+	if s := seen(); strings.Contains(s, "ICMP") {
+		t.Fatalf("forged VXLAN reached m-b:\n%s", s)
+	}
+	if after := gatewayDrops(t, gw, "vxlan-from-outside"); after < before+3 {
+		t.Fatalf("%s counted %d, want +3", gw, after-before)
+	}
+	// the fabric's own VXLAN still arrives
+	waitFor(t, converge, func() error { return lab.Ping("m-a", mB.v4, 0) })
+}

@@ -44,6 +44,12 @@ type MetalStack struct {
 	DefaultRouteLabel string `json:"defaultRouteLabel,omitempty"`
 	// RouteTargetASN: the 2-byte namespace of the derived route targets.
 	RouteTargetASN uint32 `json:"routeTargetASN"`
+	// RouteTargetKeyFile: a secret that keys the hash of the route targets
+	// (optional, recommended). Without it, a tenant can compute a label value
+	// whose route target collides with another project's group; the older
+	// group keeps it either way. Read at start; changing it changes every
+	// derived route target (all groups are stitched anew).
+	RouteTargetKeyFile string `json:"routeTargetKeyFile,omitempty"`
 }
 
 // Gateway is a gateway the controller manages.

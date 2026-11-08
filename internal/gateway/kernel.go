@@ -111,7 +111,8 @@ func ensureKernel(cfg *config.Config, id frr.Identity) error {
 	return kernel.MoveLocalRule()
 }
 
-// FilterTable is the nftables (ip6) table of the gateway's ingress filter.
+// FilterTable is the nftables table (ip6, and ip for VXLAN) of the gateway's
+// ingress filter.
 const FilterTable = "open-dci"
 
 // FilterRules is the gateway's part of filtering at the edge of the SRv6
@@ -121,17 +122,41 @@ const FilterTable = "open-dci"
 // they can't come from outside the domain: the gateway's own packets (via lo),
 // and link-local sources, which only the attached link can send (the own DCI
 // VRF via the veth, or the exit), e.g. ICMPv6 errors to the encap source.
+// Packets that claim the gateway's own locator or loopback as source but
+// arrive from outside are forged: they are inside the block, so only these
+// rules catch them. Exempt from them is also the veth's DCI-VRF end, where
+// the gateway's own encapsulated packets enter the transport VRF, and the
+// transport VRF itself: a packet entering a VRF passes prerouting a second
+// time with the VRF device as input interface. Forged packets from the DCI
+// network come back through the default VRF's end of the veth. With
+// gateway.vxlanSources, VXLAN only comes from the fabric's VTEPs.
 func FilterRules(cfg *config.Config) []kernel.DropRule {
 	block := netip.MustParsePrefix(cfg.Gateway.LocatorBlock)
+	locator := netip.MustParsePrefix(cfg.Gateway.Locator)
 	ll := netip.MustParsePrefix("fe80::/10")
+	local := []string{"lo"}
+	own := local
+	if cfg.Transport.InVRF() {
+		own = []string{"lo", cfg.Transport.VethPeer, cfg.Transport.VRF}
+	}
 	rules := []kernel.DropRule{
 		{Name: "tenant-to-transport", IifPrefix: kernel.L3VNIBridgePrefix, Daddr: block},
-		{Name: "locator-from-outside", ExceptIif: "lo", Daddr: netip.MustParsePrefix(cfg.Gateway.Locator), SaddrNot: block, ExceptSaddr: ll},
+		{Name: "locator-from-outside", ExceptIif: local, Daddr: locator, SaddrNot: []netip.Prefix{block, ll}},
+		{Name: "own-locator-spoofed", ExceptIif: own, Saddr: locator},
 	}
 	if cfg.Gateway.Anycast() {
-		rules = append(rules, kernel.DropRule{
-			Name: "loopback-from-outside", ExceptIif: "lo", Daddr: netip.PrefixFrom(cfg.Gateway.Loopback(), 128), SaddrNot: block, ExceptSaddr: ll,
-		})
+		lo := netip.PrefixFrom(cfg.Gateway.Loopback(), 128)
+		rules = append(rules,
+			kernel.DropRule{Name: "loopback-from-outside", ExceptIif: local, Daddr: lo, SaddrNot: []netip.Prefix{block, ll}},
+			kernel.DropRule{Name: "own-loopback-spoofed", ExceptIif: own, Saddr: lo},
+		)
+	}
+	if len(cfg.Gateway.VXLANSources) > 0 {
+		r := kernel.DropRule{Name: "vxlan-from-outside", ExceptIif: local, UDPDport: kernel.VXLANPort}
+		for _, s := range cfg.Gateway.VXLANSources {
+			r.SaddrNot = append(r.SaddrNot, netip.MustParsePrefix(s))
+		}
+		rules = append(rules, r)
 	}
 	return rules
 }

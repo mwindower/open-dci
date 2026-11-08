@@ -32,31 +32,39 @@ type Server struct {
 	now     func() time.Time
 }
 
-// Handler serves the API; every call needs "Authorization: Bearer <token>".
+// MaxRequestBytes limits a request message (a SetNetworks with thousands of
+// networks stays far below it).
+const MaxRequestBytes = 4 << 20
+
+// Handler serves the API; every call needs "Authorization: Bearer <token>",
+// the reflection service's too.
 func Handler(s *Server, token string) http.Handler {
 	if s.now == nil {
 		s.now = time.Now
 	}
+	limit := connect.WithReadMaxBytes(MaxRequestBytes)
 	mux := http.NewServeMux()
-	mux.Handle(opendciv1connect.NewGatewayServiceHandler(s, connect.WithInterceptors(auth(token))))
+	mux.Handle(opendciv1connect.NewGatewayServiceHandler(s, limit))
 	reflector := grpcreflect.NewStaticReflector(opendciv1connect.GatewayServiceName)
-	mux.Handle(grpcreflect.NewHandlerV1(reflector))
-	mux.Handle(grpcreflect.NewHandlerV1Alpha(reflector))
-	return mux
+	mux.Handle(grpcreflect.NewHandlerV1(reflector, limit))
+	mux.Handle(grpcreflect.NewHandlerV1Alpha(reflector, limit))
+	return authenticate(token, mux)
 }
 
-// auth checks the bearer token (constant time).
-func auth(token string) connect.UnaryInterceptorFunc {
+// authenticate checks the bearer token (constant time) before anything
+// reads the request: connect decodes a unary request before its
+// interceptors run, so an interceptor would let anyone make the gateway
+// read and decode whatever they send.
+func authenticate(token string, next http.Handler) http.Handler {
 	want := []byte("Bearer " + token)
-	return func(next connect.UnaryFunc) connect.UnaryFunc {
-		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-			got := []byte(req.Header().Get("Authorization"))
-			if token == "" || subtle.ConstantTimeCompare(got, want) != 1 {
-				return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing or wrong bearer token"))
-			}
-			return next(ctx, req)
+	errs := connect.NewErrorWriter()
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if token == "" || subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), want) != 1 {
+			errs.Write(w, r, connect.NewError(connect.CodeUnauthenticated, errors.New("missing or wrong bearer token")))
+			return
 		}
-	}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) GetInfo(ctx context.Context, _ *opendciv1.GetInfoRequest) (*opendciv1.GetInfoResponse, error) {

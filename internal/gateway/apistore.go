@@ -132,7 +132,7 @@ func (g *Gateway) UseAPI(s *APIStore) {
 func (g *Gateway) takeAPI() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if g.latest == nil || g.latest == g.Config {
+	if g.latest == nil || g.latest == g.Config || g.latest == g.unscreened {
 		return
 	}
 	g.Config, g.apiStatus = g.latest, g.latestStatus
@@ -359,14 +359,21 @@ func (g *Gateway) Networks() ([]NetworkOrigin, []config.Skipped) {
 	if cfg == nil {
 		cfg = g.Config
 	}
+	blocked := map[string]bool{}
+	for _, b := range g.blocked {
+		blocked[b.VRF] = true
+	}
 	for _, n := range cfg.Networks {
+		if blocked[n.VRF] {
+			continue
+		}
 		o := NetworkOrigin{Network: n}
 		if a, ok := api[n.VRF]; ok && n.Group == a.Group && !slices.ContainsFunc(g.static.Networks, func(s config.Network) bool { return s.VRF == n.VRF }) {
 			o.API, o.Owner, o.Created = true, a.Owner, a.Created
 		}
 		out = append(out, o)
 	}
-	return out, slices.Clone(g.latestStatus.Skipped)
+	return out, append(slices.Clone(g.latestStatus.Skipped), g.blocked...)
 }
 
 // apiReady: with the API enabled but no write received yet, the gateway

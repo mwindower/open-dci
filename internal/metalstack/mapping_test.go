@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	apiv2 "github.com/metal-stack/api/go/metalstack/api/v2"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/mwindower/open-dci/internal/config"
 )
@@ -113,5 +115,69 @@ func TestMapMembershipChanges(t *testing.T) {
 	}
 	if fmt.Sprint(joined[0].Aggregates) != "[10.0.16.0/24 10.0.32.0/24 10.0.48.0/24]" || fmt.Sprint(left[0].Aggregates) != "[10.0.16.0/24]" {
 		t.Fatalf("aggregates: %v %v", joined[0].Aggregates, left[0].Aggregates)
+	}
+}
+
+// collision finds a label value of project "zz" whose (unkeyed) route target
+// collides with project "victim"'s group "victim/<value>", as a tenant could.
+func collision(t *testing.T) (victim, attacker string) {
+	t.Helper()
+	seen := map[uint32]string{}
+	for i := range 1 << 22 {
+		for _, g := range []string{fmt.Sprintf("victim/v%d", i), fmt.Sprintf("zz/a%d", i)} {
+			rt := RouteTargetLocal(g)
+			if o, ok := seen[rt]; ok && strings.Split(o, "/")[0] != strings.Split(g, "/")[0] {
+				if strings.HasPrefix(o, "victim/") {
+					return o, g
+				}
+				return g, o
+			}
+			seen[rt] = g
+		}
+	}
+	t.Fatal("no collision found")
+	return
+}
+
+// Of two groups whose route targets collide, the older one keeps it: a
+// tenant can't take another project's stitched network off the air by
+// labelling a new network with a colliding value.
+func TestRouteTargetCollision(t *testing.T) {
+	victim, attacker := collision(t)
+	old, young := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	group := func(id, name string, vrf uint32, created time.Time) *apiv2.Network {
+		project, value, _ := strings.Cut(name, "/")
+		n := network(id, project, "a", vrf, "10.0.16.0/24", labelled(value))
+		n.Meta.CreatedAt = timestamppb.New(created)
+		return n
+	}
+	for _, c := range []struct {
+		name             string
+		victimCreated    time.Time
+		attackerCreated  time.Time
+		stitched, denied string
+	}{
+		{"victim older", old, young, victim, attacker},
+		{"attacker older", young, old, attacker, victim},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got, skipped := Map([]*apiv2.Network{group("v", victim, 10, c.victimCreated), group("x", attacker, 11, c.attackerCreated)}, opts, "a")
+			if len(got) != 1 || got[0].Group != c.stitched {
+				t.Fatalf("stitched %s, want %s", groupsOf(got), c.stitched)
+			}
+			if len(skipped) != 1 || skipped[0].Group != c.denied || !strings.Contains(skipped[0].Reason, "older group "+c.stitched) {
+				t.Fatalf("skipped %+v", skipped)
+			}
+		})
+	}
+	// with a key, the precomputed collision is none
+	keyed := opts
+	keyed.RouteTargetKey = []byte("secret")
+	got, skipped := Map([]*apiv2.Network{group("v", victim, 10, old), group("x", attacker, 11, young)}, keyed, "a")
+	if len(got) != 2 || len(skipped) != 0 {
+		t.Fatalf("keyed: %s, skipped %+v", groupsOf(got), skipped)
+	}
+	if rt := RouteTargetLocalKeyed([]byte("secret"), victim); rt < 1<<24 || got[1].RouteTarget != fmt.Sprintf("65535:%d", rt) && got[0].RouteTarget != fmt.Sprintf("65535:%d", rt) {
+		t.Fatalf("keyed route target %d not used: %+v", rt, got)
 	}
 }

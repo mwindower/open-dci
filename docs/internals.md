@@ -321,6 +321,21 @@ the exit's fabric-side rule drops what is sent there anyway. In DCI-network mode
 transport VRF doesn't exist on fabric devices at all, which is why it is the recommended
 mode.
 
-The e2e tests `TestEdgeDropsForgedSRv6FromFabric`, `TestGatewayDropsSRv6FromOutsideBlock`
-and `TestGatewayDropsTenantToTransport` forge such packets and check that the respective
-rule counts them and the victim sees nothing.
+One source inside the block *is* recognisable at the gateway: its own. Packets that
+arrive from outside with the gateway's locator or loopback as source are forged
+(`own-locator-spoofed`, `own-loopback-spoofed`). In DCI-network mode the gateway's own
+encapsulated packets cross the veth and enter the transport VRF on its DCI end (`dci1`)
+with the own source, and pass prerouting a second time with the VRF device as input
+interface, so both are exempt as well; forged packets from the DCI network
+reach the default VRF through the other end (`dci0`) and are dropped there.
+
+`gateway.vxlanSources` adds an IPv4 rule (table `ip open-dci`; the SRv6 rules live in `ip6
+open-dci`): UDP 4789 from a source outside the listed prefixes is dropped
+(`vxlan-from-outside`). Linux VXLAN devices accept any sender for a known VNI (there is no
+check against the EVPN-learned VTEPs), and the gateway routes what arrives into the
+tenant VRF and on into the other partitions.
+
+The e2e tests `TestEdgeDropsForgedSRv6FromFabric`, `TestGatewayDropsSRv6FromOutsideBlock`,
+`TestGatewayDropsTenantToTransport`, `TestGatewayDropsOwnSourceSpoofed` and
+`TestGatewayDropsVXLANFromOutside` forge such packets and check that the respective rule
+counts them and the victim sees nothing.

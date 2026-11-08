@@ -5,8 +5,10 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -140,3 +142,55 @@ func TestAPI(t *testing.T) {
 }
 
 func deleteErr(_ *opendciv1.DeleteNetworkResponse, err error) error { return err }
+
+// Without the token, the gateway answers before it reads the request; with
+// it, a request larger than MaxRequestBytes is refused.
+func TestAuthBeforeBody(t *testing.T) {
+	srv, _ := testServer(t)
+	ctx := context.Background()
+	huge := &opendciv1.SetNetworksRequest{Owner: "x", Networks: []*opendciv1.Network{{Vrf: strings.Repeat("v", MaxRequestBytes)}}}
+	for _, opt := range []connect.ClientOption{connect.WithGRPC(), connect.WithGRPCWeb(), connect.WithProtoJSON()} {
+		if _, err := opendciv1connect.NewGatewayServiceClient(srv.Client(), srv.URL, opt).
+			SetNetworks(ctx, huge); code(err) != connect.CodeUnauthenticated {
+			t.Fatalf("no token: %v", err)
+		}
+	}
+	if _, err := opendciv1connect.NewGatewayServiceClient(srv.Client(), srv.URL, connect.WithGRPC(), bearer("secret")).
+		SetNetworks(ctx, huge); code(err) != connect.CodeResourceExhausted {
+		t.Fatalf("too large: %v", err)
+	}
+	// a body that never ends: the answer comes anyway
+	pr, pw := io.Pipe()
+	defer pw.Close()
+	go pw.Write(make([]byte, 1<<20))
+	slow, _ := http.NewRequest(http.MethodPost, srv.URL+opendciv1connect.GatewayServiceSetNetworksProcedure, pr)
+	slow.Header.Set("Content-Type", "application/grpc")
+	done := make(chan *http.Response, 1)
+	go func() {
+		resp, err := srv.Client().Do(slow)
+		if err != nil {
+			t.Error(err)
+		}
+		done <- resp
+	}()
+	select {
+	case resp := <-done:
+		if resp != nil {
+			resp.Body.Close()
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no answer before the body ended")
+	}
+	// the reflection service needs the token too
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/grpc.reflection.v1.ServerReflection/ServerReflectionInfo", nil)
+	req.Header.Set("Content-Type", "application/grpc")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	io.Copy(io.Discard, resp.Body) // the trailers follow the body
+	resp.Body.Close()
+	if got := resp.Header.Get("Grpc-Status") + resp.Trailer.Get("Grpc-Status"); got != "16" { // unauthenticated
+		t.Fatalf("reflection without token: grpc-status %q", got)
+	}
+}

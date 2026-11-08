@@ -151,10 +151,11 @@ func prefixes(ps []string) error {
 // DropRule converts the rule for the kernel package.
 func (f FilterRule) DropRule() (kernel.DropRule, error) {
 	r := kernel.DropRule{Name: f.Name, IifPrefix: f.Iif}
+	var saddrNot netip.Prefix
 	for _, p := range []struct {
 		s   string
 		dst *netip.Prefix
-	}{{f.Daddr, &r.Daddr}, {f.Saddr, &r.Saddr}, {f.SaddrNot, &r.SaddrNot}} {
+	}{{f.Daddr, &r.Daddr}, {f.Saddr, &r.Saddr}, {f.SaddrNot, &saddrNot}} {
 		if p.s == "" {
 			continue
 		}
@@ -164,7 +165,10 @@ func (f FilterRule) DropRule() (kernel.DropRule, error) {
 		}
 		*p.dst = v
 	}
-	if f.Name == "" || (!r.Daddr.IsValid() && !r.Saddr.IsValid() && !r.SaddrNot.IsValid()) {
+	if saddrNot.IsValid() {
+		r.SaddrNot = []netip.Prefix{saddrNot}
+	}
+	if f.Name == "" || (!r.Daddr.IsValid() && !r.Saddr.IsValid() && len(r.SaddrNot) == 0) {
 		return r, fmt.Errorf("needs a name and an address match")
 	}
 	return r, nil

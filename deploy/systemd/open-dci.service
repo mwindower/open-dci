@@ -1,6 +1,8 @@
 # open-dci as a host service next to FRR on a dedicated gateway.
 # Install: binary to /usr/local/bin, config to /etc/open-dci/config.yaml, then
 #   systemctl daemon-reload && systemctl enable --now open-dci
+# The kernel modules vrf and vxlan must be loaded at boot (modules-load.d):
+# the unit may not load modules itself.
 [Unit]
 Description=open-dci: stitch EVPN tenant VRFs via SRv6 L3VPN
 Documentation=https://github.com/mwindower/open-dci
@@ -14,11 +16,40 @@ Wants=network-online.target frr.service
 # localhost only; pick a management address to scrape it from elsewhere.
 # To let dci-controller (or others) set networks, add the API, e.g.
 #   --api-listen <mgmt-ip>:9470 --api-token-file /etc/open-dci/api-token
+# (token file: root:root, mode 0600)
 #   [--api-tls-cert /etc/open-dci/tls.crt --api-tls-key /etc/open-dci/tls.key]
 ExecStart=/usr/local/bin/open-dci run -c /etc/open-dci/config.yaml --listen 127.0.0.1:9469
 Restart=always
 RestartSec=5
 StateDirectory=open-dci
+StateDirectoryMode=0750
+UMask=0027
+# Least privilege. open-dci needs CAP_NET_ADMIN (netlink, nftables, the
+# net.* sysctls) and FRR's vty sockets (group frrvty); it runs as root only
+# because FRR's vtysh expects it. Nothing else of root's powers is left.
+CapabilityBoundingSet=CAP_NET_ADMIN
+SupplementaryGroups=frrvty
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=-/run/frr -/var/run/frr
+PrivateTmp=yes
+ProtectHome=yes
+PrivateDevices=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+# not ProtectKernelTunables: open-dci sets net.* sysctls
+RestrictAddressFamilies=AF_UNIX AF_NETLINK AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
 
 [Install]
 WantedBy=multi-user.target

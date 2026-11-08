@@ -37,6 +37,7 @@ metalStack:
   tokenFile: /etc/dci-controller/metal-stack-token   # admin viewer role
   label: open-dci.io/stitch           # the label tenants set on their networks
   routeTargetASN: 65535               # namespace of the derived route targets
+  routeTargetKeyFile: /etc/dci-controller/route-target-key   # secret, e.g. openssl rand -hex 32
 interval: 30s
 listen: "127.0.0.1:9471"              # /metrics and /healthz
 gatewayTokenFile: /etc/dci-controller/gateway-token   # the gateways' API token
@@ -51,6 +52,7 @@ gateways:                             # every gateway: its partition and its API
 | `metalStack.tokenFile` | – | An API token with the admin viewer role. |
 | `metalStack.label` | required | The label key tenants set on their networks. |
 | `metalStack.routeTargetASN` | required | A 2-byte number (1 – 65535) used as namespace of the route targets the controller derives. It is independent of your ASNs, which may be 4-byte. |
+| `metalStack.routeTargetKeyFile` | – | A secret (at least 16 bytes) that keys the hash of the route targets. Recommended: without it, a tenant can compute a label value whose route target collides with another project's group (see [Security](../operation/security.md)). Read at start; setting or changing it changes every derived route target, so all groups are stitched anew (a short interruption). |
 | `metalStack.defaultRouteLabel` | – | A label key whose value (`export` or `import`) sets [`defaultRoute`](../configuration/networks.md) for the network. |
 | `interval` | `30s` | Time between rounds. |
 | `owner` | `dci-controller` | The name the controller writes the gateways' networks under. Networks of other owners (e.g. set by hand) stay untouched. |

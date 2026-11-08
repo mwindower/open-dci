@@ -5,6 +5,7 @@ gateway:
   locator: fd00:dc1:a::/48        # shared by gw-a1 and gw-a2 (anycast); SIDs fd00:dc1:a:<sid>::
   loopback: fd00:dc1:ff::a1        # this gateway's own address: SRv6 encap source
   locatorBlock: fd00:dc1::/32     # all gateways' locators and loopbacks
+  vxlanSources: [10.0.0.0/24]     # partition A's VTEPs (loopbacks): VXLAN from elsewhere is dropped
 transport:
   vrf: vrf104100                  # DCI network (base config) carrying the SRv6 transport
 peers:                           # the sessions to both exits (base config); the

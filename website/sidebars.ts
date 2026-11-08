@@ -32,6 +32,7 @@ const sidebars: SidebarsConfig = {
       'health-and-failover',
       'maintenance',
       'srv6-domain-edge',
+      'security',
       'adding-partitions-and-networks',
     ]),
     category('metal-stack', 'metal-stack', ['overview', 'controller']),

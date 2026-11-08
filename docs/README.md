@@ -9,6 +9,7 @@ The user documentation is the website, [mwindower.github.io/open-dci](https://mw
 | [Internals](internals.md) | what open-dci changes in the kernel and FRR (with the rendered config), readiness, health checks and failure semantics in detail, the ingress filter, route targets and the fabrics |
 | [Requirements in detail](requirements.md) | the reasons behind the requirements, exit topologies, per-mode details |
 | [Design decisions in detail](design-decisions.md) | the full reasoning, incl. why not on the switches |
+| [Security analysis](security.md) | threat model, findings and their status, proposals for what is still open |
 | [Scaling](scaling.md) | scale limits and how bandwidth grows |
 | [dci-controller](metal-stack-controller.md) | the controller round, how networks, SIDs and route targets are derived, label changes in detail |
 | [Failure measurements](performance.md) | packet loss and TCP stalls when a gateway or an exit fails, BFD intervals |

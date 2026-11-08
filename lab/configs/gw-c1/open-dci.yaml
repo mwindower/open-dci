@@ -5,6 +5,7 @@ gateway:
   locator: fd00:dc1:c::/48        # shared by gw-c1 and gw-c2 (anycast); SIDs fd00:dc1:c:<sid>::
   loopback: fd00:dc1:ff::c1        # this gateway's own address: SRv6 encap source
   locatorBlock: fd00:dc1::/32     # all gateways' locators and loopbacks
+  vxlanSources: [10.0.2.0/24]     # partition C's VTEPs (loopbacks): VXLAN from elsewhere is dropped
 # no transport.vrf: open-dci announces locator and loopback to the default BGP
 # instance's IPv6 peers (exit-c1/exit-c2)
 peers:                           # the sessions to both exits (base config); the

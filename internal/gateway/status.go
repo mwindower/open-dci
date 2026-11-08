@@ -103,6 +103,9 @@ func (g *Gateway) Status(routes string) (*Status, error) {
 
 	if g.api != nil {
 		api := g.apiStatus
+		blocked := g.Blocked()
+		api.Networks -= len(blocked)
+		api.Skipped = append(slices.Clone(api.Skipped), blocked...)
 		st.API = &api
 	}
 	for _, p := range g.Config.Peers {

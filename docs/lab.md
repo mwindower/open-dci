@@ -107,6 +107,8 @@ Routing tables of every node: [Routing tables](lab-routing.md).
 | `TestEdgeDropsForgedSRv6FromFabric` | an underlay device forges SRv6 with a source spoofed inside the block: dropped at the exit |
 | `TestGatewayDropsSRv6FromOutsideBlock` | forged SRv6 from inside the domain but outside the block: dropped by the gateway |
 | `TestGatewayDropsTenantToTransport` | a tenant forges SRv6 to another tenant's SID (via a misrouted fabric): dropped by the gateway |
+| `TestGatewayDropsOwnSourceSpoofed` | forged SRv6 with the gateway's own loopback as source (inside the block): dropped by the gateway |
+| `TestGatewayDropsVXLANFromOutside` | VXLAN with tenant 1's VNI to gw-b1's VTEP from outside partition B's VTEP range (`vxlanSources`): dropped by the gateway |
 | `TestRemovesProvisionedNetwork` | a network dropped from the config: FRR VRF, BGP instance and kernel devices removed |
 | `TestRefusesForeignVRF` | a network whose VRF exists without open-dci's tag is refused, the VRF left untouched |
 | `TestLocatorWithheldUntilReady` | a gateway's links come back: the exit only sends to it once its tenant VRF holds the fabric's routes (both transport modes) |
@@ -122,6 +124,7 @@ Routing tables of every node: [Routing tables](lab-routing.md).
 | `TestMetalAPIOutage` | metal-apiserver unreachable: the controller pushes nothing and turns unhealthy (`/healthz` 503, errors counted); the gateways keep their networks and stay healthy, tenant 2 keeps working |
 | `TestControllerOutage` | dci-controller stopped: a label change doesn't reach the gateways, nothing changes; once it runs again, the change arrives |
 | `TestAPI` | the gateway API, called from the core over the management network (Connect protocol): wrong token refused, networks listed with their origin (config, or API and owner), an operator's network (owner `e2e`) provisioned and kept while the controller runs, a conflicting `PutNetwork` refused, another owner's network not deletable, `SetNetworks` reports the conflicting entry and applies the rest |
+| `TestAPIConflictsSetAside` | API networks the system already uses for something else (a VRF named `uplink0`, the VNI of gw-a1's DCI network) are set aside and listed as skipped; a third network of the same write is provisioned, no reconcile fails, the base config is untouched |
 | `TestSelfHealAfterFRRReload` | `frr-reload.py` of the base config wipes all open-dci lines → back within one interval |
 | `TestRecoversFromNoBestPath` | forces the race of a reconcile during `frr-reload.py` (which can leave tenant routes without a best path) three times: the gateway repairs it itself and is healthy again each time |
 | `TestSelfHealMTU` | DCI devices reset to 9000 → raised again, 9000 B packets pass |

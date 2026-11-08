@@ -15,6 +15,9 @@ import (
 // modified or deleted; everything else belongs to the base system.
 const OwnerAlias = "open-dci"
 
+// VXLANPort is the UDP port of the provisioned VXLAN devices.
+const VXLANPort = 4789
+
 // L3VNIBridgePrefix starts the name of every provisioned L3VNI's bridge
 // (config.Network.BridgeName): tenant packets arrive on these devices.
 const L3VNIBridgePrefix = "dcibr"
@@ -54,7 +57,7 @@ func EnsureL3VNI(v L3VNI) error {
 		LinkAttrs: netlink.LinkAttrs{Name: v.Vxlan},
 		VxlanId:   int(v.VNI),
 		SrcAddr:   v.VTEP,
-		Port:      4789,
+		Port:      VXLANPort,
 		Learning:  false,
 	}
 	// a VXLAN device's VNI and source address can't be changed: recreate it

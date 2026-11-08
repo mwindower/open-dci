@@ -75,6 +75,12 @@ type Gateway struct {
 	// VTEP is the VXLAN source address of the provisioned L3VNIs. Optional:
 	// defaults to the BGP router-id.
 	VTEP string `json:"vtep,omitempty"`
+	// VXLANSources are the IPv4 prefixes of the fabric's VTEPs. VXLAN to
+	// the gateway's VTEP from any other source is dropped: Linux accepts
+	// VXLAN for a known VNI from any sender, so whoever reaches the VTEP
+	// could otherwise inject packets into the tenant VRFs, which the gateway
+	// forwards into every partition. Empty: no filter.
+	VXLANSources []string `json:"vxlanSources,omitempty"`
 	// SiteOfOrigin (SoO, ASN:NN or IPv4:NN) marks the routes this gateway
 	// announces into its partition's fabric. The gateway never exports a route
 	// carrying it into the VPN: a remote partition's route that comes back
@@ -407,6 +413,11 @@ func (c *Config) Validate() error {
 			fail("gateway.vtep: must be an IPv4 address: %q", c.Gateway.VTEP)
 		}
 	}
+	for i, s := range c.Gateway.VXLANSources {
+		if p, err := netip.ParsePrefix(s); err != nil || !p.Addr().Is4() || p != p.Masked() {
+			fail("gateway.vxlanSources[%d]: must be an IPv4 prefix without host bits: %q", i, s)
+		}
+	}
 	if c.Gateway.RouterID != "" {
 		if a, err := netip.ParseAddr(c.Gateway.RouterID); err != nil || !a.Is4() {
 			fail("gateway.routerID: must be an IPv4 address: %q", c.Gateway.RouterID)
@@ -490,6 +501,9 @@ func (c *Config) Validate() error {
 		}
 		if seenVRF[n.VRF] {
 			fail("networks[%d].vrf: %q used twice (or is the transport VRF)", i, n.VRF)
+		}
+		if strings.HasPrefix(n.VRF, "dcibr") || strings.HasPrefix(n.VRF, "dcivx") || n.VRF == c.Transport.Veth || n.VRF == c.Transport.VethPeer {
+			fail("networks[%d].vrf: %q is the name of a device open-dci creates", i, n.VRF)
 		}
 		seenVRF[n.VRF] = true
 		if _, err := ParseCommunity(n.RouteTarget); err != nil {

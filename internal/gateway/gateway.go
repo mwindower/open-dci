@@ -40,6 +40,11 @@ type Gateway struct {
 	api       *APIStore
 	static    *config.Config
 	apiStatus APIStatus
+	// screen: the API networks set aside this round (conflicts with the
+	// kernel or FRR) and the configs before and after (Config is screened
+	// while unscreened is set)
+	blocked, lastBlocked []config.Skipped
+	unscreened, screened *config.Config
 	// wake makes Run reconcile right after an API change
 	wake chan struct{}
 	// Monitor, if set, receives what Run does and the status after every
@@ -111,6 +116,7 @@ func (g *Gateway) Plan() (desired string, res Result, err error) {
 	if err != nil {
 		return "", res, err
 	}
+	g.screen(running)
 	res.Readiness = g.readiness()
 	if g.gate != nil {
 		res.Readiness = *g.gate

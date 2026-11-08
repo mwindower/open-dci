@@ -6,6 +6,10 @@
 #     -v /etc/open-dci:/etc/open-dci:ro -v /var/lib/open-dci:/var/lib/open-dci \
 #     ghcr.io/mwindower/open-dci
 #
+# --privileged because open-dci writes net.* sysctls, which are read-only in
+# an unprivileged container; it needs nothing else beyond CAP_NET_ADMIN. On a
+# production gateway, prefer the hardened systemd unit (deploy/systemd).
+#
 # Keep the FRR base image's major version in line with the FRR it talks to.
 ARG FRR_IMAGE=quay.io/frrouting/frr:10.4.1
 FROM ${FRR_IMAGE}

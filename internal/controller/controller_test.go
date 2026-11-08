@@ -201,3 +201,21 @@ gateways:
 		}
 	}
 }
+
+func TestRouteTargetKey(t *testing.T) {
+	cfg := &Config{MetalStack: MetalStack{URL: "http://metal-api.test", Label: "l", RouteTargetASN: 65535}}
+	for _, c := range []struct{ key, err string }{{"short\n", "at least 16 bytes"}, {"0123456789abcdef0123\n", ""}} {
+		cfg.MetalStack.RouteTargetKeyFile = filepath.Join(t.TempDir(), "key")
+		os.WriteFile(cfg.MetalStack.RouteTargetKeyFile, []byte(c.key), 0o600)
+		ctl, err := New(cfg, nil, quiet)
+		if c.err != "" {
+			if err == nil || !strings.Contains(err.Error(), c.err) {
+				t.Fatalf("%q: %v", c.key, err)
+			}
+			continue
+		}
+		if err != nil || string(ctl.rtKey) != "0123456789abcdef0123" {
+			t.Fatalf("%q: %v, key %q", c.key, err, ctl.rtKey)
+		}
+	}
+}

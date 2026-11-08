@@ -139,7 +139,8 @@ func main() {
 		log.Info("open-dci started", "version", version, "config", *cfgPath, "interval", *interval, "loopback", cfg.Gateway.Loopback())
 		if *listen != "" {
 			gw.Monitor = &gateway.Monitor{}
-			srv := &http.Server{Addr: *listen, Handler: metrics.Handler(gw.Monitor, version), ReadHeaderTimeout: 5 * time.Second}
+			srv := &http.Server{Addr: *listen, Handler: metrics.Handler(gw.Monitor, version)}
+			limitServer(srv)
 			go func() {
 				log.Info("serving /metrics and /healthz", "listen", *listen)
 				if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -228,6 +229,16 @@ func fatal(err error) {
 	os.Exit(1)
 }
 
+// limitServer bounds what a client can make a server hold: headers, slow
+// requests and idle connections. The calls are short; none streams.
+func limitServer(srv *http.Server) {
+	srv.ReadHeaderTimeout = 5 * time.Second
+	srv.ReadTimeout = 30 * time.Second
+	srv.WriteTimeout = 30 * time.Second
+	srv.IdleTimeout = 2 * time.Minute
+	srv.MaxHeaderBytes = 64 << 10
+}
+
 // apiServer serves the API on addr in the background: gRPC over HTTP/2,
 // plaintext (h2c) unless a TLS certificate is given.
 func apiServer(addr, tokenFile, cert, key string, gw *gateway.Gateway, log *slog.Logger) (*http.Server, error) {
@@ -246,11 +257,11 @@ func apiServer(addr, tokenFile, cert, key string, gw *gateway.Gateway, log *slog
 		return nil, fmt.Errorf("--api-tls-cert and --api-tls-key go together")
 	}
 	srv := &http.Server{
-		Addr:              addr,
-		Handler:           api.Handler(&api.Server{Gateway: gw, Monitor: gw.Monitor, Version: version}, token),
-		ReadHeaderTimeout: 5 * time.Second,
-		Protocols:         new(http.Protocols),
+		Addr:      addr,
+		Handler:   api.Handler(&api.Server{Gateway: gw, Monitor: gw.Monitor, Version: version}, token),
+		Protocols: new(http.Protocols),
 	}
+	limitServer(srv)
 	srv.Protocols.SetHTTP1(true)
 	srv.Protocols.SetHTTP2(true)
 	srv.Protocols.SetUnencryptedHTTP2(true)

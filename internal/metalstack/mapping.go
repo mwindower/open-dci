@@ -12,6 +12,9 @@ package metalstack
 
 import (
 	"cmp"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
 	"hash/fnv"
 	"maps"
@@ -36,6 +39,16 @@ func RouteTargetLocal(group string) uint32 {
 	return rtBase + h.Sum32()%(1<<32-rtBase)
 }
 
+// RouteTargetLocalKeyed is RouteTargetLocal with a secret key: 2^24 +
+// HMAC-SHA256(key, group) mod (2^32 - 2^24). FNV is no secret: a tenant can
+// compute a label value whose route target collides with another project's
+// group in minutes. With the key, nobody without it can.
+func RouteTargetLocalKeyed(key []byte, group string) uint32 {
+	h := hmac.New(sha256.New, key)
+	h.Write([]byte(group))
+	return rtBase + binary.BigEndian.Uint32(h.Sum(nil))%(1<<32-rtBase)
+}
+
 // member is a labelled private network.
 type member struct {
 	id, partition string
@@ -55,6 +68,17 @@ type Options struct {
 	DefaultRouteLabel string
 	// RouteTargetASN is the 2-byte admin part of the derived route targets.
 	RouteTargetASN uint32
+	// RouteTargetKey, if set, keys the hash of the route targets
+	// (RouteTargetLocalKeyed).
+	RouteTargetKey []byte
+}
+
+// routeTarget returns the local part of a group's route target.
+func (o Options) routeTarget(group string) uint32 {
+	if len(o.RouteTargetKey) > 0 {
+		return RouteTargetLocalKeyed(o.RouteTargetKey, group)
+	}
+	return RouteTargetLocal(group)
 }
 
 // Network is a network for one gateway, with the age of its metal-stack
@@ -95,11 +119,31 @@ func Map(nets []*apiv2.Network, opts Options, partition string) ([]Network, []co
 		groups[name] = append(groups[name], m)
 	}
 
-	// route targets must be unique across all groups, not only the own ones
+	// route targets must be unique across all groups, not only the own ones:
+	// of groups that collide, the oldest keeps its route target (by its
+	// oldest network, then name), so a new group can't take an existing one
+	// off the air
 	rtOwner := map[uint32][]string{}
 	for name := range groups {
-		rt := RouteTargetLocal(name)
+		rt := opts.routeTarget(name)
 		rtOwner[rt] = append(rtOwner[rt], name)
+	}
+	oldest := func(name string) time.Time {
+		var t time.Time
+		for i, m := range groups[name] {
+			if i == 0 || m.created.Before(t) {
+				t = m.created
+			}
+		}
+		return t
+	}
+	for _, owners := range rtOwner {
+		slices.SortFunc(owners, func(a, b string) int {
+			if c := oldest(a).Compare(oldest(b)); c != 0 {
+				return c
+			}
+			return cmp.Compare(a, b)
+		})
 	}
 
 	var out []Network
@@ -129,10 +173,9 @@ func Map(nets []*apiv2.Network, opts Options, partition string) ([]Network, []co
 			skip(name, "%d networks in partition %s carry this label value, at most one per partition", partitions[crowded], crowded)
 			continue
 		}
-		rt := RouteTargetLocal(name)
-		if owners := rtOwner[rt]; len(owners) > 1 {
-			slices.Sort(owners)
-			skip(name, "route target %d:%d collides with %v", opts.RouteTargetASN, rt, owners)
+		rt := opts.routeTarget(name)
+		if owner := rtOwner[rt][0]; owner != name {
+			skip(name, "route target %d:%d collides with the older group %s", opts.RouteTargetASN, rt, owner)
 			continue
 		}
 		out = append(out, Network{Created: own.created, Network: config.Network{

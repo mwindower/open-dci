@@ -10,6 +10,7 @@
 package controller
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -44,6 +45,7 @@ type Controller struct {
 	metal    Networks
 	gateways map[string]opendciv1connect.GatewayServiceClient
 	log      *slog.Logger
+	rtKey    []byte // metalStack.routeTargetKeyFile
 
 	mu    sync.Mutex
 	state State
@@ -84,6 +86,15 @@ func New(cfg *Config, metal Networks, log *slog.Logger) (*Controller, error) {
 	}
 	c := &Controller{cfg: cfg, metal: metal, gateways: map[string]opendciv1connect.GatewayServiceClient{}, log: log,
 		state: State{Gateways: map[string]GatewayState{}}}
+	if f := cfg.MetalStack.RouteTargetKeyFile; f != "" {
+		raw, err := os.ReadFile(f)
+		if err != nil {
+			return nil, err
+		}
+		if c.rtKey = bytes.TrimSpace(raw); len(c.rtKey) < 16 {
+			return nil, fmt.Errorf("%s: the route target key needs at least 16 bytes", f)
+		}
+	}
 	for _, g := range cfg.Gateways {
 		hc, err := httpClient(g)
 		if err != nil {
@@ -173,7 +184,8 @@ func (c *Controller) Round(ctx context.Context) error {
 	c.state.Synced, c.state.LastError = time.Now(), ""
 	c.mu.Unlock()
 
-	opts := metalstack.Options{Label: c.cfg.MetalStack.Label, DefaultRouteLabel: c.cfg.MetalStack.DefaultRouteLabel, RouteTargetASN: c.cfg.MetalStack.RouteTargetASN}
+	opts := metalstack.Options{Label: c.cfg.MetalStack.Label, DefaultRouteLabel: c.cfg.MetalStack.DefaultRouteLabel, RouteTargetASN: c.cfg.MetalStack.RouteTargetASN,
+		RouteTargetKey: c.rtKey}
 	served := map[string]bool{}
 	for _, g := range c.cfg.Gateways {
 		served[g.Partition] = true

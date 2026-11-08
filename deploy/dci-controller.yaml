@@ -4,13 +4,16 @@
 # https://mwindower.github.io/open-dci/docs/metal-stack/controller
 metalStack:
   url: https://api.metal.example.com
-  tokenFile: /etc/dci-controller/metal-stack-token    # admin viewer role
+  tokenFile: /run/credentials/dci-controller.service/metal-stack-token  # admin viewer role (LoadCredential, see the unit)
   label: open-dci.io/stitch
   routeTargetASN: 65535             # 2-byte namespace of the derived route targets
+  # secret key of the route target hash (>= 16 bytes, e.g. openssl rand -hex 32), so that no
+  # tenant can compute a label value that collides with another project's group
+  routeTargetKeyFile: /run/credentials/dci-controller.service/route-target-key
 # defaultRouteLabel: open-dci.io/default-route       # optional: export | import per network
 interval: 30s
 listen: "127.0.0.1:9471"            # /metrics and /healthz
-gatewayTokenFile: /etc/dci-controller/gateway-token   # the gateways' --api-token-file
+gatewayTokenFile: /run/credentials/dci-controller.service/gateway-token  # the gateways' --api-token-file
 gateways:                           # every gateway: its partition and its API
   - {name: gw-a1, partition: fra-equ01, endpoint: "https://gw-a1.mgmt:9470", caFile: /etc/dci-controller/ca.pem}
   - {name: gw-a2, partition: fra-equ01, endpoint: "https://gw-a2.mgmt:9470", caFile: /etc/dci-controller/ca.pem}

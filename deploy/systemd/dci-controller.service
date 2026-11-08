@@ -14,6 +14,33 @@ ExecStart=/usr/local/bin/dci-controller -c /etc/dci-controller/config.yaml
 Restart=always
 RestartSec=5
 DynamicUser=yes
+# the secrets, readable by the service only, under
+# /run/credentials/dci-controller.service/ (point the config's tokenFile,
+# gatewayTokenFile and routeTargetKeyFile there)
+LoadCredential=metal-stack-token:/etc/dci-controller/metal-stack-token
+LoadCredential=gateway-token:/etc/dci-controller/gateway-token
+LoadCredential=route-target-key:/etc/dci-controller/route-target-key
+CapabilityBoundingSet=
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+UMask=0077
 
 [Install]
 WantedBy=multi-user.target
