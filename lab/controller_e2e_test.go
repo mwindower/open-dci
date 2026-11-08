@@ -67,6 +67,7 @@ func setAPI(t *testing.T, nets ...fakeapi.Network) {
 	if _, err := lab.Exec("core", "sh", "-c", cmd); err != nil {
 		t.Fatal(err)
 	}
+	t.Logf("%s setAPI: %d networks", time.Now().UTC().Format("15:04:05.000"), len(nets))
 }
 
 // resetAPI makes it answer with the lab's networks again.
@@ -157,7 +158,10 @@ type pinger struct {
 	stop           chan struct{}
 	wg             sync.WaitGroup
 	sent, received int
+	lost           []string // the lost pings' send times (estimated)
 }
+
+var pingReply = regexp.MustCompile(`bytes from .* seq=(\d+)`)
 
 var pingStats = regexp.MustCompile(`(\d+) packets transmitted, (\d+) (?:packets )?received`)
 
@@ -172,7 +176,18 @@ func startPinger(from, to string) *pinger {
 				return
 			default:
 			}
+			start := time.Now()
 			out, _ := lab.Exec(from, "ping", "-c", "25", "-i", "0.2", "-W", "1", to)
+			got := map[int]bool{}
+			for _, m := range pingReply.FindAllStringSubmatch(out, -1) {
+				seq, _ := strconv.Atoi(m[1])
+				got[seq] = true
+			}
+			for seq := range 25 { // busybox ping: seq from 0, every 200 ms
+				if !got[seq] && strings.Contains(out, "packets transmitted") {
+					p.lost = append(p.lost, start.Add(time.Duration(seq)*200*time.Millisecond).UTC().Format("15:04:05.0"))
+				}
+			}
 			if m := pingStats.FindStringSubmatch(out); m != nil {
 				s, _ := strconv.Atoi(m[1])
 				r, _ := strconv.Atoi(m[2])
@@ -188,7 +203,7 @@ func (p *pinger) check(t *testing.T) {
 	close(p.stop)
 	p.wg.Wait()
 	if p.sent == 0 || p.received != p.sent {
-		t.Errorf("%s -> %s: %d of %d pings lost", p.from, p.to, p.sent-p.received, p.sent)
+		t.Errorf("%s -> %s: %d of %d pings lost %v", p.from, p.to, p.sent-p.received, p.sent, p.lost)
 	} else {
 		t.Logf("%s -> %s: %d pings, none lost", p.from, p.to, p.sent)
 	}
