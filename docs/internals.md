@@ -54,7 +54,12 @@ accepts:
 1. Discovers the ASN, router-id, `advertise-all-vni` and the transport VRF's BGP instance
    from the running config.
 2. Renders its lines (`open-dci render`) in FRR's canonical form.
-3. Applies them only when some are missing from the running config.
+3. Applies them only when some are missing from the running config: all rendered lines
+   (`vtysh -f`), except the `segment-routing` block while none of its lines is missing.
+   FRR 10.4.1 treats re-entering the locator, even unchanged, as a locator change and
+   re-installs the End.DT46 routes of every VRF, as delete and then add. Under load that
+   left 10–35 ms without them on every apply, and tenant traffic in flight was dropped
+   (`TestLabelChanges` lost a ping now and then; `TestApplyKeepsSIDs` guards it).
 4. Removes lines it applied earlier that are no longer desired (state in `--state`). Block
    headers of the base config are never removed. The tenant VRFs, and open-dci's own
    route-maps (all named `DCI-...`), are removed as a whole (see [Provisioned networks](#provisioned-networks)).

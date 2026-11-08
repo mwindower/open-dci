@@ -731,3 +731,48 @@ func TestStableSeqs(t *testing.T) {
 		_ = i
 	}
 }
+
+// The batch leaves out the SRv6 block when it is in sync (re-entering it
+// makes FRR 10.4.1 re-install every SID, non-atomically) and keeps
+// everything else; with any of its lines missing, it is applied whole.
+func TestBatch(t *testing.T) {
+	desired := renderLab(t, "gw-a1", gwA1)
+	running, err := os.ReadFile("testdata/gw-a1.running.conf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, have := Parse(desired), Parse(string(running))
+	var srv6, rest []Line
+	for _, l := range want {
+		if l.Text == srv6Block && len(l.Context) == 0 || len(l.Context) > 0 && l.Context[0] == srv6Block {
+			srv6 = append(srv6, l)
+		} else {
+			rest = append(rest, l)
+		}
+	}
+	if len(srv6) == 0 {
+		t.Fatal("no SRv6 block rendered")
+	}
+
+	// in sync (another block has drift): left out, the rest unchanged
+	batch := Batch(desired, []Line{rest[len(rest)-1]})
+	if strings.Contains(batch, "locator DCI\n    prefix") || strings.Contains(batch, "\nsegment-routing\n") {
+		t.Fatalf("SRv6 block applied although in sync:\n%s", batch)
+	}
+	if got := Parse(batch); fmt.Sprint(got) != fmt.Sprint(rest) {
+		t.Fatalf("batch lost or changed other lines:\n%s", batch)
+	}
+	if !strings.Contains(batch, " segment-routing srv6\n  locator DCI\n") {
+		t.Fatal("the BGP instance's locator line must stay")
+	}
+	if len(Missing(srv6, have)) != 0 {
+		t.Fatal("test data: the running config must have the SRv6 block")
+	}
+
+	// a line of the block missing (e.g. a new locator): applied whole
+	for _, l := range []Line{srv6[0], srv6[len(srv6)-1]} {
+		if got := Batch(desired, []Line{l}); got != desired {
+			t.Fatalf("missing %q: SRv6 block left out", l.Text)
+		}
+	}
+}

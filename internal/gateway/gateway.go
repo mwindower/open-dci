@@ -235,7 +235,10 @@ func (g *Gateway) Reconcile() (Result, error) {
 				g.Log.Info("drift", "context", strings.Join(l.Context, " > "), "line", l.Text)
 			}
 		}
-		if err := g.FRR.Apply(desired); err != nil {
+		// the state file keeps the whole desired config, the batch leaves
+		// out the SRv6 block when it is in sync (re-entering it makes FRR
+		// re-install every SID)
+		if err := g.FRR.Apply(frr.Batch(desired, res.Missing)); err != nil {
 			return res, fmt.Errorf("apply: %w", err)
 		}
 		res.Applied = true

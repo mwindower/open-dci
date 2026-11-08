@@ -657,3 +657,57 @@ func TestAPIConflictsSetAside(t *testing.T) {
 	}
 	waitFor(t, converge, func() error { return lab.Ping("m-a", mB.v4, 0) })
 }
+
+// Adding and removing a network must leave the other VRFs' SIDs alone. FRR
+// 10.4.1 re-installs every End.DT46 route (delete, then add) when the SRv6
+// locator block is entered again, even unchanged; under load the gap costs
+// the tenants' traffic in flight (it made TestLabelChanges lose a ping now
+// and then). The apply leaves the block out while it is in sync. The
+// deletion shows on every apply, also when no packet happens to be lost, so
+// the route monitor catches it reliably. Both transport modes.
+func TestApplyKeepsSIDs(t *testing.T) {
+	labReady(t)
+	raw, err := os.ReadFile("configs/api-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := strings.TrimSpace(string(raw))
+	for gw, vni := range map[string]int{"gw-a1": 3990, "gw-b1": 4020} {
+		t.Run(gw, func(t *testing.T) {
+			t.Parallel()
+			call := func(req any) {
+				if code, out := apiCall(t, gw, "SetNetworks", token, req); code != 200 {
+					t.Fatalf("set: %d %v", code, out)
+				}
+			}
+			vrf := fmt.Sprintf("vrf%d", vni)
+			defer func() {
+				call(map[string]any{"owner": "e2e-sids"})
+				waitFor(t, converge, provisioned(gw, vrf, false))
+			}()
+			events := make(chan string, 1)
+			go func() {
+				out, _ := lab.Exec(gw, "timeout", "60", "ip", "monitor", "route")
+				events <- out
+			}()
+			time.Sleep(time.Second) // the monitor is listening
+			call(map[string]any{"owner": "e2e-sids", "networks": []any{map[string]any{
+				"vrf": vrf, "vni": vni, "routeTarget": fmt.Sprintf("65535:%d", vni), "aggregates": []string{"10.99.16.0/24"}}}})
+			waitFor(t, converge, provisioned(gw, vrf, true))
+			call(map[string]any{"owner": "e2e-sids"})
+			waitFor(t, converge, provisioned(gw, vrf, false))
+			waitReconciles(t, gw, 1)
+			lab.Exec(gw, "pkill", "-f", "ip monitor route")
+			out := <-events
+			own := fmt.Sprintf("vrftable %d ", vni)
+			if !strings.Contains(out, own) {
+				t.Fatalf("the monitor saw no SID of %s:\n%s", vrf, out)
+			}
+			for _, l := range strings.Split(out, "\n") {
+				if strings.HasPrefix(l, "Deleted ") && strings.Contains(l, "End.DT46") && !strings.Contains(l, own) {
+					t.Errorf("an existing SID was re-installed: %s", l)
+				}
+			}
+		})
+	}
+}

@@ -225,6 +225,12 @@ old binary until it is redeployed (or you `docker cp` for a quick look).
   functions stay 16 bits; API networks with larger VRF IDs (metal-stack: up to 131072)
   get hashed SIDs, assigned oldest network first. A changed `sid vpn per-vrf export` only
   takes effect after `no sid ...` (removals run first, so open-dci is fine).
+- FRR 10.4.1 re-installs every VRF's End.DT46 route (delete, then add: not atomic) when
+  the `segment-routing … locator … prefix` block is entered again, even unchanged. Under
+  load (CI's 4 vCPUs) that left 10–35 ms without SIDs on every apply, and
+  `TestLabelChanges` lost a ping now and then. The apply (`frr.Batch`) leaves the block
+  out while it is in sync; `TestApplyKeepsSIDs` watches `ip monitor route` for it. Found
+  with 10 ms pings under CPU load: at 200 ms and an idle CPU it never shows.
 - A gateway withholds its locator until its EVPN sessions have sent End-of-RIB
   (`internal/gateway/ready.go`); `status` is unhealthy meanwhile. FRR resets a session
   that gets a new address family, so an apply that activates the VPN families on an

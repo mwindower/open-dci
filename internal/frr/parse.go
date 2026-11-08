@@ -255,6 +255,43 @@ func neighborOf(text string) string {
 	return ""
 }
 
+// srv6Block is the top-level block of the SRv6 locator. FRR 10.4.1 treats
+// re-entering it, even unchanged, as a locator change: zebra deletes and
+// re-adds the End.DT46 routes of every VRF's SID, not as an atomic replace.
+// Under load that leaves tens of milliseconds without them, and the tenant
+// traffic arriving meanwhile is dropped.
+const srv6Block = "segment-routing"
+
+// Batch is what an apply sends to FRR: the desired configuration, without
+// the SRv6 block when none of its lines is missing (see srv6Block). Every
+// other block is re-entered as rendered; that is harmless.
+func Batch(desired string, missing []Line) string {
+	for _, l := range missing {
+		if (len(l.Context) == 0 && l.Text == srv6Block) || (len(l.Context) > 0 && l.Context[0] == srv6Block) {
+			return desired
+		}
+	}
+	var out []string
+	in := false
+	for _, raw := range strings.SplitAfter(desired, "\n") {
+		text := strings.TrimSpace(raw)
+		if top := raw != "" && raw[0] != ' '; top {
+			switch {
+			case text == srv6Block:
+				in = true
+			case in && (text == "exit" || text == "!"):
+				continue // the block's own end (and its separator)
+			default:
+				in = false
+			}
+		}
+		if !in {
+			out = append(out, raw)
+		}
+	}
+	return strings.Join(out, "")
+}
+
 func exitFor(header string) string {
 	switch {
 	case strings.HasPrefix(header, "address-family"):

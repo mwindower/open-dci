@@ -36,9 +36,19 @@ func TestLocatorWithheldUntilReady(t *testing.T) {
 					links("up")
 				}
 			}()
+			// gone on both ends: the gateway's own status says so at once, but
+			// the exit may still hold the old path for a moment, and links
+			// coming back meanwhile would find it there
 			waitFor(t, converge, func() error {
 				if announced(t, c.gw) {
 					return fmt.Errorf("%s still announces its locator", c.gw)
+				}
+				out, err := lab.Exec(c.exit, c.exitRoute...)
+				if err != nil {
+					return err
+				}
+				if strings.Contains(out, c.viaGateway) {
+					return fmt.Errorf("%s still has a path via %s:\n%s", c.exit, c.gw, out)
 				}
 				return nil
 			})

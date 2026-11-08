@@ -57,7 +57,7 @@ lab-check:        ## all e2e tests against the running lab (~5 min)
 # anything (control and data plane, isolation, health, metrics, status, the
 # controller and the API). For every PR and local work; failover, drain,
 # withdrawal, self-healing and filter tests run in the full lab-check.
-QUICK_TESTS := TestControllerStitchesTenant2|TestAPI|TestAPIConflictsSetAside|TestControlPlane|TestDataPlane|TestMTU|TestTenantIsolation|TestNoFallThrough|TestGatewaysHealthy|TestMetrics|TestStatusRoutes|TestType5Hygiene|TestBothPathsSameSID|TestGatewaysPeerWithTheirExit|TestGatewaysAreNotTransit|TestFabricHasNoTransportRoutes|TestCoreAnnouncesPerVRF|TestExitLadder|TestAggregation
+QUICK_TESTS := TestControllerStitchesTenant2|TestAPI|TestAPIConflictsSetAside|TestApplyKeepsSIDs|TestControlPlane|TestDataPlane|TestMTU|TestTenantIsolation|TestNoFallThrough|TestGatewaysHealthy|TestMetrics|TestStatusRoutes|TestType5Hygiene|TestBothPathsSameSID|TestGatewaysPeerWithTheirExit|TestGatewaysAreNotTransit|TestFabricHasNoTransportRoutes|TestCoreAnnouncesPerVRF|TestExitLadder|TestAggregation
 
 lab-check-quick:  ## the quick, non-disruptive e2e subset (~1-2 min)
 	go test -tags e2e -count=1 -v -timeout 15m -run '^($(QUICK_TESTS))$$' ./lab/
